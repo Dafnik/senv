@@ -1,0 +1,45 @@
+services:
+  db-migrate:
+    build:
+      context: .
+      dockerfile: drizzle/Dockerfile
+    volumes:
+      - db-data:/data
+    environment:
+      DATABASE_URL: file:/data/senv.sqlite
+
+  # apps
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: api
+    restart: unless-stopped
+    ports:
+      - 3000:3000
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: file:/data/senv.sqlite
+    volumes:
+      - db-data:/data
+
+  app:
+    build:
+      context: .
+      dockerfile: apps/app/Dockerfile
+    container_name: app
+    restart: always
+    ports:
+      - 4200:4200
+    depends_on:
+      - api
+    environment:
+      # prevent SSRF for local development
+      - APP_DOMAIN=${APP_DOMAIN:-localhost}
+
+volumes:
+  db-data:

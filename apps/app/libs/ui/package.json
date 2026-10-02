@@ -1,0 +1,23 @@
+{
+  "name": "@spartan-ng/helm",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./*/src/index.ts"
+  },
+  "peerDependencies": {
+    "@angular/cdk": "22.1.5",
+    "@angular/common": "22.1.5",
+    "@angular/core": "22.1.5",
+    "@angular/forms": "22.1.5",
+    "@ng-icons/core": "36.0.0",
+    "@ng-icons/lucide": "36.0.0",
+    "@spartan-ng/brain": "1.4.1",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "tailwind-merge": "3.6.0",
+    "tslib": "2.8.1"
+  }
+}

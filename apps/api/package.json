@@ -1,0 +1,27 @@
+{
+  "name": "@senv/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#*": "./*"
+  },
+  "scripts": {
+    "dev": "cd ../.. && nitro dev apps/api",
+    "preview": "cd ../.. && node --env-file-if-exists=.env dist/apps/api/server/index.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "auth:generate": "cd ../.. && auth generate --config apps/api/server/utils/auth.ts --output drizzle/schema.ts"
+  },
+  "dependencies": {
+    "@trpc/server": "11.18.0",
+    "better-auth": "1.6.30",
+    "dotenv": "17.4.2",
+    "drizzle-orm": "0.45.3",
+    "superjson": "2.2.6",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "auth": "1.6.30",
+    "nitro": "3.0.260903-beta"
+  }
+}

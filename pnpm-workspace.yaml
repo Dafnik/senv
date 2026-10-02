@@ -1,0 +1,30 @@
+virtualStoreDir: .pnpm
+minimumReleaseAge: 1440
+packages:
+  - 'apps/*'
+  - 'apps/app/libs/*'
+
+overrides:
+  'vite@*': npm:@voidzero-dev/vite-plus-core@1.0.0
+  'vitest@*': 5.0.1
+
+allowBuilds:
+  '@parcel/watcher': false
+  '@swc/core': false
+  better-sqlite3: false
+  esbuild: false
+  less: false
+  lmdb: false
+  msgpackr-extract: false
+  nx: false
+
+# These integrations pass the repository's build and integration tests with
+# the Vite Plus toolchain and SQLite 13, beyond their published peer ranges.
+peerDependencyRules:
+  allowedVersions:
+    '@angular/build>vitest': '5.0.1'
+    'better-auth>vitest': '5.0.1'
+    'better-auth>better-sqlite3': '13.0.3'
+    'vitest>vite': '1.0.0'
+    '@vitest/mocker>vite': '1.0.0'
+    '@vitejs/plugin-basic-ssl>vite': '1.0.0'

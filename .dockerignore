@@ -1,0 +1,13 @@
+.git
+**/node_modules
+.pnpm
+.angular
+coverage
+.env
+data
+*.sqlite
+*.sqlite-*
+
+# Nitro traces the SQLite driver into its deployment output.
+!dist/apps/api/server/node_modules
+!dist/apps/api/server/node_modules/**

@@ -1,0 +1,54 @@
+{
+  "extends": "../../../../tsconfig.base.json",
+  "compilerOptions": {
+    "isolatedModules": true,
+    "target": "es2022",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "emitDecoratorMetadata": false,
+    "module": "preserve",
+    "ignoreDeprecations": "6.0",
+    "paths": {
+      "@spartan-ng/helm": ["./src/index.ts"],
+      "@spartan-ng/helm/alert-dialog": ["./alert-dialog/src/index.ts"],
+      "@spartan-ng/helm/badge": ["./badge/src/index.ts"],
+      "@spartan-ng/helm/button": ["./button/src/index.ts"],
+      "@spartan-ng/helm/card": ["./card/src/index.ts"],
+      "@spartan-ng/helm/checkbox": ["./checkbox/src/index.ts"],
+      "@spartan-ng/helm/dropdown-menu": ["./dropdown-menu/src/index.ts"],
+      "@spartan-ng/helm/empty": ["./empty/src/index.ts"],
+      "@spartan-ng/helm/field": ["./field/src/index.ts"],
+      "@spartan-ng/helm/input": ["./input/src/index.ts"],
+      "@spartan-ng/helm/input-group": ["./input-group/src/index.ts"],
+      "@spartan-ng/helm/label": ["./label/src/index.ts"],
+      "@spartan-ng/helm/select": ["./select/src/index.ts"],
+      "@spartan-ng/helm/separator": ["./separator/src/index.ts"],
+      "@spartan-ng/helm/sheet": ["./sheet/src/index.ts"],
+      "@spartan-ng/helm/sidebar": ["./sidebar/src/index.ts"],
+      "@spartan-ng/helm/skeleton": ["./skeleton/src/index.ts"],
+      "@spartan-ng/helm/sonner": ["./sonner/src/index.ts"],
+      "@spartan-ng/helm/spinner": ["./spinner/src/index.ts"],
+      "@spartan-ng/helm/table": ["./table/src/index.ts"],
+      "@spartan-ng/helm/textarea": ["./textarea/src/index.ts"],
+      "@spartan-ng/helm/tooltip": ["./tooltip/src/index.ts"],
+      "@spartan-ng/helm/utils": ["./utils/src/index.ts"]
+    }
+  },
+  "angularCompilerOptions": {
+    "enableI18nLegacyMessageIdFormat": false,
+    "strictInjectionParameters": true,
+    "strictInputAccessModifiers": true,
+    "strictTemplates": true
+  },
+  "files": [],
+  "include": [],
+  "references": [
+    {
+      "path": "./tsconfig.lib.json"
+    }
+  ]
+}

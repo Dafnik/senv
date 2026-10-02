@@ -1,0 +1,102 @@
+name: Docker Image Publish
+
+on:
+  push:
+    branches: ['main']
+    tags: ['*']
+  # build manually for pull request
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  prepare-app-builds:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: voidzero-dev/setup-vp@3754dd7dbdb32bd8f6d28b6043de13ad3a75f21f # v1.21.1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: false
+      - name: Install dependencies
+        run: vp install --frozen-lockfile --prefer-offline
+
+      - name: Build apps for docker
+        run: vp run build
+
+      - name: Upload app build artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: app-builds
+          if-no-files-found: error
+          path: |
+            dist/apps/app
+            dist/apps/api
+
+  publish-app-images:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    needs: prepare-app-builds
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - name: app
+            image-name: senv-app
+            dockerfile: apps/app/Dockerfile
+          - name: api
+            image-name: senv-api
+            dockerfile: apps/api/Dockerfile
+          - name: drizzle-migrate
+            image-name: senv-drizzle-migrate
+            dockerfile: drizzle/Dockerfile
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Download app build artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: app-builds
+          path: dist/apps
+
+      - name: Login to registry ${{ env.REGISTRY }}
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta ${{ matrix.image.name }}
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image.image-name }}
+
+      - name: Build ${{ matrix.image.name }} Docker Image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: ${{ matrix.image.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
