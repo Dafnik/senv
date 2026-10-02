@@ -33,9 +33,9 @@ export const invitationColumns = column.columns([
     header: () => TableHeadSortButton,
     meta: { label: 'Role' },
   }),
-  column.accessor('status', {
+  column.accessor('invitedByName', {
     header: () => TableHeadSortButton,
-    meta: { label: 'Status' },
+    meta: { label: 'Invited by' },
   }),
   column.accessor('createdAt', {
     header: () => TableHeadSortButton,

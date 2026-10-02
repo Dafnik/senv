@@ -10,9 +10,7 @@ import {
   form,
   FormField,
   FormRoot,
-  required,
   submit,
-  validate,
 } from '@angular/forms/signals';
 import { Router } from '@angular/router';
 import { toast } from '@spartan-ng/brain/sonner';
@@ -20,9 +18,13 @@ import { HlmButtonImports } from '@spartan-ng/helm/button';
 import { HlmFieldImports } from '@spartan-ng/helm/field';
 import { HlmInputImports } from '@spartan-ng/helm/input';
 import { HlmSpinnerImports } from '@spartan-ng/helm/spinner';
+import { SessionRecovery } from '../../../auth/session-recovery';
 import { injectAuthClient } from '../../../auth/auth-client';
 import { unwrapAuthResult } from '../../../auth/auth-result';
-import { accountSchema } from '../../../tools/form-validation';
+import {
+  accountDetailsSchema,
+  passwordConfirmationSchema,
+} from '../../../tools/form-validation';
 import { InstanceSetup } from '../../../auth/instance-setup';
 import { AuthLayout } from '../../../layouts/auth.layout';
 import { PasswordInput } from '../../../ui/password-input';
@@ -148,6 +150,7 @@ import { PasswordInput } from '../../../ui/password-input';
 export class SetupPage {
   private readonly setup = inject(InstanceSetup);
   private readonly auth = injectAuthClient();
+  private readonly recovery = inject(SessionRecovery);
   private readonly router = inject(Router);
   private readonly model = signal({
     name: '',
@@ -159,13 +162,8 @@ export class SetupPage {
   readonly created = signal(false);
   readonly errorMessage = signal('');
   readonly adminForm = form(this.model, (p) => {
-    apply(p, accountSchema);
-    required(p.confirmPassword, { message: 'Confirm your password.' });
-    validate(p.confirmPassword, ({ value, valueOf }) =>
-      value() === valueOf(p.password)
-        ? null
-        : { kind: 'passwordMismatch', message: 'Passwords do not match.' },
-    );
+    apply(p, accountDetailsSchema);
+    apply(p, passwordConfirmationSchema);
   });
 
   create(event: Event) {
@@ -185,9 +183,12 @@ export class SetupPage {
         unwrapAuthResult(
           await this.auth.signIn.email({ email: email.trim(), password }),
         );
-        await this.auth.useSession()().refetch();
+        await this.recovery.refresh(
+          (session) => session?.user.email === email.trim().toLowerCase(),
+          '/projects',
+        );
         toast.success('Your instance is ready.');
-        await this.router.navigateByUrl('/admin', { replaceUrl: true });
+        await this.router.navigateByUrl('/projects', { replaceUrl: true });
       } catch (error) {
         this.errorMessage.set(
           error instanceof HttpErrorResponse

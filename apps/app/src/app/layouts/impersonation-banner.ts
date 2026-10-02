@@ -1,4 +1,6 @@
 import { Component, inject } from '@angular/core';
+import { signal } from '@angular/core';
+import { SessionRecovery } from '../auth/session-recovery';
 import { Router } from '@angular/router';
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import { lucideUserCog } from '@ng-icons/lucide';
@@ -36,6 +38,7 @@ import {
             hlmBtn
             size="sm"
             variant="outline"
+            [disabled]="busy()"
             (click)="stopImpersonating()"
           >
             Stop impersonating
@@ -47,22 +50,34 @@ import {
 })
 export class ImpersonationBanner {
   private readonly authClient = injectAuthClient();
+  protected readonly busy = signal(false);
+  private readonly recovery = inject(SessionRecovery);
   private readonly router = inject(Router);
 
   protected readonly isImpersonating = injectIsImpersonating();
   protected readonly user = injectAuthUser();
 
   async stopImpersonating() {
+    if (this.busy()) return;
+    this.busy.set(true);
     try {
-      unwrapAuthResult(await this.authClient.admin.stopImpersonating());
-      await this.authClient.useSession()().refetch();
-      await this.router.navigateByUrl('/dashboard', { replaceUrl: true });
+      const result = unwrapAuthResult(
+        await this.authClient.admin.stopImpersonating(),
+      );
+      await this.recovery.refresh(
+        (session) =>
+          session?.user.id === result.user.id &&
+          !session.session.impersonatedBy,
+      );
+      await this.router.navigateByUrl('/projects', { replaceUrl: true });
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
           : 'Could not stop impersonating.',
       );
+    } finally {
+      this.busy.set(false);
     }
   }
 }

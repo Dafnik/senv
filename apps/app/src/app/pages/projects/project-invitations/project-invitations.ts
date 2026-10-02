@@ -1,3 +1,6 @@
+import { TitleCasePipe } from '@angular/common';
+import { NgIcon, provideIcons } from '@ng-icons/core';
+import { lucideX } from '@ng-icons/lucide';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -7,20 +10,13 @@ import {
   linkedSignal,
   signal,
 } from '@angular/core';
-import {
-  invitationStatuses,
-  isInvitationSortField,
-  type InvitationStatus,
-} from '@senv/api/shared/project-invitations';
+import { isInvitationSortField } from '@senv/api/shared/project-invitations';
 import { toast } from '@spartan-ng/brain/sonner';
-import { HlmBadgeImports } from '@spartan-ng/helm/badge';
 import { HlmButtonImports } from '@spartan-ng/helm/button';
 import { HlmEmptyImports } from '@spartan-ng/helm/empty';
-import { HlmFieldImports } from '@spartan-ng/helm/field';
-import { HlmSelectImports } from '@spartan-ng/helm/select';
 import { HlmSpinnerImports } from '@spartan-ng/helm/spinner';
 import { HlmTableImports } from '@spartan-ng/helm/table';
-import { injectQuery, QueryClient } from '@tanstack/angular-query';
+import { injectQuery } from '@tanstack/angular-query';
 import {
   FlexRender,
   injectTable,
@@ -29,12 +25,9 @@ import {
   type SortingState,
   TanStackTable,
 } from '@tanstack/angular-table';
-import {
-  injectAuthClient,
-  injectAuthSessionId,
-} from '../../../auth/auth-client';
-import { unwrapAuthResult } from '../../../auth/auth-result';
-import { injectTrpc } from '../../../trpc/trpc.service';
+import { injectAuthSessionId } from '../../../auth/auth-client';
+import { ProjectsData } from '../../../queries/projects';
+import { lastPageIndex } from '../../../tools/table/pagination';
 import { TablePaginaton } from '../../../ui/table/pagination';
 import { SearchInput } from '../../../ui/table/search-input';
 import { InviteForm } from '../invite-form/invite-form';
@@ -47,6 +40,8 @@ import {
   selector: 'app-project-invitations',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    TitleCasePipe,
+    NgIcon,
     FlexRender,
     TanStackTable,
     TablePaginaton,
@@ -54,17 +49,15 @@ import {
     InviteForm,
     HlmTableImports,
     HlmButtonImports,
-    HlmBadgeImports,
     HlmEmptyImports,
-    HlmFieldImports,
-    HlmSelectImports,
     HlmSpinnerImports,
   ],
+  providers: [provideIcons({ lucideX })],
   host: { class: 'grid gap-4' },
   template: `
     <header class="grid gap-1">
       <h2 id="invitations-heading" class="text-lg font-semibold">
-        Invitations
+        Open invitations
       </h2>
       <p class="text-muted-foreground text-sm">
         Invite teammates with a link that expires in seven days. Only admins can
@@ -78,28 +71,6 @@ import {
         (queryChange)="search.set($event)"
         (resetQuery)="search.set('')"
       />
-      <div hlmField orientation="horizontal">
-        <label hlmFieldLabel for="invitation-status">Status</label>
-        <hlm-select
-          [value]="status()"
-          [itemToString]="statusLabel"
-          (valueChange)="selectStatus($event)"
-        >
-          <hlm-select-trigger buttonId="invitation-status" class="capitalize"
-            ><hlm-select-value
-          /></hlm-select-trigger>
-          <hlm-select-content *hlmSelectPortal>
-            <hlm-select-group>
-              <hlm-select-item value="all">All statuses</hlm-select-item>
-              @for (status of statuses; track status) {
-                <hlm-select-item [value]="status" class="capitalize">{{
-                  status
-                }}</hlm-select-item>
-              }
-            </hlm-select-group>
-          </hlm-select-content>
-        </hlm-select>
-      </div>
     </div>
     <div class="overflow-hidden rounded-md border">
       <div hlmTableContainer>
@@ -112,7 +83,19 @@ import {
             @for (group of table.getHeaderGroups(); track group.id) {
               <tr hlmTr>
                 @for (header of group.headers; track header.id) {
-                  <th hlmTh [attr.colSpan]="header.colSpan">
+                  <th
+                    hlmTh
+                    [attr.colSpan]="header.colSpan"
+                    [attr.aria-sort]="
+                      header.column.getCanSort()
+                        ? header.column.getIsSorted() === 'asc'
+                          ? 'ascending'
+                          : header.column.getIsSorted() === 'desc'
+                            ? 'descending'
+                            : 'none'
+                        : null
+                    "
+                  >
                     @if (!header.isPlaceholder) {
                       <ng-container
                         *flexRender="
@@ -145,13 +128,11 @@ import {
                           "
                           (click)="cancel(row.original.id)"
                         >
-                          Cancel
+                          <ng-icon name="lucideX" />Cancel
                         </button>
                       }
-                    } @else if (cell.column.id === 'status') {
-                      <span hlmBadge variant="secondary">{{
-                        row.original.status
-                      }}</span>
+                    } @else if (cell.column.id === 'role') {
+                      {{ row.original.role | titlecase }}
                     } @else {
                       <ng-container
                         *flexRender="
@@ -178,9 +159,9 @@ import {
                       } @else if (invitations.isPending()) {
                         <hlm-spinner aria-label="Loading invitations" />
                       } @else {
-                        <div hlmEmptyTitle>No invitations found</div>
+                        <div hlmEmptyTitle>No open invitations found</div>
                         <p hlmEmptyDescription>
-                          Send an invitation or adjust your filters.
+                          Send an invitation or try a different email address.
                         </p>
                       }
                     </hlm-empty-header>
@@ -208,25 +189,24 @@ import {
 })
 export class ProjectInvitations {
   readonly projectId = input.required<string>();
-  private readonly auth = injectAuthClient();
+  private readonly projects = inject(ProjectsData);
   private readonly sessionId = injectAuthSessionId();
-  private readonly trpc = injectTrpc();
-  private readonly queryClient = inject(QueryClient);
   readonly columns = invitationColumns;
-  readonly statuses = invitationStatuses;
-  readonly statusLabel = (value: unknown) =>
-    value === 'all' ? 'All statuses' : String(value);
-  readonly search = signal('');
+  readonly search = linkedSignal(() => {
+    this.projectId();
+    return '';
+  });
   private readonly debouncedSearch = debounced(this.search, 300);
-  readonly status = signal<InvitationStatus | 'all'>('all');
-  readonly sorting = signal<SortingState>([{ id: 'createdAt', desc: true }]);
+  readonly sorting = linkedSignal<SortingState>(() => {
+    this.projectId();
+    return [{ id: 'createdAt', desc: true }];
+  });
   readonly busy = signal(false);
   readonly pagination = linkedSignal({
     source: () => [
       this.projectId(),
       this.sessionId(),
       this.debouncedSearch.value(),
-      this.status(),
       this.sorting(),
     ],
     computation: (_, previous): PaginationState => ({
@@ -237,30 +217,18 @@ export class ProjectInvitations {
   readonly invitations = injectQuery(() => {
     const { pageIndex, pageSize } = this.pagination();
     const sort = this.sorting()[0];
-    const status = this.status();
     const input = {
       projectId: this.projectId(),
       offset: pageIndex * pageSize,
       limit: pageSize,
       search: this.debouncedSearch.value() ?? '',
-      status: status === 'all' ? undefined : status,
       sortBy:
         sort && isInvitationSortField(sort.id)
           ? sort.id
           : ('createdAt' as const),
       sortDirection: sort?.desc ? ('desc' as const) : ('asc' as const),
     };
-    return {
-      queryKey: [
-        'project-invitations',
-        this.sessionId(),
-        this.projectId(),
-        input,
-      ],
-      enabled: !!this.sessionId(),
-      queryFn: ({ signal }) =>
-        this.trpc.client.projects.invitations.query(input, { signal }),
-    };
+    return this.projects.invitations(this.sessionId(), input);
   });
   readonly table = injectTable(() => ({
     key: 'project-invitations',
@@ -284,23 +252,13 @@ export class ProjectInvitations {
       this.sorting.set(isFunction(updater) ? updater(this.sorting()) : updater),
   }));
 
-  selectStatus(value: unknown) {
-    if (
-      value === 'all' ||
-      invitationStatuses.some((status) => status === value)
-    )
-      this.status.set(value as InvitationStatus | 'all');
-  }
-
-  async refresh() {
-    await this.queryClient.invalidateQueries({
-      queryKey: ['project-invitations', this.sessionId(), this.projectId()],
-    });
-    const lastPage = Math.max(
-      0,
-      Math.ceil(
-        (this.invitations.data()?.total ?? 0) / this.pagination().pageSize,
-      ) - 1,
+  async refresh(sessionId = this.sessionId(), projectId = this.projectId()) {
+    await this.projects.invalidateInvitations(sessionId, projectId);
+    if (this.sessionId() !== sessionId || this.projectId() !== projectId)
+      return;
+    const lastPage = lastPageIndex(
+      this.invitations.data()?.total ?? 0,
+      this.pagination().pageSize,
     );
     if (this.pagination().pageIndex > lastPage)
       this.pagination.update((page) => ({ ...page, pageIndex: lastPage }));
@@ -309,11 +267,11 @@ export class ProjectInvitations {
   async cancel(invitationId: string) {
     if (this.busy()) return;
     this.busy.set(true);
+    const projectId = this.projectId();
+    const sessionId = this.sessionId();
     try {
-      unwrapAuthResult(
-        await this.auth.organization.cancelInvitation({ invitationId }),
-      );
-      await this.refresh();
+      await this.projects.cancelInvitation(projectId, invitationId);
+      await this.refresh(sessionId, projectId);
       toast.success('Invitation cancelled.');
     } catch (error) {
       toast.error(

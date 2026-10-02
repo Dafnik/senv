@@ -99,6 +99,8 @@ export const member = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
     role: text('role').notNull().default('viewer'),
+    invitedById: text('invitedById').references(() => user.id, { onDelete: 'set null' }),
+    invitedByName: text('invitedByName'),
     createdAt: createdAt(),
   },
   (table) => [

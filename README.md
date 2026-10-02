@@ -26,18 +26,41 @@ Open [localhost:4200](http://localhost:4200). The API runs on [localhost:3000](h
 
 When the instance has no admin account, the app opens `/setup`. Create the first
 instance admin with a name, email, and password. Setup signs you in immediately
-without requiring email verification. The account remains unverified until its
-owner follows a verification email. Setup closes as soon as any instance admin
+and marks the first admin as email verified. Setup closes as soon as any instance admin
 exists, including a banned admin, and concurrent setup requests create only one
-admin. Existing ordinary accounts are preserved and cannot be claimed by setup.
+admin. The last instance admin cannot be deleted or demoted. Instance roles are
+singular, either `user` or `admin`; migrations normalize legacy role lists while
+preserving administrators. Existing ordinary accounts are preserved and cannot be claimed by setup.
 
 Public registration is disabled in both the UI and the API. Instance admins can
-create accounts under **Users → Add user**, then share the login details with the
-user. Project admins can invite these accounts to projects. Instance admin and
-project admin are separate roles.
+create accounts under **Users → Add user** using a name and email only. The signup
+email links to `/signup`, where the recipient chooses and confirms their own
+password. Completing signup verifies their email address and logs them in
+automatically. Signup links expire after one hour and can only be used once.
+Opening a link does not consume it. If delivery fails or a link expires, admins
+can choose **Resend signup email** from the user actions. Resending invalidates
+the previous link. Pending accounts cannot sign in until they set a password.
+Project admins can invite these accounts to projects. Instance admin and project
+admin are separate roles. Authenticated users start at `/projects`; unauthenticated
+users go to `/login`. There is no public landing page or dashboard.
+
+Signed-in users can view their name and email at `/profile`, using the Profile button beside Logout.
+They can request an email verification link to change their password there.
+Existing accounts can also request a reset email at `/forgot-password`. Instance admins
+can select **Send password reset email** in user actions. Password reset links
+expire after one hour, are single-use, and revoke the account's existing sessions
+on completion. Admins cannot choose another user's password. Pending accounts use
+their signup email instead of password recovery.
 
 Every account and sign-in requires a valid email address. Internal user IDs remain
 generated IDs; email addresses are the login identifiers.
+
+Project pages open on **Deployments**, which currently shows an empty state. The
+**Members** section at `/projects/:projectId/members` contains the searchable, sortable member table and, for project
+admins, the invite form and invitation table. **Settings** contains project
+settings at `/projects/:projectId/settings`; project admins and instance admins
+can edit them. The default URL is `/projects/:projectId/deployments`. Unsaved name
+drafts survive background refreshes, with a warning if the saved name changes.
 
 ## Workspace commands
 
@@ -121,9 +144,10 @@ the visible rows. Project IDs are immutable, 21-character Nano IDs using the alp
 
 Projects use Better Auth's organization plugin. Its organization ID and internal
 slug are the project ID. The creator is an `admin`; `developer` and `viewer` are
-separate project roles. All three can view their project and its members. Only
-project admins can rename projects, invite users, change member roles, or cancel
-invitations. Global user-admin privileges do not grant project membership.
+separate project roles. All three can view their project and its members. Project admins can rename projects, invite users, change member roles, remove members, or cancel
+invitations. Instance admins can view and manage all projects without membership.
+They can invite a new admin or change an existing member's role, including when a
+project has no members or admins. Removing a member revokes access to that project.
 Developers and viewers currently have the same read permissions; future project
 resource operations can distinguish them. Better Auth prevents the last project
 admin from leaving or demoting themselves.
@@ -132,17 +156,21 @@ Run `pnpm db:migrate` before starting an existing installation to add the projec
 membership, and invitation tables. Existing accounts and sessions are preserved.
 
 Invitation emails link to `/invitations/:invitationId`. The recipient signs in
-using the invited email address, verifies ownership of that email, then accepts
-the invitation. The invitation page can send a verification email with a link
-that expires after one hour and returns to the same invitation. Knowing an
+using the invited email address and accepts the invitation. **Use another account**
+preserves the invitation while signing out and returning to login. Users who completed
+account signup are already verified. Older unverified accounts can still request
+a verification email from the invitation page. That link expires after one hour
+and returns to the same invitation. Knowing an
 invitation ID is insufficient without a verified recipient account. Links are
 single-use and expire after seven days. Inviting the same address again replaces
 its pending invitation. Invalid replacement roles leave the existing link valid.
 Expired or cancelled invitations cannot be accepted.
 
-Project admins manage invitations in a table with email search, status filters,
-sortable columns, and server pagination. Pending links remain visible even after
-more than 100 historical invitations. Expired links have a separate status.
+Project admins manage open invitations in a table with email search, sortable
+columns, and server pagination. Accepted, canceled, rejected, and expired
+invitations are excluded. The member table records who invited each user.
+Migration `0003_member_inviter.sql` restores inviter details from accepted invitations
+where that history is available and preserves inviter names if their account is deleted.
 
 ### Email delivery
 
@@ -159,10 +187,12 @@ email. After fixing delivery, invite the address again to issue a fresh link.
 During local development (`NODE_ENV=development`), no email is sent. The temporary
 `GET /api/notifications` endpoint returns `{ notifications: [...] }`, newest first,
 with recipient, subject, rendered HTML, plain text, and timestamps, including
-verification emails. It stores the
-last 100 messages in memory and clears on API restart. This unauthenticated local
+signup, password reset, and verification emails. Each entry includes a `previewUrl` linking to
+`GET /notification/:id`, which displays the rendered email. The last 100 messages
+are saved as HTML and JSON in `email-notifications/` beside the SQLite database
+and survive API restarts. Older messages and their HTML previews are removed. This unauthenticated local
 inbox contains invitation links; do not expose the development API publicly.
-The endpoint returns 404 outside development.
+Both endpoints return 404 outside development.
 
 References: [Better Auth organizations](https://better-auth.com/docs/plugins/organization)
 and [React Email's Nodemailer integration](https://react.email/docs/integrations/nodemailer).

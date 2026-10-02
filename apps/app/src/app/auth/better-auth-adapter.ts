@@ -193,6 +193,15 @@ export function createAuthClient<Options extends AuthClientOptions>(
 
     private _processResponse(res: HttpErrorResponse | HttpResponse<any>) {
       // Reconstruct native Fetch Headers from Angular's HttpHeaders
+      if (res.status === 0) {
+        return new Response(
+          JSON.stringify({
+            message:
+              'Cannot reach the server. Check your connection and try again.',
+          }),
+          { status: 503, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
       const allHeaders = res.headers
         .keys()
         .map((key) => [key, res.headers.getAll(key)]) as unknown as HeadersInit;

@@ -1,4 +1,7 @@
 import { computed, inject, InjectionToken } from '@angular/core';
+import { QueryClient } from '@tanstack/angular-query';
+import { AuthState } from './auth-state';
+import { unwrapAuthResult } from './auth-result';
 import { Router } from '@angular/router';
 import {
   projectAccess,
@@ -32,12 +35,18 @@ export const injectAuthSession = () => {
 
 export const injectAuthSessionId = () => {
   const session = injectAuthSession();
-  return computed(() => session().data?.session.id ?? null);
+  const state = inject(AuthState);
+  return computed(() =>
+    state.blocked() ? null : (session().data?.session.id ?? null),
+  );
 };
 
 export const injectAuthUser = () => {
   const session = injectAuthSession();
-  return computed(() => session().data?.user || null);
+  const state = inject(AuthState);
+  return computed(() =>
+    state.blocked() ? null : session().data?.user || null,
+  );
 };
 
 export const injectIsAdmin = () => {
@@ -47,21 +56,37 @@ export const injectIsAdmin = () => {
 
 export const injectIsImpersonating = () => {
   const session = injectAuthSession();
-  return computed(() => !!session().data?.session.impersonatedBy);
+  const state = inject(AuthState);
+  return computed(
+    () => !state.blocked() && !!session().data?.session.impersonatedBy,
+  );
 };
 
 export const injectLogout = () => {
   const auth = injectAuthClient();
   const router = inject(Router);
-
-  return async () => {
-    await auth.signOut({
-      fetchOptions: {
-        onSuccess: async () => {
-          await auth.useSession()().refetch();
-          await router.navigateByUrl('/login', { replaceUrl: true });
-        },
-      },
-    });
+  const queries = inject(QueryClient);
+  const state = inject(AuthState);
+  return async (redirect?: string) => {
+    state.blocked.set(true);
+    queries.clear();
+    try {
+      unwrapAuthResult(await auth.signOut());
+      await auth.useSession()().refetch();
+      const session = auth.useSession()();
+      if (session.error || session.data)
+        throw new Error('Could not confirm logout. Please retry.');
+      state.blocked.set(false);
+      await router.navigate(['/login'], {
+        queryParams: redirect ? { redirect } : {},
+        replaceUrl: true,
+      });
+    } catch (error) {
+      await router.navigate(['/unavailable'], {
+        queryParams: redirect ? { redirect } : {},
+        replaceUrl: true,
+      });
+      throw error;
+    }
   };
 };

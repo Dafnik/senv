@@ -1,6 +1,8 @@
+import { TitleCasePipe } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
+  inject,
   input,
   output,
   signal,
@@ -19,89 +21,110 @@ import {
 } from '@senv/api/shared/project-permissions';
 import { toast } from '@spartan-ng/brain/sonner';
 import { HlmButtonImports } from '@spartan-ng/helm/button';
+import { HlmCardImports } from '@spartan-ng/helm/card';
 import { HlmFieldImports } from '@spartan-ng/helm/field';
 import { HlmInputImports } from '@spartan-ng/helm/input';
 import { HlmSpinnerImports } from '@spartan-ng/helm/spinner';
 import { HlmToggleGroupImports } from '@spartan-ng/helm/toggle-group';
-import { injectAuthClient } from '../../../auth/auth-client';
-import { unwrapAuthResult } from '../../../auth/auth-result';
+import { ProjectsData } from '../../../queries/projects';
 import { emailAddressSchema } from '../../../tools/form-validation';
 
 @Component({
   selector: 'app-invite-form',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    TitleCasePipe,
     FormField,
     FormRoot,
     HlmButtonImports,
+    HlmCardImports,
     HlmFieldImports,
     HlmInputImports,
     HlmSpinnerImports,
     HlmToggleGroupImports,
   ],
   template: `
-    <form
-      [formRoot]="inviteForm"
-      class="grid gap-4 md:grid-cols-[1fr_auto_auto] md:items-start"
-      (submit)="invite($event)"
-    >
-      <div hlmField>
-        <label hlmFieldLabel for="invite-email">Email address</label>
-        <input
-          hlmInput
-          id="invite-email"
-          type="email"
-          autocomplete="email"
-          placeholder="teammate@example.com"
-          [formField]="inviteForm.email"
-        />
-        @if (inviteForm.email().touched()) {
-          @for (error of inviteForm.email().errors(); track error) {
-            <hlm-field-error>{{ error.message }}</hlm-field-error>
-          }
-        }
-      </div>
-      <fieldset hlmFieldSet>
-        <legend hlmFieldLegend id="role-label">Project role</legend>
-        <hlm-toggle-group
-          type="single"
-          variant="outline"
-          [nullable]="false"
-          [value]="model().role"
-          (valueChange)="selectRole($event)"
-          aria-labelledby="role-label"
+    @if (!open()) {
+      <button hlmBtn (click)="open.set(true)">Invite user</button>
+    } @else {
+      <section hlmCard>
+        <div hlmCardHeader>
+          <h2 hlmCardTitle>Invite a project member</h2>
+          <p hlmCardDescription>
+            Choose a role and send an invitation to their email address. They
+            need an account and a verified email to accept the invitation.
+          </p>
+        </div>
+        <form
+          hlmCardContent
+          [formRoot]="inviteForm"
+          class="grid gap-4 md:grid-cols-2"
+          (submit)="invite($event)"
         >
-          @for (role of roles; track role) {
-            <button
-              hlmToggleGroupItem
-              type="button"
-              [value]="role"
-              class="capitalize"
+          <div hlmField>
+            <label hlmFieldLabel for="invite-email">Email address</label>
+            <input
+              hlmInput
+              id="invite-email"
+              type="email"
+              autocomplete="off"
+              [formField]="inviteForm.email"
+            />
+            @if (inviteForm.email().touched()) {
+              @for (error of inviteForm.email().errors(); track error) {
+                <hlm-field-error>{{ error.message }}</hlm-field-error>
+              }
+            }
+          </div>
+          <fieldset hlmFieldSet>
+            <legend hlmFieldLegend id="role-label">Project role</legend>
+            <hlm-toggle-group
+              type="single"
+              variant="outline"
+              [nullable]="false"
+              [value]="model().role"
+              (valueChange)="selectRole($event)"
+              aria-labelledby="role-label"
             >
-              {{ role }}
+              @for (role of roles; track role) {
+                <button hlmToggleGroupItem type="button" [value]="role">
+                  {{ role | titlecase }}
+                </button>
+              }
+            </hlm-toggle-group>
+          </fieldset>
+          <div class="flex gap-2 md:col-span-2">
+            <button
+              hlmBtn
+              type="submit"
+              [disabled]="busy() || inviteForm().invalid()"
+            >
+              @if (busy()) {
+                <hlm-spinner />
+              }
+              Send invitation
             </button>
-          }
-        </hlm-toggle-group>
-      </fieldset>
-      <button
-        hlmBtn
-        type="submit"
-        class="md:mt-6"
-        [disabled]="busy() || inviteForm().invalid()"
-      >
-        @if (busy()) {
-          <hlm-spinner />
-        }
-        Send invitation
-      </button>
-    </form>
+            <button
+              hlmBtn
+              type="button"
+              variant="outline"
+              [disabled]="busy()"
+              (click)="close()"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </section>
+    }
   `,
 })
 export class InviteForm {
   readonly projectId = input.required<string>();
   readonly sent = output<void>();
-  private readonly auth = injectAuthClient();
+  private readonly projects = inject(ProjectsData);
   readonly roles = projectRoleNames;
+  readonly open = signal(false);
   readonly busy = signal(false);
   protected readonly model = signal<{ email: string; role: ProjectRole }>({
     email: '',
@@ -110,6 +133,12 @@ export class InviteForm {
   readonly inviteForm = form(this.model, (p) =>
     apply(p.email, emailAddressSchema),
   );
+
+  close() {
+    this.model.set({ email: '', role: 'viewer' });
+    this.inviteForm().reset();
+    this.open.set(false);
+  }
 
   selectRole(value: unknown) {
     if (isProjectRole(value))
@@ -123,16 +152,9 @@ export class InviteForm {
       this.busy.set(true);
       try {
         const { email, role } = this.model();
-        unwrapAuthResult(
-          await this.auth.organization.inviteMember({
-            organizationId: this.projectId(),
-            email: email.trim(),
-            role,
-          }),
-        );
-        this.model.update((model) => ({ ...model, email: '' }));
-        this.inviteForm().reset();
+        await this.projects.invite(this.projectId(), email.trim(), role);
         this.sent.emit();
+        this.close();
         toast.success('Invitation sent.');
       } catch (error) {
         toast.error(

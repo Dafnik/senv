@@ -32,6 +32,7 @@ const session = signal({
 const list = vi.fn();
 const listInvitations = vi.fn();
 const update = vi.fn();
+const removeMember = vi.fn();
 const getFullOrganization = vi.fn();
 const getInvitation = vi.fn();
 const acceptInvitation = vi.fn();
@@ -60,6 +61,11 @@ beforeEach(() => {
             projects: {
               list: { query: list },
               invitations: { query: listInvitations },
+              detail: { query: getFullOrganization },
+              rename: { mutate: update },
+              changeMemberRole: { mutate: vi.fn() },
+              removeMember: { mutate: removeMember },
+              invite: { mutate: vi.fn() },
             },
           },
         },
@@ -92,11 +98,14 @@ test('returning to Projects immediately after renaming shows the new name', asyn
   });
   queryClient.setQueryData(['project', 'session-id', project.id], project);
   const renamed = { ...project, name: 'New name' };
-  update.mockResolvedValue({ data: renamed, error: null });
-  getFullOrganization.mockResolvedValue({ data: renamed, error: null });
+  update.mockResolvedValue(renamed);
+  getFullOrganization.mockResolvedValue(renamed);
   list.mockResolvedValue({ projects: [renamed], nextCursor: null });
   const detail = TestBed.createComponent(ProjectPage);
   detail.componentRef.setInput('projectId', project.id);
+  await detail.whenStable();
+  detail.nativeElement.querySelector('[hlmTabsTrigger="settings"]').click();
+  detail.componentRef.setInput('section', 'settings');
   await detail.whenStable();
   const input: HTMLInputElement =
     detail.nativeElement.querySelector('#rename-project');
@@ -106,8 +115,8 @@ test('returning to Projects immediately after renaming shows the new name', asyn
   detail.componentInstance.rename(new Event('submit'));
   await vi.waitFor(() => expect(detail.componentInstance.busy()).toBe(false));
   expect(update).toHaveBeenCalledWith({
-    organizationId: project.id,
-    data: { name: 'New name' },
+    projectId: project.id,
+    name: 'New name',
   });
   detail.destroy();
   const projects = TestBed.createComponent(ProjectsPage);
@@ -253,4 +262,186 @@ test('a failed next page keeps loaded projects and can be retried', async () => 
   );
   await projects.componentInstance.projects.fetchNextPage();
   expect(projects.componentInstance.projectItems()).toHaveLength(41);
+});
+
+test('project opens Deployments by default and loads member controls only after selecting Members', async () => {
+  queryClient.setQueryData(['project', 'session-id', project.id], project);
+  const fixture = TestBed.createComponent(ProjectPage);
+  fixture.componentRef.setInput('projectId', project.id);
+  await fixture.whenStable();
+  expect(
+    fixture.nativeElement.querySelector('[role="tab"][aria-selected="true"]')
+      .textContent,
+  ).toContain('Deployments');
+  expect(fixture.nativeElement.querySelector('app-project-members')).toBeNull();
+  expect(fixture.nativeElement.querySelector('#rename-project')).toBeNull();
+  expect(listInvitations).not.toHaveBeenCalled();
+  fixture.nativeElement.querySelector('[hlmTabsTrigger="members"]').click();
+  fixture.componentRef.setInput('section', 'members');
+  await fixture.whenStable();
+  expect(
+    fixture.nativeElement.querySelector('app-project-members table'),
+  ).not.toBeNull();
+  expect(fixture.nativeElement.querySelector('app-invite-form')).not.toBeNull();
+  expect(
+    fixture.nativeElement.querySelector('app-project-invitations'),
+  ).not.toBeNull();
+  expect(fixture.nativeElement.querySelector('#rename-project')).toBeNull();
+  fixture.nativeElement.querySelector('[hlmTabsTrigger="settings"]').click();
+  fixture.componentRef.setInput('section', 'settings');
+  await fixture.whenStable();
+  expect(fixture.nativeElement.querySelector('#rename-project')).not.toBeNull();
+  expect(
+    fixture.nativeElement.querySelector('[hlmTabsContent="members"]').hidden,
+  ).toBe(true);
+});
+
+test('viewers can see members and settings but cannot invite or change roles or settings', async () => {
+  queryClient.setQueryData(['project', 'session-id', project.id], {
+    ...project,
+    members: [{ ...project.members[0], role: 'viewer' }],
+  });
+  const fixture = TestBed.createComponent(ProjectPage);
+  fixture.componentRef.setInput('projectId', project.id);
+  await fixture.whenStable();
+  fixture.nativeElement.querySelector('[hlmTabsTrigger="members"]').click();
+  fixture.componentRef.setInput('section', 'members');
+  await fixture.whenStable();
+  expect(
+    fixture.nativeElement.querySelector('app-project-members table'),
+  ).not.toBeNull();
+  expect(
+    fixture.nativeElement.querySelector(
+      'button[aria-label="Change role for Admin"]',
+    ),
+  ).toBeNull();
+  expect(
+    fixture.nativeElement.querySelector('app-project-invitations'),
+  ).toBeNull();
+  expect(listInvitations).not.toHaveBeenCalled();
+  fixture.nativeElement.querySelector('[hlmTabsTrigger="settings"]').click();
+  fixture.componentRef.setInput('section', 'settings');
+  await fixture.whenStable();
+  expect(fixture.nativeElement.querySelector('#rename-project')).toBeNull();
+  expect(fixture.nativeElement.textContent).toContain(
+    'Only project admins can change settings.',
+  );
+});
+
+test('background membership refresh preserves a dirty name draft and remote rename warns before saving', async () => {
+  queryClient.setQueryData(['project', 'session-id', project.id], project);
+  const fixture = TestBed.createComponent(ProjectPage);
+  fixture.componentRef.setInput('projectId', project.id);
+  fixture.componentRef.setInput('section', 'settings');
+  await fixture.whenStable();
+  const name: HTMLInputElement =
+    fixture.nativeElement.querySelector('#rename-project');
+  name.value = 'My unsaved name';
+  name.dispatchEvent(new Event('input', { bubbles: true }));
+  await fixture.whenStable();
+  queryClient.setQueryData(['project', 'session-id', project.id], {
+    ...project,
+    members: [],
+  });
+  await fixture.whenStable();
+  expect(name.value).toBe('My unsaved name');
+  expect(fixture.componentInstance.remoteNameChanged()).toBe(false);
+  queryClient.setQueryData(['project', 'session-id', project.id], {
+    ...project,
+    name: 'Remote name',
+    members: [],
+  });
+  await fixture.whenStable();
+  expect(fixture.componentInstance.nameForm.name().value()).toBe(
+    'My unsaved name',
+  );
+  expect(fixture.componentInstance.remoteNameChanged()).toBe(true);
+  expect(update).not.toHaveBeenCalled();
+  fixture.componentInstance.loadCurrentName();
+  await fixture.whenStable();
+  expect(fixture.componentInstance.nameForm.name().value()).toBe('Remote name');
+  expect(fixture.componentInstance.remoteNameChanged()).toBe(false);
+});
+
+test('an instance admin without membership sees recovery and project management controls', async () => {
+  session.update((current) => ({
+    ...current,
+    data: { ...current.data, user: { ...current.data.user, role: 'admin' } },
+  }));
+  queryClient.setQueryData(['project', 'session-id', project.id], {
+    ...project,
+    members: [],
+  });
+  const fixture = TestBed.createComponent(ProjectPage);
+  fixture.componentRef.setInput('projectId', project.id);
+  fixture.componentRef.setInput('section', 'members');
+  await fixture.whenStable();
+  expect(fixture.nativeElement.querySelector('header [hlmBadge]')).toBeNull();
+  expect(
+    fixture.nativeElement.querySelector('#project-admin-email'),
+  ).toBeNull();
+  expect(
+    fixture.nativeElement.querySelector('app-project-invitations'),
+  ).not.toBeNull();
+  expect(fixture.componentInstance.isAdmin()).toBe(true);
+});
+
+test('a late rename response updates its own cache without replacing a different project draft', async () => {
+  queryClient.setQueryData(['project', 'session-id', project.id], project);
+  const second = { ...project, id: 'second-project', name: 'Second project' };
+  queryClient.setQueryData(['project', 'session-id', second.id], second);
+  let resolve!: (value: unknown) => void;
+  update.mockReturnValueOnce(
+    new Promise((done) => {
+      resolve = done;
+    }),
+  );
+  const fixture = TestBed.createComponent(ProjectPage);
+  fixture.componentRef.setInput('projectId', project.id);
+  fixture.componentRef.setInput('section', 'settings');
+  await fixture.whenStable();
+  const name: HTMLInputElement =
+    fixture.nativeElement.querySelector('#rename-project');
+  name.value = 'Saved first name';
+  name.dispatchEvent(new Event('input', { bubbles: true }));
+  await fixture.whenStable();
+  fixture.componentInstance.rename(new Event('submit'));
+  await vi.waitFor(() => expect(update).toHaveBeenCalled());
+  fixture.componentRef.setInput('projectId', second.id);
+  await fixture.whenStable();
+  resolve({ ...project, name: 'Saved first name' });
+  await vi.waitFor(() => expect(fixture.componentInstance.busy()).toBe(false));
+  expect(fixture.componentInstance.nameForm.name().value()).toBe(
+    'Second project',
+  );
+  expect(
+    queryClient.getQueryState(['project', 'session-id', project.id])
+      ?.isInvalidated,
+  ).toBe(true);
+  expect(
+    queryClient.getQueryState(['project', 'session-id', second.id])
+      ?.isInvalidated,
+  ).toBe(false);
+});
+
+test('removing yourself updates project caches and returns to the projects list', async () => {
+  queryClient.setQueryData(['project', 'session-id', project.id], project);
+  queryClient.setQueryData(['projects', 'session-id'], {
+    pages: [{ projects: [project], nextCursor: null }],
+    pageParams: [undefined],
+  });
+  removeMember.mockResolvedValue({ success: true });
+  getFullOrganization.mockRejectedValue(new Error('Forbidden'));
+  const fixture = TestBed.createComponent(ProjectPage);
+  fixture.componentRef.setInput('projectId', project.id);
+  await fixture.whenStable();
+  await fixture.componentInstance.removeMember('member-id');
+  expect(removeMember).toHaveBeenCalledWith({
+    projectId: project.id,
+    memberId: 'member-id',
+  });
+  expect(TestBed.inject(Router).navigate).toHaveBeenCalledWith(['/projects']);
+  expect(
+    queryClient.getQueryState(['projects', 'session-id'])?.isInvalidated,
+  ).toBe(true);
 });

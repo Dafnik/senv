@@ -1,3 +1,4 @@
+import { TitleCasePipe } from '@angular/common';
 import { Component, input } from '@angular/core';
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import { lucideShieldCheck, lucideUserRound } from '@ng-icons/lucide';
@@ -8,16 +9,16 @@ import type { UserTableFeatures } from './user-table-features';
 
 @Component({
   selector: 'app-user-role-badge',
-  imports: [HlmBadgeImports, NgIcon],
+  imports: [TitleCasePipe, HlmBadgeImports, NgIcon],
   providers: [provideIcons({ lucideUserRound, lucideShieldCheck })],
   template: `
-    <span hlmBadge variant="secondary" class="capitalize">
+    <span hlmBadge variant="secondary">
       @if (role() === 'admin') {
         <ng-icon name="lucideShieldCheck" />
       } @else {
         <ng-icon name="lucideUserRound" />
       }
-      {{ role() ?? 'user' }}
+      {{ role() ?? 'user' | titlecase }}
     </span>
   `,
 })

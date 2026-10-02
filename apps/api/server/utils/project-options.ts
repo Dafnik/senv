@@ -1,5 +1,8 @@
 import { APIError } from 'better-auth/api';
 import { organization } from 'better-auth/plugins';
+import { eq } from 'drizzle-orm';
+import { member as projectMember, user } from '../../../../drizzle/schema';
+import { db } from './db';
 import { customAlphabet } from 'nanoid';
 import { isProjectRole, projectAccess, projectRoles } from '../../shared/project-permissions';
 import { projectNameMaxLength } from '../../shared/validation';
@@ -50,6 +53,13 @@ export const projects = organization({
     },
     beforeAddMember: async ({ member }) => validateProjectRole(member.role),
     beforeUpdateMemberRole: async ({ newRole }) => validateProjectRole(newRole),
+    afterAcceptInvitation: async ({ invitation, member }) => {
+      const inviter = db.select().from(user).where(eq(user.id, invitation.inviterId)).get();
+      db.update(projectMember)
+        .set({ invitedById: inviter?.id ?? null, invitedByName: inviter?.name ?? null })
+        .where(eq(projectMember.id, member.id))
+        .run();
+    },
     beforeCreateInvitation: async ({ invitation }) => validateProjectRole(invitation.role),
   },
   sendInvitationEmail: async ({ id, email, role, organization, inviter, invitation }) => {

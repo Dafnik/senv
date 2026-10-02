@@ -1,3 +1,4 @@
+import { TitleCasePipe } from '@angular/common';
 import { DatePipe } from '@angular/common';
 import {
   ChangeDetectionStrategy,
@@ -11,19 +12,22 @@ import { toast } from '@spartan-ng/brain/sonner';
 import { HlmButtonImports } from '@spartan-ng/helm/button';
 import { HlmCardImports } from '@spartan-ng/helm/card';
 import { HlmSpinnerImports } from '@spartan-ng/helm/spinner';
-import { injectQuery, QueryClient } from '@tanstack/angular-query';
+import { injectQuery } from '@tanstack/angular-query';
 import { environment } from '../../../../environments/environment';
 import {
   injectAuthClient,
   injectAuthSessionId,
   injectAuthUser,
+  injectLogout,
 } from '../../../auth/auth-client';
+import { ProjectsData } from '../../../queries/projects';
 import { unwrapAuthResult } from '../../../auth/auth-result';
 
 @Component({
   selector: 'app-invitation-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    TitleCasePipe,
     DatePipe,
     RouterLink,
     HlmButtonImports,
@@ -38,6 +42,14 @@ import { unwrapAuthResult } from '../../../auth/auth-result';
           <p hlmCardDescription>Signed in as {{ user()?.email }}</p>
         </div>
         <div hlmCardContent class="grid gap-4">
+          <button
+            hlmBtn
+            variant="outline"
+            [disabled]="busy()"
+            (click)="useAnotherAccount()"
+          >
+            Use another account
+          </button>
           @if (user() && !user()?.emailVerified) {
             <p>
               Verify {{ user()?.email }} before accepting project invitations.
@@ -78,7 +90,7 @@ import { unwrapAuthResult } from '../../../auth/auth-result';
             <p class="text-xl font-semibold">
               Join {{ invite.organizationName }}
             </p>
-            <p>You've been invited as a {{ invite.role }}.</p>
+            <p>Your project role will be {{ invite.role | titlecase }}.</p>
             <p class="text-muted-foreground text-sm">
               Expires {{ invite.expiresAt | date: 'medium' }}
             </p>
@@ -98,9 +110,10 @@ import { unwrapAuthResult } from '../../../auth/auth-result';
 export class InvitationPage {
   readonly invitationId = input.required<string>();
   private readonly auth = injectAuthClient();
+  private readonly logout = injectLogout();
   private readonly sessionId = injectAuthSessionId();
   private readonly router = inject(Router);
-  private readonly queryClient = inject(QueryClient);
+  private readonly projects = inject(ProjectsData);
   readonly user = injectAuthUser();
   readonly busy = signal(false);
   readonly verificationSent = signal(false);
@@ -115,6 +128,22 @@ export class InvitationPage {
         }),
       ),
   }));
+
+  async useAnotherAccount() {
+    if (this.busy()) return;
+    this.busy.set(true);
+    try {
+      await this.logout(
+        `/invitations/${encodeURIComponent(this.invitationId())}`,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Could not switch accounts.',
+      );
+    } finally {
+      this.busy.set(false);
+    }
+  }
 
   async sendVerification() {
     const email = this.user()?.email;
@@ -146,15 +175,14 @@ export class InvitationPage {
   async accept() {
     if (this.busy()) return;
     this.busy.set(true);
+    const sessionId = this.sessionId();
     try {
       const result = unwrapAuthResult(
         await this.auth.organization.acceptInvitation({
           invitationId: this.invitationId(),
         }),
       );
-      await this.queryClient.invalidateQueries({
-        queryKey: ['projects', this.sessionId()],
-      });
+      await this.projects.invalidate(sessionId, result.member.organizationId);
       toast.success('You joined the project.');
       await this.router.navigate(['/projects', result.member.organizationId]);
     } catch (error) {

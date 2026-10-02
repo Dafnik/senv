@@ -16,6 +16,8 @@ const pending = {
   id: 'latest-invite',
   email: 'recipient@example.com',
   role: 'viewer',
+  invitedById: 'inviter-id',
+  invitedByName: 'Inviting Admin',
   status: 'pending',
   createdAt: new Date(),
   expiresAt: new Date(Date.now() + 86400000),
@@ -23,6 +25,14 @@ const pending = {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -39,13 +49,21 @@ beforeEach(() => {
       {
         provide: TrpcService,
         useValue: {
-          client: { projects: { invitations: { query: listInvitations } } },
+          client: {
+            projects: {
+              invitations: { query: listInvitations },
+              cancelInvitation: { mutate: cancelInvitation },
+            },
+          },
         },
       },
     ],
   });
 });
-afterEach(() => queryClient.clear());
+afterEach(() => {
+  queryClient.clear();
+  vi.unstubAllGlobals();
+});
 
 function createTable() {
   const fixture = TestBed.createComponent(ProjectInvitations);
@@ -53,7 +71,7 @@ function createTable() {
   return fixture;
 }
 
-test('invitation table loads server pages beyond 100 historical records and sends sort changes to the API', async () => {
+test('invitation table loads server pages beyond 100 open records and sends sort changes to the API', async () => {
   listInvitations.mockResolvedValue({ invitations: [pending], total: 121 });
   const fixture = createTable();
   await vi.waitFor(() =>
@@ -78,7 +96,7 @@ test('invitation table loads server pages beyond 100 historical records and send
   expect(fixture.componentInstance.table.getPageCount()).toBe(3);
 });
 
-test('email and status filters reset pagination and pending invitations can be cancelled', async () => {
+test('email filters reset pagination and pending invitations can be cancelled', async () => {
   listInvitations.mockResolvedValue({ invitations: [pending], total: 121 });
   cancelInvitation.mockResolvedValue({ data: pending, error: null });
   const fixture = createTable();
@@ -89,16 +107,17 @@ test('email and status filters reset pagination and pending invitations can be c
   await vi.waitFor(() =>
     expect(listInvitations.mock.lastCall?.[0].offset).toBe(100),
   );
-  fixture.componentInstance.selectStatus('pending');
   fixture.componentInstance.search.set('recipient');
   await vi.waitFor(() =>
     expect(listInvitations.mock.lastCall?.[0]).toMatchObject({
       offset: 0,
       search: 'recipient',
-      status: 'pending',
     }),
   );
   await fixture.whenStable();
+  expect(fixture.nativeElement.textContent).toContain('Invited by');
+  expect(fixture.nativeElement.textContent).toContain('Inviting Admin');
+  expect(fixture.nativeElement.textContent).toContain('Viewer');
   expect(
     fixture.nativeElement.querySelector(
       'button[aria-label="Cancel invitation for recipient@example.com"]',
@@ -106,7 +125,10 @@ test('email and status filters reset pagination and pending invitations can be c
   ).not.toBeNull();
   listInvitations.mockResolvedValue({ invitations: [], total: 0 });
   await fixture.componentInstance.cancel(pending.id);
-  expect(cancelInvitation).toHaveBeenCalledWith({ invitationId: pending.id });
+  expect(cancelInvitation).toHaveBeenCalledWith({
+    projectId: 'project-id',
+    invitationId: pending.id,
+  });
   await vi.waitFor(() =>
     expect(fixture.componentInstance.table.getRowModel().rows).toHaveLength(0),
   );
@@ -116,7 +138,6 @@ test('cancelling the last pending invitation on a filtered page returns to a val
   listInvitations.mockResolvedValue({ invitations: [pending], total: 21 });
   cancelInvitation.mockResolvedValue({ data: pending, error: null });
   const fixture = createTable();
-  fixture.componentInstance.selectStatus('pending');
   await vi.waitFor(() =>
     expect(fixture.componentInstance.invitations.data()?.total).toBe(21),
   );

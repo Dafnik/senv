@@ -1,4 +1,4 @@
-import { Component, resource } from '@angular/core';
+import { Component } from '@angular/core';
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import {
   lucideTrendingDown,
@@ -8,8 +8,8 @@ import {
 } from '@ng-icons/lucide';
 import { HlmBadgeImports } from '@spartan-ng/helm/badge';
 import { HlmCardImports } from '@spartan-ng/helm/card';
-import { injectAuthSessionId } from '../../auth/auth-client';
-import { injectTrpc } from '../../trpc/trpc.service';
+import { HlmButtonImports } from '@spartan-ng/helm/button';
+import { injectUserStats } from '../../queries/users';
 
 export interface AdminStatsData {
   totalUsers: number;
@@ -19,7 +19,7 @@ export interface AdminStatsData {
 
 @Component({
   selector: 'app-admin-stats',
-  imports: [HlmCardImports, HlmBadgeImports, NgIcon],
+  imports: [HlmButtonImports, HlmCardImports, HlmBadgeImports, NgIcon],
   providers: [
     provideIcons({
       lucideUsers,
@@ -29,7 +29,14 @@ export interface AdminStatsData {
     }),
   ],
   template: `
-    @if (stats.value(); as s) {
+    @if (stats.isError()) {
+      <div role="alert" class="grid gap-2">
+        <p>Could not load user statistics.</p>
+        <button hlmBtn variant="outline" (click)="stats.refetch()">
+          Try again
+        </button>
+      </div>
+    } @else if (stats.data(); as s) {
       <div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
         <hlm-card>
           <hlm-card-header>
@@ -77,11 +84,5 @@ export interface AdminStatsData {
   `,
 })
 export class AdminStats {
-  private readonly trpc = injectTrpc();
-  private readonly sessionId = injectAuthSessionId();
-  readonly stats = resource({
-    params: () => this.sessionId() ?? undefined,
-    loader: ({ abortSignal }) =>
-      this.trpc.client.admin.stats.query(undefined, { signal: abortSignal }),
-  });
+  readonly stats = injectUserStats();
 }

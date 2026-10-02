@@ -21,6 +21,8 @@ import {
 } from '@angular/forms/signals';
 import { Router, RouterLink } from '@angular/router';
 import { toast } from '@spartan-ng/brain/sonner';
+import { HlmAvatarImports } from '@spartan-ng/helm/avatar';
+import { InitialsPipe } from '../../../ui/initials-pipe';
 import { HlmButtonImports } from '@spartan-ng/helm/button';
 import { HlmCardImports } from '@spartan-ng/helm/card';
 import { HlmEmptyImports } from '@spartan-ng/helm/empty';
@@ -28,18 +30,14 @@ import { HlmFieldImports } from '@spartan-ng/helm/field';
 import { HlmInputImports } from '@spartan-ng/helm/input';
 import { HlmSpinnerImports } from '@spartan-ng/helm/spinner';
 import { injectInfiniteQuery } from '@tanstack/angular-query';
-import {
-  injectAuthClient,
-  injectAuthSessionId,
-} from '../../../auth/auth-client';
-import { unwrapAuthResult } from '../../../auth/auth-result';
+import { injectAuthSessionId } from '../../../auth/auth-client';
+import { ProjectsData } from '../../../queries/projects';
 import { projectNameSchema } from '../../../tools/form-validation';
-import { injectTrpc, type TrpcService } from '../../../trpc/trpc.service';
+import { type TrpcService } from '../../../trpc/trpc.service';
 
 type ProjectListPage = Awaited<
   ReturnType<TrpcService['client']['projects']['list']['query']>
 >;
-type ProjectCursor = NonNullable<ProjectListPage['nextCursor']>;
 
 @Component({
   selector: 'app-projects-page',
@@ -50,6 +48,8 @@ type ProjectCursor = NonNullable<ProjectListPage['nextCursor']>;
     FormRoot,
     ScrollingModule,
     HlmButtonImports,
+    HlmAvatarImports,
+    InitialsPipe,
     HlmCardImports,
     HlmEmptyImports,
     HlmFieldImports,
@@ -94,16 +94,21 @@ type ProjectCursor = NonNullable<ProjectListPage['nextCursor']>;
               >
                 <a
                   [routerLink]="['/projects', project.id]"
-                  class="hover:bg-muted focus-visible:ring-ring flex h-full flex-col justify-center gap-2 rounded-lg border px-5 transition-colors focus-visible:ring-2"
+                  class="hover:bg-muted focus-visible:ring-ring flex h-full items-center gap-4 rounded-lg border px-5 transition-colors focus-visible:ring-2"
                 >
-                  <span
-                    class="truncate text-lg font-medium"
-                    [title]="project.name"
-                    >{{ project.name }}</span
-                  >
-                  <span class="text-muted-foreground font-mono text-xs">{{
-                    project.id
-                  }}</span>
+                  <hlm-avatar size="lg" aria-hidden="true">
+                    <span hlmAvatarFallback>{{ project.name | initials }}</span>
+                  </hlm-avatar>
+                  <div class="grid min-w-0 gap-2">
+                    <span
+                      class="truncate text-lg font-medium"
+                      [title]="project.name"
+                      >{{ project.name }}</span
+                    >
+                    <span class="text-muted-foreground font-mono text-xs">{{
+                      project.id
+                    }}</span>
+                  </div>
                 </a>
               </div>
             </cdk-virtual-scroll-viewport>
@@ -183,27 +188,18 @@ type ProjectCursor = NonNullable<ProjectListPage['nextCursor']>;
   `,
 })
 export class ProjectsPage {
-  private readonly auth = injectAuthClient();
+  private readonly projectData = inject(ProjectsData);
   private readonly sessionId = injectAuthSessionId();
   private readonly router = inject(Router);
   private readonly model = signal({ name: '' });
   readonly busy = signal(false);
-  private readonly trpc = injectTrpc();
   private readonly viewport = viewChild(CdkVirtualScrollViewport);
   readonly projectForm = form(this.model, (p) =>
     apply(p.name, projectNameSchema),
   );
-  readonly projects = injectInfiniteQuery(() => ({
-    queryKey: ['projects', this.sessionId()],
-    enabled: !!this.sessionId(),
-    initialPageParam: undefined as ProjectCursor | undefined,
-    queryFn: ({ pageParam, signal }) =>
-      this.trpc.client.projects.list.query(
-        { cursor: pageParam, limit: 40 },
-        { signal },
-      ),
-    getNextPageParam: (page) => page.nextCursor ?? undefined,
-  }));
+  readonly projects = injectInfiniteQuery(() =>
+    this.projectData.list(this.sessionId()),
+  );
   readonly projectItems = computed(
     () => this.projects.data()?.pages.flatMap((page) => page.projects) ?? [],
   );
@@ -244,13 +240,7 @@ export class ProjectsPage {
     void submit(this.projectForm, async () => {
       this.busy.set(true);
       try {
-        const project = unwrapAuthResult(
-          await this.auth.organization.create({
-            name: this.model().name.trim(),
-            // Better Auth requires a slug; the API replaces it with the generated project ID.
-            slug: crypto.randomUUID(),
-          }),
-        );
+        const project = await this.projectData.create(this.model().name.trim());
         await this.projects.refetch();
         await this.router.navigate(['/projects', project.id]);
       } catch (error) {

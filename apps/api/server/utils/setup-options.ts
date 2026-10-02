@@ -67,7 +67,7 @@ export const instanceSetup = {
                 name: ctx.body.name,
                 email: ctx.body.email,
                 role: 'admin',
-                emailVerified: false,
+                emailVerified: true,
               })
               .run();
             tx.insert(account)

@@ -26,7 +26,7 @@ import { HlmButtonImports } from '@spartan-ng/helm/button';
       <div class="bg-muted relative hidden lg:block">
         <img
           src="/login-image.webp"
-          alt="Image"
+          alt=""
           class="absolute inset-0 h-full w-full object-cover brightness-60 grayscale dark:brightness-[0.2] dark:grayscale"
         />
       </div>

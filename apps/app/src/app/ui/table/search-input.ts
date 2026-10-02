@@ -11,6 +11,7 @@ import { HlmInputGroupImports } from '@spartan-ng/helm/input-group';
     <hlm-input-group class="w-full md:w-80">
       <input
         hlmInputGroupInput
+        aria-label="Search by email"
         placeholder="Search by email..."
         [value]="query()"
         (input)="searchInput($event)"

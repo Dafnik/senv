@@ -19,10 +19,9 @@ export const emailAddressSchema = schema<string>((p) => {
   email(p, { message: 'Enter a valid email address.' });
 });
 
-export const accountSchema = schema<{
+export const accountDetailsSchema = schema<{
   name: string;
   email: string;
-  password: string;
 }>((p) => {
   required(p.name, { message: 'Enter a name.' });
   maxLength(p.name, accountNameMaxLength, {
@@ -34,11 +33,14 @@ export const accountSchema = schema<{
       : { kind: 'required', message: 'Enter a name.' },
   );
   apply(p.email, emailAddressSchema);
-  required(p.password, { message: 'Enter a password.' });
-  minLength(p.password, passwordMinLength, {
+});
+
+export const passwordSchema = schema<string>((p) => {
+  required(p, { message: 'Enter a password.' });
+  minLength(p, passwordMinLength, {
     message: `Use at least ${passwordMinLength} characters.`,
   });
-  maxLength(p.password, passwordMaxLength, {
+  maxLength(p, passwordMaxLength, {
     message: `Use ${passwordMaxLength} characters or fewer.`,
   });
 });
@@ -52,5 +54,18 @@ export const projectNameSchema = schema<string>((p) => {
     !value() || value().trim()
       ? null
       : { kind: 'required', message: 'Enter a project name.' },
+  );
+});
+
+export const passwordConfirmationSchema = schema<{
+  password: string;
+  confirmPassword: string;
+}>((p) => {
+  apply(p.password, passwordSchema);
+  required(p.confirmPassword, { message: 'Confirm your password.' });
+  validate(p.confirmPassword, ({ value, valueOf }) =>
+    value() === valueOf(p.password)
+      ? null
+      : { kind: 'passwordMismatch', message: 'Passwords must match.' },
   );
 });

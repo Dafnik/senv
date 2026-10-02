@@ -57,3 +57,23 @@ test.each([true, false])(
     ).toBe(needsSetup ? true : '/login');
   },
 );
+
+test.each([instanceReadyGuard, setupAvailableGuard])(
+  'initial setup-status failures lead to a retry route',
+  async (guard) => {
+    const result = TestBed.runInInjectionContext(() =>
+      guard({} as never, { url: '/projects/example/members' } as never),
+    );
+    http
+      .expectOne((r) => r.url.endsWith('/api/auth/instance/setup-status'))
+      .flush(
+        { message: 'Unavailable' },
+        { status: 503, statusText: 'Unavailable' },
+      );
+    const resolved = await result;
+    expect(resolved).toBeInstanceOf(UrlTree);
+    expect(TestBed.inject(Router).serializeUrl(resolved as UrlTree)).toBe(
+      '/unavailable?redirect=%2Fprojects%2Fexample%2Fmembers',
+    );
+  },
+);

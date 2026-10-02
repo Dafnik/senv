@@ -15,7 +15,6 @@ export function parseSort(value: string | undefined): SortingState {
 }
 
 export function serializeSort(sorting: SortingState): string | undefined {
-  console.log('serializeSort', sorting);
   if (sorting.length === 0) {
     return undefined;
   }

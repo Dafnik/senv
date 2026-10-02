@@ -23,8 +23,11 @@ import { injectAuthUser } from '../auth/auth-client';
 
       <div class="ml-auto flex gap-2">
         @if (user()) {
-          <a hlmBtn variant="outline" size="sm" routerLink="/dashboard">
-            Dashboard
+          <a hlmBtn variant="outline" size="sm" routerLink="/profile"
+            >Profile</a
+          >
+          <a hlmBtn variant="outline" size="sm" routerLink="/projects">
+            Projects
           </a>
         } @else {
           <a hlmBtn variant="outline" size="sm" routerLink="/login">Login</a>

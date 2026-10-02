@@ -59,7 +59,7 @@ export class Seo {
    * It supposes the header link is already present in the index.html
    */
   setCanonical(url: string): void {
-    const pathWithoutFragment = url.split('#')[0];
+    const pathWithoutFragment = url.split(/[?#]/)[0];
     const fullPath = this.resolveUrl(pathWithoutFragment);
     this.document
       .querySelector('link[rel=canonical]')

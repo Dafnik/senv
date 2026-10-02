@@ -1,27 +1,14 @@
-import { randomUUID } from 'node:crypto';
 import { createElement } from 'react';
 import { render, toPlainText } from 'react-email';
 import nodemailer from 'nodemailer';
 import { ProjectInvitation } from '../emails/project-invitation';
 import { EmailVerification } from '../emails/email-verification';
+import { PasswordReset } from '../emails/password-reset';
+import { AccountSignup } from '../emails/account-signup';
 import env from './env';
+import { saveEmailNotification } from './email-notifications';
 
-interface EmailNotification {
-  id: string;
-  createdAt: string;
-  from: string;
-  to: string;
-  subject: string;
-  html: string;
-  text: string;
-}
-
-// Temporary, bounded, in-memory inbox. Restarting the API clears it.
-const notifications: EmailNotification[] = [];
-export const getEmailNotifications = () => [...notifications];
-export const clearEmailNotifications = () => {
-  notifications.length = 0;
-};
+export { clearEmailNotifications, getEmailNotifications } from './email-notifications';
 
 export async function sendProjectInvitation(input: {
   invitationId: string;
@@ -45,6 +32,16 @@ export async function sendEmailVerification(input: { to: string; name: string; u
   await deliverEmail({ to: input.to, subject: 'Verify your email address', html });
 }
 
+export async function sendAccountSignup(input: { to: string; name: string; url: string }) {
+  const html = await render(createElement(AccountSignup, input));
+  await deliverEmail({ to: input.to, subject: 'Finish setting up your senv account', html });
+}
+
+export async function sendPasswordReset(input: { to: string; name: string; url: string }) {
+  const html = await render(createElement(PasswordReset, input));
+  await deliverEmail({ to: input.to, subject: 'Reset your senv password', html });
+}
+
 async function deliverEmail(input: { to: string; subject: string; html: string }) {
   const message = {
     from: env.EMAIL_FROM ?? 'senv <noreply@localhost>',
@@ -53,8 +50,7 @@ async function deliverEmail(input: { to: string; subject: string; html: string }
   };
 
   if (process.env['NODE_ENV'] === 'development') {
-    notifications.unshift({ ...message, id: randomUUID(), createdAt: new Date().toISOString() });
-    notifications.splice(100);
+    saveEmailNotification(message);
     return;
   }
 

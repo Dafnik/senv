@@ -9,8 +9,8 @@ import { UserTable } from './user-table/user-table';
   imports: [AdminStats, CreateUser, UserTable],
   template: `
     <div class="flex flex-col gap-4 px-4 pt-4">
-      <app-admin-stats #stats />
-      <app-create-user (created)="stats.stats.reload()" />
+      <app-admin-stats />
+      <app-create-user />
       <app-user-table
         [q]="q()"
         [sort]="sort()"

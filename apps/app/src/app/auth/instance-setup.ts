@@ -22,14 +22,26 @@ export class InstanceSetup {
   }
 }
 
-export const instanceReadyGuard: CanActivateFn = async () => {
+export const instanceReadyGuard: CanActivateFn = async (_, state) => {
   const setup = inject(InstanceSetup);
   const router = inject(Router);
-  return (await setup.status()).needsSetup ? router.parseUrl('/setup') : true;
+  try {
+    return (await setup.status()).needsSetup ? router.parseUrl('/setup') : true;
+  } catch {
+    return router.createUrlTree(['/unavailable'], {
+      queryParams: { redirect: state.url || '/projects' },
+    });
+  }
 };
 
-export const setupAvailableGuard: CanActivateFn = async () => {
+export const setupAvailableGuard: CanActivateFn = async (_, state) => {
   const setup = inject(InstanceSetup);
   const router = inject(Router);
-  return (await setup.status()).needsSetup ? true : router.parseUrl('/login');
+  try {
+    return (await setup.status()).needsSetup ? true : router.parseUrl('/login');
+  } catch {
+    return router.createUrlTree(['/unavailable'], {
+      queryParams: { redirect: state.url || '/setup' },
+    });
+  }
 };

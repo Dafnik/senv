@@ -7,7 +7,7 @@
     "#*": "./*"
   },
   "scripts": {
-    "dev": "cd ../.. && nitro dev apps/api",
+    "dev": "cd ../.. && NODE_ENV=development nitro dev apps/api",
     "preview": "cd ../.. && node --env-file-if-exists=.env dist/apps/api/server/index.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "auth:generate": "cd ../.. && auth generate --config apps/api/server/utils/auth.ts --output drizzle/schema.ts"

@@ -1,12 +1,44 @@
+import { isProjectSection } from './pages/projects/project-sections';
 import { Route } from '@angular/router';
 import { authGuard, redirectLoggedInGuard } from './auth/auth-guard';
 import { instanceReadyGuard, setupAvailableGuard } from './auth/instance-setup';
 
 export const appRoutes: Route[] = [
   {
-    path: '',
-    loadComponent: () => import('./pages/home.page').then((m) => m.HomePage),
+    path: 'unavailable',
+    loadComponent: () =>
+      import('./pages/unavailable.page').then((m) => m.UnavailablePage),
+    title: 'senv unavailable',
+  },
+  {
+    path: 'forgot-password',
+    loadComponent: () =>
+      import('./pages/auth/forgot-password.page').then(
+        (m) => m.ForgotPasswordPage,
+      ),
+    title: 'Forgot password',
     canActivate: [instanceReadyGuard],
+  },
+  {
+    path: 'reset-password',
+    loadComponent: () =>
+      import('./pages/auth/reset-password.page').then(
+        (m) => m.ResetPasswordPage,
+      ),
+    title: 'Reset password',
+    canActivate: [instanceReadyGuard],
+  },
+  {
+    path: 'signup',
+    loadComponent: () =>
+      import('./pages/auth/signup/signup.page').then((m) => m.SignupPage),
+    title: 'Set up your account',
+    canActivate: [instanceReadyGuard],
+  },
+  {
+    path: '',
+    pathMatch: 'full',
+    redirectTo: 'projects',
   },
   {
     path: 'login',
@@ -29,6 +61,14 @@ export const appRoutes: Route[] = [
     canActivate: [instanceReadyGuard, authGuard()],
     children: [
       {
+        path: 'profile',
+        loadComponent: () =>
+          import('./pages/profile/profile-page/profile-page.page').then(
+            (m) => m.ProfilePage,
+          ),
+        title: 'Profile',
+      },
+      {
         path: 'projects',
         loadComponent: () =>
           import('./pages/projects/projects-page/projects-page.page').then(
@@ -38,11 +78,18 @@ export const appRoutes: Route[] = [
       },
       {
         path: 'projects/:projectId',
-        loadComponent: () =>
-          import('./pages/projects/project-page/project-page.page').then(
-            (m) => m.ProjectPage,
-          ),
-        title: 'Project',
+        children: [
+          { path: '', pathMatch: 'full', redirectTo: 'deployments' },
+          {
+            path: ':section',
+            canMatch: [(_, segments) => isProjectSection(segments[0]?.path)],
+            loadComponent: () =>
+              import('./pages/projects/project-page/project-page.page').then(
+                (m) => m.ProjectPage,
+              ),
+            title: 'Project',
+          },
+        ],
       },
       {
         path: 'invitations/:invitationId',
@@ -51,14 +98,6 @@ export const appRoutes: Route[] = [
             (m) => m.InvitationPage,
           ),
         title: 'Project invitation',
-      },
-      {
-        path: 'dashboard',
-        loadComponent: () =>
-          import('./pages/dashboard/dashboard.page').then(
-            (m) => m.DashboardPage,
-          ),
-        title: 'Dashboard',
       },
       {
         path: 'admin',
