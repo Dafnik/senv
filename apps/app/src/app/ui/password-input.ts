@@ -38,6 +38,12 @@ import {
       <button
         hlmInputGroupButton
         size="icon-xs"
+        type="button"
+        [attr.aria-label]="
+          _inputType() === 'password' ? 'Show password' : 'Hide password'
+        "
+        [attr.aria-pressed]="_inputType() === 'text'"
+        [disabled]="disabled()"
         (click)="togglePasswordVisibility()"
       >
         <ng-icon [name]="_icon()" />

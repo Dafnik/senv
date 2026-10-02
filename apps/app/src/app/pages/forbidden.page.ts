@@ -21,8 +21,8 @@ import { HlmEmptyImports } from '@spartan-ng/helm/empty';
         </p>
       </hlm-empty-header>
       <hlm-empty-content>
-        <a routerLink="/dashboard" hlmBtn variant="outline" size="sm"
-          >Go to dashboard</a
+        <a routerLink="/projects" hlmBtn variant="outline" size="sm"
+          >Go to projects</a
         >
       </hlm-empty-content>
     </hlm-empty>

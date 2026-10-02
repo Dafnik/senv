@@ -21,7 +21,9 @@ import { BaseLayout } from '../layouts/base.layout';
           </p>
         </hlm-empty-header>
         <hlm-empty-content>
-          <a routerLink="/" hlmBtn variant="outline" size="sm">Go back home</a>
+          <a routerLink="/" hlmBtn variant="outline" size="sm"
+            >Continue to senv</a
+          >
         </hlm-empty-content>
       </hlm-empty>
     </app-base-layout>

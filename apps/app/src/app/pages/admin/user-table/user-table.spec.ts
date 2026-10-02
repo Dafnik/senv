@@ -1,10 +1,11 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import { toast } from '@spartan-ng/brain/sonner';
 import { provideTanStackQuery, QueryClient } from '@tanstack/angular-query';
 import { afterEach, beforeEach, expect, test, vi } from 'vite-plus/test';
 import { AUTH_CLIENT } from '../../../auth/auth-client';
+import { AccountSignup } from '../../../auth/account-signup';
 import { UserTable } from './user-table';
 
 const auth = {
@@ -55,6 +56,7 @@ beforeEach(() => {
   TestBed.configureTestingModule({
     providers: [
       provideRouter([]),
+      { provide: AccountSignup, useValue: { resend: vi.fn() } },
       provideTanStackQuery(() => queryClient),
       {
         provide: AUTH_CLIENT,
@@ -208,4 +210,54 @@ test('shows a refresh failure even when older user data is cached', async () => 
   expect(fixture.nativeElement.textContent).toContain('Could not load users');
   expect(fixture.nativeElement.textContent).toContain('Server unavailable');
   expect(fixture.nativeElement.textContent).not.toContain('No users found');
+});
+
+test('shared pagination updates the user table page size in its route', async () => {
+  const fixture = await createTable();
+  const navigate = vi
+    .spyOn(TestBed.inject(Router), 'navigate')
+    .mockResolvedValue(true);
+  fixture.componentInstance['_table'].setPagination({
+    pageIndex: 0,
+    pageSize: 50,
+  });
+  expect(navigate).toHaveBeenCalledWith([], {
+    queryParams: { page: 1, size: 50 },
+    queryParamsHandling: 'merge',
+  });
+});
+
+test('deleting the last user on the final page repairs pagination and invalidates statistics', async () => {
+  auth.admin.listUsers.mockResolvedValue({
+    data: { users: [alice], total: 21 },
+    error: null,
+  });
+  queryClient.setQueryData(['user-stats', 'admin-session'], { totalUsers: 21 });
+  const fixture = TestBed.createComponent(UserTable);
+  fixture.componentRef.setInput('page', 2);
+  fixture.componentRef.setInput('size', 20);
+  await vi.waitFor(() =>
+    expect(fixture.componentInstance['_table'].getRowModel().rows).toHaveLength(
+      1,
+    ),
+  );
+  const navigate = vi
+    .spyOn(TestBed.inject(Router), 'navigate')
+    .mockResolvedValue(true);
+  fixture.componentInstance['_table'].getRow('alice').toggleSelected(true);
+  auth.admin.listUsers.mockResolvedValue({
+    data: { users: [], total: 20 },
+    error: null,
+  });
+  await fixture.componentInstance['deleteSelected'](vi.fn());
+  await vi.waitFor(() =>
+    expect(navigate).toHaveBeenCalledWith([], {
+      queryParams: { page: 1 },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    }),
+  );
+  expect(
+    queryClient.getQueryState(['user-stats', 'admin-session'])?.isInvalidated,
+  ).toBe(true);
 });

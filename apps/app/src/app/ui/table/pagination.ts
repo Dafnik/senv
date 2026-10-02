@@ -1,5 +1,4 @@
-import { Component, inject, input } from '@angular/core';
-import { Router } from '@angular/router';
+import { Component, input } from '@angular/core';
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import {
   lucideChevronLeft,
@@ -28,12 +27,16 @@ import { injectTableContext } from '@tanstack/angular-table';
   },
   template: `
     <div class="flex gap-2">
-      <span hlmLabel>Rows per page</span>
+      <label hlmLabel [for]="pageSizeId">Rows per page</label>
       <hlm-select
         [value]="table().atoms.pagination.get().pageSize"
         (valueChange)="changePageSize($event)"
       >
-        <hlm-select-trigger size="sm" class="mr-1 inline-flex h-8 w-fit">
+        <hlm-select-trigger
+          [buttonId]="pageSizeId"
+          size="sm"
+          class="mr-1 inline-flex h-8 w-fit"
+        >
           <hlm-select-value placeholder="{{ pageSizes()[0] }}" />
         </hlm-select-trigger>
         <hlm-select-content *hlmSelectPortal>
@@ -50,7 +53,7 @@ import { injectTableContext } from '@tanstack/angular-table';
     <div class="flex gap-2">
       <span hlmLabel>
         Page {{ table().atoms.pagination.get().pageIndex + 1 }} of
-        {{ table().getPageCount() }}
+        {{ table().getPageCount() || 1 }}
       </span>
       <div class="flex gap-2">
         <button
@@ -98,15 +101,13 @@ import { injectTableContext } from '@tanstack/angular-table';
   `,
 })
 export class TablePaginaton {
-  private readonly router = inject(Router);
+  private static nextId = 0;
+  readonly pageSizeId = `table-page-size-${TablePaginaton.nextId++}`;
   readonly table = injectTableContext();
 
   pageSizes = input([10, 20, 50, 100]);
 
   protected changePageSize(pageSize: number | undefined | null) {
-    this.router.navigate([], {
-      queryParams: { size: pageSize ?? 10, page: 1 },
-      queryParamsHandling: 'merge',
-    });
+    this.table().setPagination({ pageIndex: 0, pageSize: pageSize ?? 10 });
   }
 }

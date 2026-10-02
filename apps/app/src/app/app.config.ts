@@ -59,11 +59,10 @@ export const appConfig: ApplicationConfig = {
       : [],
     provideSpartanHlm(),
     provideSeo({
-      title: 'senv - Angular Better Auth',
+      title: 'senv',
       titleTemplate: '%s | senv',
-      description:
-        'An Angular starter with Better Auth, tRPC, SQLite, Drizzle, and spartan/ui. Includes authentication and SSR.',
-      robots: 'index, follow',
+      description: 'Sign in to manage your senv projects and project access.',
+      robots: 'noindex, nofollow',
       ogType: 'website',
     }),
     provideTitleStrategy(),

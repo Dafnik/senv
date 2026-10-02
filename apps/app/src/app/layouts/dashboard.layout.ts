@@ -8,13 +8,10 @@ import {
   RouterOutlet,
 } from '@angular/router';
 import { NgIcon, provideIcons } from '@ng-icons/core';
-import {
-  lucideLayoutDashboard,
-  lucidePanda,
-  lucideUsers2,
-} from '@ng-icons/lucide';
+import { lucideFolder, lucidePanda, lucideUsers2 } from '@ng-icons/lucide';
 import { HlmSidebarImports } from '@spartan-ng/helm/sidebar';
 import { filter, map } from 'rxjs';
+import { AuthState } from '../auth/auth-state';
 import { injectIsAdmin } from '../auth/auth-client';
 import { DashboardHeader } from './dashboard-header';
 import { ImpersonationBanner } from './impersonation-banner';
@@ -30,7 +27,11 @@ import { ImpersonationBanner } from './impersonation-banner';
     ImpersonationBanner,
   ],
   providers: [
-    provideIcons({ lucidePanda, lucideUsers2, lucideLayoutDashboard }),
+    provideIcons({
+      lucideFolder,
+      lucidePanda,
+      lucideUsers2,
+    }),
   ],
   template: `
     <div hlmSidebarWrapper>
@@ -38,7 +39,7 @@ import { ImpersonationBanner } from './impersonation-banner';
         <hlm-sidebar-header>
           <ul hlmSidebarMenu>
             <li hlmSidebarMenuItem>
-              <a hlmSidebarMenuButton size="lg" routerLink="/dashboard">
+              <a hlmSidebarMenuButton size="lg" routerLink="/projects">
                 <div
                   class="bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg"
                 >
@@ -55,11 +56,11 @@ import { ImpersonationBanner } from './impersonation-banner';
               <li hlmSidebarMenuItem>
                 <a
                   hlmSidebarMenuButton
-                  routerLink="/dashboard"
-                  [isActive]="currentPath() === '/dashboard'"
+                  routerLink="/projects"
+                  [isActive]="currentPath().startsWith('/projects')"
                 >
-                  <ng-icon name="lucideLayoutDashboard" />
-                  Dashboard
+                  <ng-icon name="lucideFolder" />
+                  Projects
                 </a>
               </li>
             </ul>
@@ -86,7 +87,9 @@ import { ImpersonationBanner } from './impersonation-banner';
       <main hlmSidebarInset>
         <app-dashboard-header [title]="title()" />
         <app-impersonation-banner />
-        <router-outlet />
+        @if (!sessionBlocked()) {
+          <router-outlet />
+        }
       </main>
     </div>
   `,
@@ -95,6 +98,7 @@ export class DashboardLayout {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
 
+  readonly sessionBlocked = inject(AuthState).blocked;
   readonly isAdmin = injectIsAdmin();
 
   readonly currentPath = toSignal(

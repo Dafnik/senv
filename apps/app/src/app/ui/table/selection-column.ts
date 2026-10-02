@@ -9,10 +9,10 @@ import {
   imports: [HlmCheckboxImports],
   host: {
     class: 'flex',
-    'aria-label': 'Select all',
   },
   template: `
     <hlm-checkbox
+      aria-label="Select all rows on this page"
       [checked]="table().getIsAllRowsSelected()"
       [indeterminate]="
         table().getIsSomeRowsSelected() && !table().getIsAllPageRowsSelected()
@@ -29,10 +29,10 @@ export class TableHeadSelection {
   imports: [HlmCheckboxImports],
   host: {
     class: 'flex',
-    'aria-label': 'Select Row',
   },
   template: `
     <hlm-checkbox
+      [aria-label]="'Select row ' + cell().row.id"
       [disabled]="disabled()"
       [checked]="cell().row.getIsSelected()"
       (checkedChange)="cell().row.toggleSelected($event)"

@@ -13,6 +13,7 @@ export default defineConfig({
             { pattern: '!apps/app/**/node_modules/**', base: 'workspace' },
             { pattern: '!apps/app/.angular/**', base: 'workspace' },
             { pattern: 'apps/api/server/**', base: 'workspace' },
+            { pattern: 'apps/api/shared/**', base: 'workspace' },
             { pattern: 'drizzle/*.ts', base: 'workspace' },
             { pattern: 'pnpm-lock.yaml', base: 'workspace' },
           ],

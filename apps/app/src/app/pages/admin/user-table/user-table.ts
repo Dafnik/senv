@@ -1,3 +1,5 @@
+import { UsersData } from '../../../queries/users';
+import { lastPageIndex } from '../../../tools/table/pagination';
 import { NumberInput } from '@angular/cdk/coercion';
 import {
   Component,
@@ -18,7 +20,7 @@ import { HlmButtonImports } from '@spartan-ng/helm/button';
 import { HlmEmptyImports } from '@spartan-ng/helm/empty';
 import { HlmInputGroupImports } from '@spartan-ng/helm/input-group';
 import { HlmTableImports } from '@spartan-ng/helm/table';
-import { injectQuery, QueryClient } from '@tanstack/angular-query';
+import { injectQuery } from '@tanstack/angular-query';
 import {
   FlexRender,
   injectTable,
@@ -29,11 +31,7 @@ import {
   TanStackTable,
 } from '@tanstack/angular-table';
 import { injectTanStackTableDevtools } from '@tanstack/angular-table-devtools';
-import {
-  injectAuthClient,
-  injectAuthSessionId,
-} from '../../../auth/auth-client';
-import { unwrapAuthResult } from '../../../auth/auth-result';
+import { injectAuthSessionId } from '../../../auth/auth-client';
 import { parseSort, serializeSort } from '../../../tools/table/sort';
 import { TablePaginaton } from '../../../ui/table/pagination';
 import { SearchInput } from '../../../ui/table/search-input';
@@ -92,7 +90,19 @@ import { userTableFeatures } from './user-table-features';
             ) {
               <tr hlmTr>
                 @for (header of headerGroup.headers; track header.id) {
-                  <th hlmTh [attr.colSpan]="header.colSpan">
+                  <th
+                    hlmTh
+                    [attr.colSpan]="header.colSpan"
+                    [attr.aria-sort]="
+                      header.column.getCanSort()
+                        ? header.column.getIsSorted() === 'asc'
+                          ? 'ascending'
+                          : header.column.getIsSorted() === 'desc'
+                            ? 'descending'
+                            : 'none'
+                        : null
+                    "
+                  >
                     @if (!header.isPlaceholder) {
                       <ng-container
                         *flexRender="
@@ -185,15 +195,14 @@ import { userTableFeatures } from './user-table-features';
       </div>
     </div>
     <div [tanStackTable]="_table">
-      <app-table-pagination />
+      <app-table-pagination [pageSizes]="_availablePageSizes" />
     </div>
   `,
 })
 export class UserTable {
-  private readonly authClient = injectAuthClient();
   private readonly router = inject(Router);
   private readonly sessionId = injectAuthSessionId();
-  private readonly queryClient = inject(QueryClient);
+  private readonly users = inject(UsersData);
   protected readonly deletingSelected = signal(false);
 
   readonly _columns = userColumns;
@@ -231,38 +240,27 @@ export class UserTable {
     return {};
   });
 
-  protected readonly usersQuery = injectQuery(() => ({
-    queryKey: [
-      'users',
-      this.sessionId(),
-      this.sort(),
-      this.q(),
-      this.pagination(),
-    ],
-    enabled: !!this.sessionId(),
-    queryFn: async () => {
-      const [sort] = this.sort();
-      const q = this.q()?.trim();
-      return unwrapAuthResult(
-        await this.authClient.admin.listUsers({
-          query: {
-            offset: this.pagination().pageIndex * this.pagination().pageSize,
-            limit: this.pagination().pageSize,
-            ...(sort
-              ? { sortBy: sort.id, sortDirection: sort.desc ? 'desc' : 'asc' }
-              : {}),
-            ...(q
-              ? {
-                  searchValue: q,
-                  searchField: 'email',
-                  searchOperator: 'contains',
-                }
-              : {}),
-          },
-        }),
-      );
-    },
-  }));
+  protected readonly usersQuery = injectQuery(() => {
+    const [sort] = this.sort();
+    const q = this.q()?.trim();
+    return this.users.list(this.sessionId(), {
+      offset: this.pagination().pageIndex * this.pagination().pageSize,
+      limit: this.pagination().pageSize,
+      ...(sort
+        ? {
+            sortBy: sort.id,
+            sortDirection: sort.desc ? ('desc' as const) : ('asc' as const),
+          }
+        : {}),
+      ...(q
+        ? {
+            searchValue: q,
+            searchField: 'email' as const,
+            searchOperator: 'contains' as const,
+          }
+        : {}),
+    });
+  });
 
   protected readonly _table = injectTable(() => ({
     key: 'users-table',
@@ -298,11 +296,13 @@ export class UserTable {
       }
     },
     onPaginationChange: (updater) => {
+      const pagination = isFunction(updater)
+        ? updater(this.pagination())
+        : updater;
       this.router.navigate([], {
         queryParams: {
-          page: isFunction(updater)
-            ? updater(this.pagination()).pageIndex + 1
-            : updater.pageIndex + 1,
+          page: pagination.pageIndex + 1,
+          size: pagination.pageSize,
         },
         queryParamsHandling: 'merge',
       });
@@ -311,6 +311,19 @@ export class UserTable {
   }));
 
   constructor() {
+    effect(() => {
+      if (!this.usersQuery.isSuccess() || this.usersQuery.isFetching()) return;
+      const lastPage = lastPageIndex(
+        this.usersQuery.data().total,
+        this.pagination().pageSize,
+      );
+      if (this.pagination().pageIndex > lastPage)
+        void this.router.navigate([], {
+          queryParams: { page: lastPage + 1 },
+          queryParamsHandling: 'merge',
+          replaceUrl: true,
+        });
+    });
     effect(() => {
       const value = this.debouncedQuery.value() ?? '';
       const q = value.trim();
@@ -330,13 +343,6 @@ export class UserTable {
     }));
   }
 
-  protected changePageSize(pageSize: number | undefined | null) {
-    this.router.navigate([], {
-      queryParams: { size: pageSize ?? 10, page: 1 },
-      queryParamsHandling: 'merge',
-    });
-  }
-
   protected onSearchInput(event: Event): void {
     this.query.set((event.target as HTMLInputElement).value);
   }
@@ -353,9 +359,7 @@ export class UserTable {
     try {
       for (const row of selectedRows) {
         try {
-          unwrapAuthResult(
-            await this.authClient.admin.removeUser({ userId: row.original.id }),
-          );
+          await this.users.remove(row.original.id);
           this.rowSelection.update((selection) => {
             const remaining = { ...selection };
             delete remaining[row.id];
@@ -374,7 +378,7 @@ export class UserTable {
       } else {
         closeDialog();
       }
-      await this.queryClient.invalidateQueries({ queryKey: ['users'] });
+      await this.users.invalidate();
     } finally {
       this.deletingSelected.set(false);
     }

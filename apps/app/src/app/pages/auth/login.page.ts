@@ -1,14 +1,24 @@
-import { Component, inject, input, signal } from '@angular/core';
 import {
-  email,
+  ChangeDetectionStrategy,
+  Component,
+  inject,
+  input,
+  signal,
+} from '@angular/core';
+import {
+  apply,
   form,
   FormField,
-  maxLength,
-  minLength,
-  required,
+  FormRoot,
   submit,
 } from '@angular/forms/signals';
 import { Router, RouterLink } from '@angular/router';
+import { SessionRecovery, safeRedirect } from '../../auth/session-recovery';
+import { unwrapAuthResult } from '../../auth/auth-result';
+import {
+  emailAddressSchema,
+  passwordSchema,
+} from '../../tools/form-validation';
 import { toast } from '@spartan-ng/brain/sonner';
 import { HlmButtonImports } from '@spartan-ng/helm/button';
 import { HlmFieldImports } from '@spartan-ng/helm/field';
@@ -21,10 +31,12 @@ import { PasswordInput } from '../../ui/password-input';
 
 @Component({
   selector: 'app-login',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     AuthLayout,
-    FormField,
     RouterLink,
+    FormField,
+    FormRoot,
     HlmFieldImports,
     HlmButtonImports,
     HlmInputImports,
@@ -33,7 +45,7 @@ import { PasswordInput } from '../../ui/password-input';
   ],
   template: `
     <app-auth-layout>
-      <form (submit)="login($event)">
+      <form [formRoot]="form" (submit)="login($event)">
         <hlm-field-group>
           <div class="flex flex-col items-center gap-1 text-center">
             <h1 class="text-2xl font-bold">Login to your account</h1>
@@ -69,6 +81,14 @@ import { PasswordInput } from '../../ui/password-input';
               }
             }
           </hlm-field>
+          <a routerLink="/forgot-password" class="text-sm underline"
+            >Forgot password?</a
+          >
+          @if (errorMessage()) {
+            <p role="alert" class="text-destructive text-sm">
+              {{ errorMessage() }}
+            </p>
+          }
           <hlm-field>
             <button
               hlmBtn
@@ -81,10 +101,7 @@ import { PasswordInput } from '../../ui/password-input';
               Login
             </button>
             <p hlmFieldDescription class="text-center">
-              Don't have an account?
-              <a routerLink="/register" queryParamsHandling="preserve">
-                Sign up
-              </a>
+              Need an account? Ask your instance admin to create one.
             </p>
           </hlm-field>
         </hlm-field-group>
@@ -93,13 +110,15 @@ import { PasswordInput } from '../../ui/password-input';
   `,
 })
 export class LoginPage {
-  private router = inject(Router);
+  private readonly recovery = inject(SessionRecovery);
+  private readonly router = inject(Router);
+  readonly errorMessage = signal('');
   private authClient = injectAuthClient();
 
   readonly redirect = input<string, string | undefined>(
     environment.defaultRedirect,
     {
-      transform: (value) => value || environment.defaultRedirect,
+      transform: safeRedirect,
     },
   );
 
@@ -108,17 +127,9 @@ export class LoginPage {
     password: '',
   });
 
-  form = form(this.model, (schemaPath) => {
-    required(schemaPath.email, { message: 'Email is required' });
-    email(schemaPath.email, { message: 'Invalid email address' });
-
-    required(schemaPath.password, { message: 'Password is required' });
-    minLength(schemaPath.password, 8, {
-      message: 'Password must be at least 8 characters long',
-    });
-    maxLength(schemaPath.password, 128, {
-      message: 'Password cannot be more than 128 characters long',
-    });
+  form = form(this.model, (p) => {
+    apply(p.email, emailAddressSchema);
+    apply(p.password, passwordSchema);
   });
 
   loading = signal(false);
@@ -126,17 +137,31 @@ export class LoginPage {
   async login(event: Event) {
     event.preventDefault();
 
-    submit(this.form, async () => {
-      const loginData = this.model();
-
-      const { error } = await this.authClient.signIn.email({
-        email: loginData.email,
-        password: loginData.password,
-        callbackURL: this.redirect(),
-      });
-
-      if (error) {
-        toast.error(error?.message || 'Login failed');
+    if (this.loading()) return;
+    await submit(this.form, async () => {
+      this.loading.set(true);
+      this.errorMessage.set('');
+      try {
+        const result = unwrapAuthResult(
+          await this.authClient.signIn.email({
+            email: this.model().email.trim(),
+            password: this.model().password,
+          }),
+        );
+        await this.recovery.refresh(
+          (session) => session?.user.id === result.user.id,
+          this.redirect(),
+        );
+        await this.router.navigateByUrl(this.redirect(), { replaceUrl: true });
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Login failed. Please try again.';
+        this.errorMessage.set(message);
+        toast.error(message);
+      } finally {
+        this.loading.set(false);
       }
     });
   }

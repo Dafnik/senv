@@ -1,38 +1,103 @@
+import { isProjectSection } from './pages/projects/project-sections';
 import { Route } from '@angular/router';
 import { authGuard, redirectLoggedInGuard } from './auth/auth-guard';
+import { instanceReadyGuard, setupAvailableGuard } from './auth/instance-setup';
 
 export const appRoutes: Route[] = [
   {
+    path: 'unavailable',
+    loadComponent: () =>
+      import('./pages/unavailable.page').then((m) => m.UnavailablePage),
+    title: 'senv unavailable',
+  },
+  {
+    path: 'forgot-password',
+    loadComponent: () =>
+      import('./pages/auth/forgot-password.page').then(
+        (m) => m.ForgotPasswordPage,
+      ),
+    title: 'Forgot password',
+    canActivate: [instanceReadyGuard],
+  },
+  {
+    path: 'reset-password',
+    loadComponent: () =>
+      import('./pages/auth/reset-password.page').then(
+        (m) => m.ResetPasswordPage,
+      ),
+    title: 'Reset password',
+    canActivate: [instanceReadyGuard],
+  },
+  {
+    path: 'signup',
+    loadComponent: () =>
+      import('./pages/auth/signup/signup.page').then((m) => m.SignupPage),
+    title: 'Set up your account',
+    canActivate: [instanceReadyGuard],
+  },
+  {
     path: '',
-    loadComponent: () => import('./pages/home.page').then((m) => m.HomePage),
+    pathMatch: 'full',
+    redirectTo: 'projects',
   },
   {
     path: 'login',
     loadComponent: () =>
       import('./pages/auth/login.page').then((m) => m.LoginPage),
     title: 'Login',
-    canActivate: [redirectLoggedInGuard],
+    canActivate: [instanceReadyGuard, redirectLoggedInGuard],
   },
   {
-    path: 'register',
+    path: 'setup',
     loadComponent: () =>
-      import('./pages/auth/register.page').then((m) => m.RegisterPage),
-    title: 'Register',
-    canActivate: [redirectLoggedInGuard],
+      import('./pages/auth/setup/setup.page').then((m) => m.SetupPage),
+    title: 'Set up senv',
+    canActivate: [setupAvailableGuard],
   },
   {
     path: '',
     loadComponent: () =>
       import('./layouts/dashboard.layout').then((m) => m.DashboardLayout),
-    canActivate: [authGuard()],
+    canActivate: [instanceReadyGuard, authGuard()],
     children: [
       {
-        path: 'dashboard',
+        path: 'profile',
         loadComponent: () =>
-          import('./pages/dashboard/dashboard.page').then(
-            (m) => m.DashboardPage,
+          import('./pages/profile/profile-page/profile-page.page').then(
+            (m) => m.ProfilePage,
           ),
-        title: 'Dashboard',
+        title: 'Profile',
+      },
+      {
+        path: 'projects',
+        loadComponent: () =>
+          import('./pages/projects/projects-page/projects-page.page').then(
+            (m) => m.ProjectsPage,
+          ),
+        title: 'Projects',
+      },
+      {
+        path: 'projects/:projectId',
+        children: [
+          { path: '', pathMatch: 'full', redirectTo: 'deployments' },
+          {
+            path: ':section',
+            canMatch: [(_, segments) => isProjectSection(segments[0]?.path)],
+            loadComponent: () =>
+              import('./pages/projects/project-page/project-page.page').then(
+                (m) => m.ProjectPage,
+              ),
+            title: 'Project',
+          },
+        ],
+      },
+      {
+        path: 'invitations/:invitationId',
+        loadComponent: () =>
+          import('./pages/projects/invitation-page/invitation-page.page').then(
+            (m) => m.InvitationPage,
+          ),
+        title: 'Project invitation',
       },
       {
         path: 'admin',
