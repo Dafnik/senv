@@ -6,12 +6,10 @@ import {
   signal,
 } from '@angular/core';
 import {
-  email,
+  apply,
   form,
   FormField,
   FormRoot,
-  maxLength,
-  minLength,
   required,
   submit,
   validate,
@@ -24,6 +22,7 @@ import { HlmInputImports } from '@spartan-ng/helm/input';
 import { HlmSpinnerImports } from '@spartan-ng/helm/spinner';
 import { injectAuthClient } from '../../../auth/auth-client';
 import { unwrapAuthResult } from '../../../auth/auth-result';
+import { accountSchema } from '../../../tools/form-validation';
 import { InstanceSetup } from '../../../auth/instance-setup';
 import { AuthLayout } from '../../../layouts/auth.layout';
 import { PasswordInput } from '../../../ui/password-input';
@@ -160,13 +159,7 @@ export class SetupPage {
   readonly created = signal(false);
   readonly errorMessage = signal('');
   readonly adminForm = form(this.model, (p) => {
-    required(p.name, { message: 'Enter your name.' });
-    maxLength(p.name, 100, { message: 'Use 100 characters or fewer.' });
-    required(p.email, { message: 'Enter your email address.' });
-    email(p.email, { message: 'Enter a valid email address.' });
-    required(p.password, { message: 'Enter a password.' });
-    minLength(p.password, 8, { message: 'Use at least 8 characters.' });
-    maxLength(p.password, 128, { message: 'Use 128 characters or fewer.' });
+    apply(p, accountSchema);
     required(p.confirmPassword, { message: 'Confirm your password.' });
     validate(p.confirmPassword, ({ value, valueOf }) =>
       value() === valueOf(p.password)

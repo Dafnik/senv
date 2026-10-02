@@ -1,6 +1,6 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import { toast } from '@spartan-ng/brain/sonner';
 import { provideTanStackQuery, QueryClient } from '@tanstack/angular-query';
 import { afterEach, beforeEach, expect, test, vi } from 'vite-plus/test';
@@ -208,4 +208,19 @@ test('shows a refresh failure even when older user data is cached', async () => 
   expect(fixture.nativeElement.textContent).toContain('Could not load users');
   expect(fixture.nativeElement.textContent).toContain('Server unavailable');
   expect(fixture.nativeElement.textContent).not.toContain('No users found');
+});
+
+test('shared pagination updates the user table page size in its route', async () => {
+  const fixture = await createTable();
+  const navigate = vi
+    .spyOn(TestBed.inject(Router), 'navigate')
+    .mockResolvedValue(true);
+  fixture.componentInstance['_table'].setPagination({
+    pageIndex: 0,
+    pageSize: 50,
+  });
+  expect(navigate).toHaveBeenCalledWith([], {
+    queryParams: { page: 1, size: 50 },
+    queryParamsHandling: 'merge',
+  });
 });

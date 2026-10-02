@@ -5,16 +5,7 @@ import {
   output,
   signal,
 } from '@angular/core';
-import {
-  email,
-  form,
-  FormField,
-  FormRoot,
-  maxLength,
-  minLength,
-  required,
-  submit,
-} from '@angular/forms/signals';
+import { form, FormField, FormRoot, submit } from '@angular/forms/signals';
 import { toast } from '@spartan-ng/brain/sonner';
 import { HlmButtonImports } from '@spartan-ng/helm/button';
 import { HlmCardImports } from '@spartan-ng/helm/card';
@@ -24,6 +15,7 @@ import { HlmSpinnerImports } from '@spartan-ng/helm/spinner';
 import { QueryClient } from '@tanstack/angular-query';
 import { injectAuthClient } from '../../../auth/auth-client';
 import { unwrapAuthResult } from '../../../auth/auth-result';
+import { accountSchema } from '../../../tools/form-validation';
 import { PasswordInput } from '../../../ui/password-input';
 
 @Component({
@@ -132,15 +124,7 @@ export class CreateUser {
   readonly open = signal(false);
   readonly busy = signal(false);
   readonly created = output<void>();
-  readonly userForm = form(this.model, (p) => {
-    required(p.name, { message: 'Enter a name.' });
-    maxLength(p.name, 100, { message: 'Use 100 characters or fewer.' });
-    required(p.email, { message: 'Enter an email address.' });
-    email(p.email, { message: 'Enter a valid email address.' });
-    required(p.password, { message: 'Enter a password.' });
-    minLength(p.password, 8, { message: 'Use at least 8 characters.' });
-    maxLength(p.password, 128, { message: 'Use 128 characters or fewer.' });
-  });
+  readonly userForm = form(this.model, accountSchema);
 
   close() {
     this.model.set({ name: '', email: '', password: '' });

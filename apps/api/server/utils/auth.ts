@@ -1,8 +1,9 @@
 import { betterAuth } from 'better-auth';
+import { createAuthMiddleware } from 'better-auth/api';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { admin } from 'better-auth/plugins';
 import env from './env';
-import { projects } from './project-options';
+import { projects, validateProjectRole } from './project-options';
 import { instanceSetup } from './setup-options';
 import { sendEmailVerification } from './email';
 import * as schema from '../../../../drizzle/schema';
@@ -33,6 +34,12 @@ export const auth = betterAuth({
   },
   rateLimit: {
     customRules: { '/instance/setup': { window: 60, max: 5 } },
+  },
+  hooks: {
+    before: createAuthMiddleware(async (ctx) => {
+      // Better Auth cancels the previous link before beforeCreateInvitation runs.
+      if (ctx.path === '/organization/invite-member') validateProjectRole(ctx.body?.role);
+    }),
   },
   plugins: [admin(), projects, instanceSetup],
 });

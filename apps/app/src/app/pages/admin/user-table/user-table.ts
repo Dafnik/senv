@@ -185,7 +185,7 @@ import { userTableFeatures } from './user-table-features';
       </div>
     </div>
     <div [tanStackTable]="_table">
-      <app-table-pagination />
+      <app-table-pagination [pageSizes]="_availablePageSizes" />
     </div>
   `,
 })
@@ -298,11 +298,13 @@ export class UserTable {
       }
     },
     onPaginationChange: (updater) => {
+      const pagination = isFunction(updater)
+        ? updater(this.pagination())
+        : updater;
       this.router.navigate([], {
         queryParams: {
-          page: isFunction(updater)
-            ? updater(this.pagination()).pageIndex + 1
-            : updater.pageIndex + 1,
+          page: pagination.pageIndex + 1,
+          size: pagination.pageSize,
         },
         queryParamsHandling: 'merge',
       });
@@ -328,13 +330,6 @@ export class UserTable {
     injectTanStackTableDevtools(() => ({
       table: this._table,
     }));
-  }
-
-  protected changePageSize(pageSize: number | undefined | null) {
-    this.router.navigate([], {
-      queryParams: { size: pageSize ?? 10, page: 1 },
-      queryParamsHandling: 'merge',
-    });
   }
 
   protected onSearchInput(event: Event): void {

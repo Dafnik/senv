@@ -1,4 +1,3 @@
-import { DatePipe } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -9,15 +8,17 @@ import {
   signal,
 } from '@angular/core';
 import {
-  email,
+  apply,
   form,
   FormField,
-  maxLength,
-  required,
+  FormRoot,
   submit,
 } from '@angular/forms/signals';
 import { RouterLink } from '@angular/router';
-import type { ProjectRole } from '@senv/api/shared/project-permissions';
+import {
+  projectRoleNames,
+  type ProjectRole,
+} from '@senv/api/shared/project-permissions';
 import { toast } from '@spartan-ng/brain/sonner';
 import { HlmBadgeImports } from '@spartan-ng/helm/badge';
 import { HlmButtonImports } from '@spartan-ng/helm/button';
@@ -26,7 +27,6 @@ import { HlmDropdownMenuImports } from '@spartan-ng/helm/dropdown-menu';
 import { HlmFieldImports } from '@spartan-ng/helm/field';
 import { HlmInputImports } from '@spartan-ng/helm/input';
 import { HlmSpinnerImports } from '@spartan-ng/helm/spinner';
-import { HlmToggleGroupImports } from '@spartan-ng/helm/toggle-group';
 import { injectQuery, QueryClient } from '@tanstack/angular-query';
 import {
   injectAuthClient,
@@ -34,14 +34,16 @@ import {
   injectAuthUser,
 } from '../../../auth/auth-client';
 import { unwrapAuthResult } from '../../../auth/auth-result';
+import { projectNameSchema } from '../../../tools/form-validation';
+import { ProjectInvitations } from '../project-invitations/project-invitations';
 
 @Component({
   selector: 'app-project-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    DatePipe,
     RouterLink,
     FormField,
+    FormRoot,
     HlmBadgeImports,
     HlmButtonImports,
     HlmCardImports,
@@ -49,7 +51,7 @@ import { unwrapAuthResult } from '../../../auth/auth-result';
     HlmFieldImports,
     HlmInputImports,
     HlmSpinnerImports,
-    HlmToggleGroupImports,
+    ProjectInvitations,
   ],
   template: `
     <div class="mx-auto grid w-full max-w-6xl gap-8 p-4 md:p-8">
@@ -137,122 +139,9 @@ import { unwrapAuthResult } from '../../../auth/auth-result';
                 }
               </ul>
             </section>
-            @if (isAdmin()) {
-              <section class="grid gap-4" aria-labelledby="invitations-heading">
-                <h2 id="invitations-heading" class="text-lg font-semibold">
-                  Invitations
-                </h2>
-                <ul class="divide-y rounded-lg border">
-                  @for (
-                    invitation of current.invitations;
-                    track invitation.id
-                  ) {
-                    <li
-                      class="flex flex-wrap items-center justify-between gap-3 p-4"
-                    >
-                      <div>
-                        <p class="text-sm font-medium break-all">
-                          {{ invitation.email }}
-                        </p>
-                        <p class="text-muted-foreground text-xs">
-                          {{ invitation.role }} · {{ invitation.status }} ·
-                          Expires {{ invitation.expiresAt | date: 'medium' }}
-                        </p>
-                      </div>
-                      @if (invitation.status === 'pending') {
-                        <button
-                          hlmBtn
-                          variant="ghost"
-                          size="sm"
-                          [disabled]="busy()"
-                          (click)="cancelInvitation(invitation.id)"
-                        >
-                          Cancel
-                        </button>
-                      }
-                    </li>
-                  } @empty {
-                    <li class="text-muted-foreground p-4 text-sm">
-                      No invitations yet.
-                    </li>
-                  }
-                </ul>
-              </section>
-            }
           </div>
           @if (isAdmin()) {
             <div class="grid gap-6">
-              <section hlmCard>
-                <div hlmCardHeader>
-                  <h2 hlmCardTitle>Invite a teammate</h2>
-                  <p hlmCardDescription>
-                    Send a link that expires in seven days.
-                  </p>
-                </div>
-                <form
-                  hlmCardContent
-                  class="grid gap-4"
-                  (submit)="invite($event)"
-                >
-                  <div hlmField>
-                    <label hlmFieldLabel for="invite-email"
-                      >Email address</label
-                    >
-                    <input
-                      hlmInput
-                      id="invite-email"
-                      type="email"
-                      autocomplete="email"
-                      placeholder="teammate@example.com"
-                      [formField]="inviteForm.email"
-                    />
-                    @if (inviteForm.email().touched()) {
-                      @for (error of inviteForm.email().errors(); track error) {
-                        <hlm-field-error>{{ error.message }}</hlm-field-error>
-                      }
-                    }
-                  </div>
-                  <div hlmField>
-                    <span hlmFieldLabel id="role-label">Project role</span>
-                    <hlm-toggle-group
-                      type="single"
-                      variant="outline"
-                      [nullable]="false"
-                      [value]="inviteRole()"
-                      (valueChange)="selectRole($event)"
-                      aria-labelledby="role-label"
-                    >
-                      <button hlmToggleGroupItem type="button" value="viewer">
-                        Viewer
-                      </button>
-                      <button
-                        hlmToggleGroupItem
-                        type="button"
-                        value="developer"
-                      >
-                        Developer
-                      </button>
-                      <button hlmToggleGroupItem type="button" value="admin">
-                        Admin
-                      </button>
-                    </hlm-toggle-group>
-                    <p hlmFieldDescription>
-                      Only admins can change project settings and manage
-                      members.
-                    </p>
-                  </div>
-                  <button
-                    hlmBtn
-                    type="submit"
-                    [disabled]="busy() || inviteForm().invalid()"
-                  >
-                    @if (busy()) {
-                      <hlm-spinner />
-                    }
-                    Send invitation
-                  </button>
-                </form>
-              </section>
               <section hlmCard>
                 <div hlmCardHeader>
                   <h2 hlmCardTitle>Project settings</h2>
@@ -262,6 +151,7 @@ import { unwrapAuthResult } from '../../../auth/auth-result';
                 </div>
                 <form
                   hlmCardContent
+                  [formRoot]="nameForm"
                   class="grid gap-4"
                   (submit)="rename($event)"
                 >
@@ -297,6 +187,9 @@ import { unwrapAuthResult } from '../../../auth/auth-result';
             </div>
           }
         </div>
+        @if (isAdmin()) {
+          <app-project-invitations [projectId]="projectId()" />
+        }
       }
     </div>
   `,
@@ -307,9 +200,8 @@ export class ProjectPage {
   private readonly sessionId = injectAuthSessionId();
   private readonly queryClient = inject(QueryClient);
   readonly user = injectAuthUser();
-  readonly roles: ProjectRole[] = ['viewer', 'developer', 'admin'];
+  readonly roles = projectRoleNames;
   readonly busy = signal(false);
-  readonly inviteRole = signal<ProjectRole>('viewer');
   readonly project = injectQuery(() => ({
     queryKey: ['project', this.sessionId(), this.projectId()],
     enabled: !!this.sessionId(),
@@ -329,20 +221,9 @@ export class ProjectPage {
   private readonly nameModel = linkedSignal(() => ({
     name: this.project.data()?.name ?? '',
   }));
-  readonly nameForm = form(this.nameModel, (p) => {
-    required(p.name, { message: 'Enter a project name.' });
-    maxLength(p.name, 100, { message: 'Use 100 characters or fewer.' });
-  });
-  private readonly inviteModel = signal({ email: '' });
-  readonly inviteForm = form(this.inviteModel, (p) => {
-    required(p.email, { message: 'Enter an email address.' });
-    email(p.email, { message: 'Enter a valid email address.' });
-  });
-
-  selectRole(value: unknown) {
-    if (value === 'viewer' || value === 'developer' || value === 'admin')
-      this.inviteRole.set(value);
-  }
+  readonly nameForm = form(this.nameModel, (p) =>
+    apply(p.name, projectNameSchema),
+  );
 
   private async perform(action: () => Promise<unknown>, message: string) {
     if (this.busy()) return;
@@ -363,23 +244,6 @@ export class ProjectPage {
     } finally {
       this.busy.set(false);
     }
-  }
-
-  invite(event: Event) {
-    event.preventDefault();
-    void submit(this.inviteForm, async () => {
-      await this.perform(async () => {
-        unwrapAuthResult(
-          await this.auth.organization.inviteMember({
-            organizationId: this.projectId(),
-            email: this.inviteModel().email.trim(),
-            role: this.inviteRole(),
-          }),
-        );
-        this.inviteModel.set({ email: '' });
-        this.inviteForm().reset();
-      }, 'Invitation sent.');
-    });
   }
 
   rename(event: Event) {
@@ -409,16 +273,6 @@ export class ProjectPage {
           }),
         ),
       'Role updated.',
-    );
-  }
-
-  cancelInvitation(invitationId: string) {
-    void this.perform(
-      async () =>
-        unwrapAuthResult(
-          await this.auth.organization.cancelInvitation({ invitationId }),
-        ),
-      'Invitation cancelled.',
     );
   }
 }

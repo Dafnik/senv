@@ -1,14 +1,22 @@
 import {
+  CdkVirtualScrollViewport,
+  ScrollingModule,
+} from '@angular/cdk/scrolling';
+import {
   ChangeDetectionStrategy,
   Component,
+  computed,
+  effect,
+  untracked,
+  viewChild,
   inject,
   signal,
 } from '@angular/core';
 import {
+  apply,
   form,
+  FormRoot,
   FormField,
-  maxLength,
-  required,
   submit,
 } from '@angular/forms/signals';
 import { Router, RouterLink } from '@angular/router';
@@ -19,12 +27,19 @@ import { HlmEmptyImports } from '@spartan-ng/helm/empty';
 import { HlmFieldImports } from '@spartan-ng/helm/field';
 import { HlmInputImports } from '@spartan-ng/helm/input';
 import { HlmSpinnerImports } from '@spartan-ng/helm/spinner';
-import { injectQuery } from '@tanstack/angular-query';
+import { injectInfiniteQuery } from '@tanstack/angular-query';
 import {
   injectAuthClient,
   injectAuthSessionId,
 } from '../../../auth/auth-client';
 import { unwrapAuthResult } from '../../../auth/auth-result';
+import { projectNameSchema } from '../../../tools/form-validation';
+import { injectTrpc, type TrpcService } from '../../../trpc/trpc.service';
+
+type ProjectListPage = Awaited<
+  ReturnType<TrpcService['client']['projects']['list']['query']>
+>;
+type ProjectCursor = NonNullable<ProjectListPage['nextCursor']>;
 
 @Component({
   selector: 'app-projects-page',
@@ -32,6 +47,8 @@ import { unwrapAuthResult } from '../../../auth/auth-result';
   imports: [
     RouterLink,
     FormField,
+    FormRoot,
+    ScrollingModule,
     HlmButtonImports,
     HlmCardImports,
     HlmEmptyImports,
@@ -49,33 +66,78 @@ import { unwrapAuthResult } from '../../../auth/auth-result';
         <section aria-label="Your projects" class="grid gap-3">
           @if (projects.isPending()) {
             <hlm-spinner aria-label="Loading projects" />
-          } @else if (projects.isError()) {
+          } @else if (projects.isError() && !projectItems().length) {
             <p role="alert">{{ projects.error().message }}</p>
             <button hlmBtn variant="outline" (click)="projects.refetch()">
               Try again
             </button>
-          } @else {
-            @for (project of projects.data(); track project.id) {
-              <a
-                [routerLink]="['/projects', project.id]"
-                class="hover:bg-muted focus-visible:ring-ring flex flex-col gap-2 rounded-lg border p-5 transition-colors focus-visible:ring-2"
+          } @else if (projectItems().length) {
+            <cdk-virtual-scroll-viewport
+              [itemSize]="96"
+              [minBufferPx]="288"
+              [maxBufferPx]="576"
+              class="h-[65vh] max-h-[640px] w-full"
+              role="list"
+              aria-label="Your projects"
+              tabindex="0"
+            >
+              <div
+                *cdkVirtualFor="
+                  let project of projectItems();
+                  let index = index;
+                  trackBy: trackProject
+                "
+                class="h-24 pb-3"
+                role="listitem"
+                [attr.aria-posinset]="index + 1"
+                [attr.aria-setsize]="-1"
               >
-                <span class="text-lg font-medium">{{ project.name }}</span>
-                <span class="text-muted-foreground font-mono text-xs">{{
-                  project.id
-                }}</span>
-              </a>
-            } @empty {
-              <div hlmEmpty class="border">
-                <div hlmEmptyHeader>
-                  <h2 hlmEmptyTitle>No projects yet</h2>
-                  <p hlmEmptyDescription>
-                    Create a project to start working with your team, or accept
-                    an invitation from your email.
-                  </p>
-                </div>
+                <a
+                  [routerLink]="['/projects', project.id]"
+                  class="hover:bg-muted focus-visible:ring-ring flex h-full flex-col justify-center gap-2 rounded-lg border px-5 transition-colors focus-visible:ring-2"
+                >
+                  <span
+                    class="truncate text-lg font-medium"
+                    [title]="project.name"
+                    >{{ project.name }}</span
+                  >
+                  <span class="text-muted-foreground font-mono text-xs">{{
+                    project.id
+                  }}</span>
+                </a>
               </div>
+            </cdk-virtual-scroll-viewport>
+            @if (projects.isFetchingNextPage()) {
+              <p
+                role="status"
+                class="text-muted-foreground flex items-center gap-2 text-sm"
+              >
+                <hlm-spinner /> Loading more projects
+              </p>
+            } @else if (projects.isFetchNextPageError()) {
+              <p role="alert">{{ projects.error()?.message }}</p>
+              <button
+                hlmBtn
+                variant="outline"
+                (click)="projects.fetchNextPage()"
+              >
+                Try loading more again
+              </button>
+            } @else if (!projects.hasNextPage()) {
+              <p class="text-muted-foreground text-sm">
+                All {{ projectItems().length }} projects loaded.
+              </p>
             }
+          } @else {
+            <div hlmEmpty class="border">
+              <div hlmEmptyHeader>
+                <h2 hlmEmptyTitle>No projects yet</h2>
+                <p hlmEmptyDescription>
+                  Create a project to start working with your team, or accept an
+                  invitation from your email.
+                </p>
+              </div>
+            </div>
           }
         </section>
         <section hlmCard>
@@ -83,7 +145,12 @@ import { unwrapAuthResult } from '../../../auth/auth-result';
             <h2 hlmCardTitle>Create a project</h2>
             <p hlmCardDescription>Choose a name. You'll be its first admin.</p>
           </div>
-          <form hlmCardContent class="grid gap-4" (submit)="create($event)">
+          <form
+            hlmCardContent
+            class="grid gap-4"
+            [formRoot]="projectForm"
+            (submit)="create($event)"
+          >
             <div hlmField>
               <label hlmFieldLabel for="project-name">Project name</label>
               <input
@@ -121,15 +188,55 @@ export class ProjectsPage {
   private readonly router = inject(Router);
   private readonly model = signal({ name: '' });
   readonly busy = signal(false);
-  readonly projectForm = form(this.model, (p) => {
-    required(p.name, { message: 'Enter a project name.' });
-    maxLength(p.name, 100, { message: 'Use 100 characters or fewer.' });
-  });
-  readonly projects = injectQuery(() => ({
+  private readonly trpc = injectTrpc();
+  private readonly viewport = viewChild(CdkVirtualScrollViewport);
+  readonly projectForm = form(this.model, (p) =>
+    apply(p.name, projectNameSchema),
+  );
+  readonly projects = injectInfiniteQuery(() => ({
     queryKey: ['projects', this.sessionId()],
     enabled: !!this.sessionId(),
-    queryFn: async () => unwrapAuthResult(await this.auth.organization.list()),
+    initialPageParam: undefined as ProjectCursor | undefined,
+    queryFn: ({ pageParam, signal }) =>
+      this.trpc.client.projects.list.query(
+        { cursor: pageParam, limit: 40 },
+        { signal },
+      ),
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
   }));
+  readonly projectItems = computed(
+    () => this.projects.data()?.pages.flatMap((page) => page.projects) ?? [],
+  );
+  readonly trackProject = (
+    _: number,
+    project: ProjectListPage['projects'][number],
+  ) => project.id;
+
+  constructor() {
+    // Reconnect when the viewport appears or another page changes the rendered range.
+    effect((onCleanup) => {
+      const viewport = this.viewport();
+      this.projectItems();
+      if (!viewport) return;
+      const subscription = viewport.renderedRangeStream.subscribe((range) =>
+        untracked(() => this.loadMore(range.end)),
+      );
+      onCleanup(() => subscription.unsubscribe());
+      untracked(() => this.loadMore(viewport.getRenderedRange().end));
+    });
+  }
+
+  loadMore(renderedEnd: number) {
+    if (
+      renderedEnd > 0 &&
+      renderedEnd >= this.projectItems().length - 10 &&
+      this.projects.hasNextPage() &&
+      !this.projects.isFetching() &&
+      !this.projects.isFetchNextPageError()
+    ) {
+      void this.projects.fetchNextPage();
+    }
+  }
 
   create(event: Event) {
     event.preventDefault();

@@ -1,7 +1,8 @@
 import { APIError } from 'better-auth/api';
 import { organization } from 'better-auth/plugins';
 import { customAlphabet } from 'nanoid';
-import { projectAccess, projectRoles } from '../../shared/project-permissions';
+import { isProjectRole, projectAccess, projectRoles } from '../../shared/project-permissions';
+import { projectNameMaxLength } from '../../shared/validation';
 import { sendProjectInvitation } from './email';
 
 // Excludes 0/o, 1/i/l, 2/z, 5/s, 8/b and all uppercase characters.
@@ -9,7 +10,7 @@ const projectId = customAlphabet('acdefghjkmnpqrtuvwxy34679', 21);
 export const invitationExpiresIn = 7 * 24 * 60 * 60;
 
 function projectName(value: unknown) {
-  if (typeof value !== 'string' || !value.trim() || value.trim().length > 100) {
+  if (typeof value !== 'string' || !value.trim() || value.trim().length > projectNameMaxLength) {
     throw new APIError('BAD_REQUEST', {
       message: 'Project names must contain 1 to 100 characters.',
     });
@@ -17,8 +18,8 @@ function projectName(value: unknown) {
   return value.trim();
 }
 
-function validateRole(role: string) {
-  if (!Object.prototype.hasOwnProperty.call(projectRoles, role)) {
+export function validateProjectRole(role: unknown) {
+  if (!isProjectRole(role)) {
     throw new APIError('BAD_REQUEST', { message: 'Choose viewer, developer, or admin.' });
   }
 }
@@ -47,9 +48,9 @@ export const projects = organization({
         },
       };
     },
-    beforeAddMember: async ({ member }) => validateRole(member.role),
-    beforeUpdateMemberRole: async ({ newRole }) => validateRole(newRole),
-    beforeCreateInvitation: async ({ invitation }) => validateRole(invitation.role),
+    beforeAddMember: async ({ member }) => validateProjectRole(member.role),
+    beforeUpdateMemberRole: async ({ newRole }) => validateProjectRole(newRole),
+    beforeCreateInvitation: async ({ invitation }) => validateProjectRole(invitation.role),
   },
   sendInvitationEmail: async ({ id, email, role, organization, inviter, invitation }) => {
     await sendProjectInvitation({

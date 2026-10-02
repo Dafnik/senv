@@ -115,7 +115,8 @@ Set the authentication URLs and domains in `.env` for your deployment. Nitro inc
 ## Projects and invitations
 
 Open **Projects** in the sidebar to create a project. Names can contain 1 to 100
-characters. Project IDs are immutable, 21-character Nano IDs using the alphabet
+characters. The project list loads more projects as you scroll and only renders
+the visible rows. Project IDs are immutable, 21-character Nano IDs using the alphabet
 `acdefghjkmnpqrtuvwxy34679` to avoid look-alike characters.
 
 Projects use Better Auth's organization plugin. Its organization ID and internal
@@ -136,7 +137,12 @@ the invitation. The invitation page can send a verification email with a link
 that expires after one hour and returns to the same invitation. Knowing an
 invitation ID is insufficient without a verified recipient account. Links are
 single-use and expire after seven days. Inviting the same address again replaces
-its pending invitation. Expired or cancelled invitations cannot be accepted.
+its pending invitation. Invalid replacement roles leave the existing link valid.
+Expired or cancelled invitations cannot be accepted.
+
+Project admins manage invitations in a table with email search, status filters,
+sortable columns, and server pagination. Pending links remain visible even after
+more than 100 historical invitations. Expired links have a separate status.
 
 ### Email delivery
 

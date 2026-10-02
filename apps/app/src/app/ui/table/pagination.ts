@@ -1,5 +1,4 @@
-import { Component, inject, input } from '@angular/core';
-import { Router } from '@angular/router';
+import { Component, input } from '@angular/core';
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import {
   lucideChevronLeft,
@@ -50,7 +49,7 @@ import { injectTableContext } from '@tanstack/angular-table';
     <div class="flex gap-2">
       <span hlmLabel>
         Page {{ table().atoms.pagination.get().pageIndex + 1 }} of
-        {{ table().getPageCount() }}
+        {{ table().getPageCount() || 1 }}
       </span>
       <div class="flex gap-2">
         <button
@@ -98,15 +97,11 @@ import { injectTableContext } from '@tanstack/angular-table';
   `,
 })
 export class TablePaginaton {
-  private readonly router = inject(Router);
   readonly table = injectTableContext();
 
   pageSizes = input([10, 20, 50, 100]);
 
   protected changePageSize(pageSize: number | undefined | null) {
-    this.router.navigate([], {
-      queryParams: { size: pageSize ?? 10, page: 1 },
-      queryParamsHandling: 'merge',
-    });
+    this.table().setPagination({ pageIndex: 0, pageSize: pageSize ?? 10 });
   }
 }
