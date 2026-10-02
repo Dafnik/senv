@@ -1,12 +1,19 @@
 import { computed, inject, InjectionToken } from '@angular/core';
 import { Router } from '@angular/router';
-import { adminClient } from 'better-auth/client/plugins';
+import {
+  projectAccess,
+  projectRoles,
+} from '@senv/api/shared/project-permissions';
+import { adminClient, organizationClient } from 'better-auth/client/plugins';
 import { environment } from '../../environments/environment';
 import { createAuthClient } from './better-auth-adapter';
 
 const injectDefaultAuthClient = createAuthClient({
   baseURL: environment.apiUrl,
-  plugins: [adminClient()],
+  plugins: [
+    adminClient(),
+    organizationClient({ ac: projectAccess, roles: projectRoles }),
+  ],
 });
 
 export const AUTH_CLIENT = new InjectionToken<

@@ -9,6 +9,7 @@ import {
 } from '@angular/router';
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import {
+  lucideFolder,
   lucideLayoutDashboard,
   lucidePanda,
   lucideUsers2,
@@ -30,7 +31,12 @@ import { ImpersonationBanner } from './impersonation-banner';
     ImpersonationBanner,
   ],
   providers: [
-    provideIcons({ lucidePanda, lucideUsers2, lucideLayoutDashboard }),
+    provideIcons({
+      lucideFolder,
+      lucidePanda,
+      lucideUsers2,
+      lucideLayoutDashboard,
+    }),
   ],
   template: `
     <div hlmSidebarWrapper>
@@ -60,6 +66,16 @@ import { ImpersonationBanner } from './impersonation-banner';
                 >
                   <ng-icon name="lucideLayoutDashboard" />
                   Dashboard
+                </a>
+              </li>
+              <li hlmSidebarMenuItem>
+                <a
+                  hlmSidebarMenuButton
+                  routerLink="/projects"
+                  [isActive]="currentPath().startsWith('/projects')"
+                >
+                  <ng-icon name="lucideFolder" />
+                  Projects
                 </a>
               </li>
             </ul>

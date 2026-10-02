@@ -28,7 +28,6 @@ import { injectAuthUser } from '../auth/auth-client';
           </a>
         } @else {
           <a hlmBtn variant="outline" size="sm" routerLink="/login">Login</a>
-          <a hlmBtn size="sm" routerLink="/register">Register</a>
         }
       </div>
     </header>

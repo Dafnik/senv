@@ -1,4 +1,4 @@
-import { Component, inject, input, signal } from '@angular/core';
+import { Component, input, signal } from '@angular/core';
 import {
   email,
   form,
@@ -8,7 +8,6 @@ import {
   required,
   submit,
 } from '@angular/forms/signals';
-import { Router, RouterLink } from '@angular/router';
 import { toast } from '@spartan-ng/brain/sonner';
 import { HlmButtonImports } from '@spartan-ng/helm/button';
 import { HlmFieldImports } from '@spartan-ng/helm/field';
@@ -24,7 +23,6 @@ import { PasswordInput } from '../../ui/password-input';
   imports: [
     AuthLayout,
     FormField,
-    RouterLink,
     HlmFieldImports,
     HlmButtonImports,
     HlmInputImports,
@@ -81,10 +79,7 @@ import { PasswordInput } from '../../ui/password-input';
               Login
             </button>
             <p hlmFieldDescription class="text-center">
-              Don't have an account?
-              <a routerLink="/register" queryParamsHandling="preserve">
-                Sign up
-              </a>
+              Need an account? Ask your instance admin to create one.
             </p>
           </hlm-field>
         </hlm-field-group>
@@ -93,7 +88,6 @@ import { PasswordInput } from '../../ui/password-input';
   `,
 })
 export class LoginPage {
-  private router = inject(Router);
   private authClient = injectAuthClient();
 
   readonly redirect = input<string, string | undefined>(
@@ -130,7 +124,7 @@ export class LoginPage {
       const loginData = this.model();
 
       const { error } = await this.authClient.signIn.email({
-        email: loginData.email,
+        email: loginData.email.trim(),
         password: loginData.password,
         callbackURL: this.redirect(),
       });

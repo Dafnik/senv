@@ -35,8 +35,8 @@ afterAll(() => {
   rmSync(directory, { recursive: true, force: true });
 });
 
-async function signUp() {
-  return auth.api.signUpEmail({ body: { name: 'Test user', email: 'test@example.com', password } });
+async function createAccount() {
+  return auth.api.createUser({ body: { name: 'Test user', email: 'test@example.com', password } });
 }
 
 async function signIn() {
@@ -59,8 +59,8 @@ function caller(headers = new Headers()) {
   });
 }
 
-test('registers and signs in through the Drizzle adapter', async () => {
-  const result = await signUp();
+test('creates admin-managed accounts and signs in through the Drizzle adapter', async () => {
+  const result = await createAccount();
   const saved = db.select().from(user).where(eq(user.id, result.user.id)).get()!;
   expect(saved.emailVerified).toBe(false);
   expect(saved.createdAt).toBeInstanceOf(Date);
@@ -72,7 +72,7 @@ test('registers and signs in through the Drizzle adapter', async () => {
 
 test('requires an authenticated admin for statistics', async () => {
   await expect(caller().stats()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
-  await signUp();
+  await createAccount();
   await expect(caller(await signIn()).stats()).rejects.toMatchObject({ code: 'FORBIDDEN' });
 });
 
@@ -80,7 +80,7 @@ test('counts users at both seven-day boundaries and calculates the trend', async
   const now = new Date('2026-10-02T12:00:00.000Z');
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(now);
-  const result = await signUp();
+  const result = await createAccount();
   const day = 24 * 60 * 60 * 1000;
   db.update(user)
     .set({ role: 'admin', createdAt: new Date(now.getTime() - 30 * day) })
@@ -106,7 +106,7 @@ test('counts users at both seven-day boundaries and calculates the trend', async
 });
 
 test('handles an empty previous week and rejects banned users', async () => {
-  const result = await signUp();
+  const result = await createAccount();
   db.update(user).set({ role: 'admin' }).where(eq(user.id, result.user.id)).run();
   const headers = await signIn();
   expect(await caller(headers).stats()).toEqual({

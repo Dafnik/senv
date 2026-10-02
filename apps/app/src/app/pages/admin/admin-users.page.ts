@@ -1,14 +1,16 @@
 import { NumberInput } from '@angular/cdk/coercion';
 import { Component, input, numberAttribute } from '@angular/core';
 import { AdminStats } from './admin-stats';
+import { CreateUser } from './create-user/create-user';
 import { UserTable } from './user-table/user-table';
 
 @Component({
   selector: 'app-admin-users',
-  imports: [AdminStats, UserTable],
+  imports: [AdminStats, CreateUser, UserTable],
   template: `
     <div class="flex flex-col gap-4 px-4 pt-4">
-      <app-admin-stats />
+      <app-admin-stats #stats />
+      <app-create-user (created)="stats.stats.reload()" />
       <app-user-table
         [q]="q()"
         [sort]="sort()"

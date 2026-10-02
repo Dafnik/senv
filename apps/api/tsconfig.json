@@ -1,6 +1,7 @@
 {
   "extends": ["nitro/tsconfig"],
   "compilerOptions": {
+    "jsx": "react-jsx",
     "paths": {
       "~/*": ["./*"]
     },

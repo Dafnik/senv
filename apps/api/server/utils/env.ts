@@ -7,6 +7,9 @@ const envSchema = z.object({
   API_URL: z.string(),
   APP_URL: z.string(),
 
+  SMTP_URL: z.url().optional(),
+  EMAIL_FROM: z.string().optional(),
+
   DATABASE_URL: z.string().startsWith('file:').default('file:./data/senv.sqlite'),
 });
 
