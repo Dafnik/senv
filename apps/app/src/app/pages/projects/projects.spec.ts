@@ -61,6 +61,7 @@ beforeEach(() => {
             projects: {
               list: { query: list },
               invitations: { query: listInvitations },
+              invitation: { query: getInvitation },
               detail: { query: getFullOrganization },
               rename: { mutate: update },
               changeMemberRole: { mutate: vi.fn() },
@@ -80,7 +81,6 @@ beforeEach(() => {
             list,
             update,
             getFullOrganization,
-            getInvitation,
             acceptInvitation,
           },
         },
@@ -134,12 +134,9 @@ test('returning to Projects immediately after acceptance shows the joined projec
     pageParams: [undefined],
   });
   getInvitation.mockResolvedValue({
-    data: {
-      organizationName: project.name,
-      role: 'viewer',
-      expiresAt: new Date().toISOString(),
-    },
-    error: null,
+    organizationName: project.name,
+    role: 'viewer',
+    expiresAt: new Date().toISOString(),
   });
   acceptInvitation.mockResolvedValue({
     data: { member: { organizationId: project.id } },
@@ -181,12 +178,9 @@ test('unverified users can request verification and return to the invitation aft
     ),
   });
   getInvitation.mockResolvedValue({
-    data: {
-      organizationName: project.name,
-      role: 'viewer',
-      expiresAt: new Date().toISOString(),
-    },
-    error: null,
+    organizationName: project.name,
+    role: 'viewer',
+    expiresAt: new Date().toISOString(),
   });
   session.update((s) => ({
     data: { ...s.data, user: { ...s.data.user, emailVerified: true } },

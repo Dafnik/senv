@@ -249,6 +249,35 @@ export const projectsRouter = router({
         .returning()
         .get();
     }),
+  invitation: authedProcedure
+    .input(z.object({ invitationId: z.string().min(1) }))
+    .query(({ ctx, input }) => {
+      if (!ctx.user.emailVerified)
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Verify your email address first.' });
+      const saved = db
+        .select({
+          organizationName: organization.name,
+          role: invitation.role,
+          expiresAt: invitation.expiresAt,
+        })
+        .from(invitation)
+        .innerJoin(organization, eq(organization.id, invitation.organizationId))
+        .where(
+          and(
+            eq(invitation.id, input.invitationId),
+            eq(invitation.email, ctx.user.email.toLowerCase()),
+            eq(invitation.status, 'pending'),
+            gt(invitation.expiresAt, new Date()),
+          ),
+        )
+        .get();
+      if (!saved)
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Invitation not found or no longer open.',
+        });
+      return saved;
+    }),
   invitations: authedProcedure
     .input(
       z.object({

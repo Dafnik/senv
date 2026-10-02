@@ -121,12 +121,7 @@ export class InvitationPage {
     queryKey: ['invitation', this.sessionId(), this.invitationId()],
     enabled: !!this.sessionId() && !!this.user()?.emailVerified,
     retry: false,
-    queryFn: async () =>
-      unwrapAuthResult(
-        await this.auth.organization.getInvitation({
-          query: { id: this.invitationId() },
-        }),
-      ),
+    queryFn: () => this.projects.invitation(this.invitationId()),
   }));
 
   async useAnotherAccount() {

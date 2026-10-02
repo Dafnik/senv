@@ -672,3 +672,54 @@ test('open invitations show their sender and sort by inviter name without requir
   expect(result.invitations[1].invitedById).toBe(instance.id);
   expect(result.invitations[1].email).toBe('next@example.com');
 });
+
+test('recipients can open invitations sent by instance admins outside the project, then accept them', async () => {
+  const instance = await account('instance@example.com');
+  db.update(user).set({ role: 'admin' }).where(eq(user.id, instance.id)).run();
+  const invited = await projectCaller(instance.headers).invite({
+    projectId: project.id,
+    email: 'recipient@example.com',
+    role: 'admin',
+  });
+  const lookup = { invitationId: invited.id };
+  await expect(projectCaller(new Headers()).invitation(lookup)).rejects.toMatchObject({
+    code: 'UNAUTHORIZED',
+  });
+  await expect(projectCaller(outsider).invitation(lookup)).rejects.toMatchObject({
+    code: 'NOT_FOUND',
+  });
+  db.update(user).set({ emailVerified: false }).where(eq(user.id, recipientId)).run();
+  await expect(projectCaller(recipient).invitation(lookup)).rejects.toMatchObject({
+    code: 'FORBIDDEN',
+  });
+  db.update(user).set({ emailVerified: true }).where(eq(user.id, recipientId)).run();
+  expect(await projectCaller(recipient).invitation(lookup)).toMatchObject({
+    organizationName: project.name,
+    role: 'admin',
+  });
+  await auth.api.acceptInvitation({ headers: recipient, body: lookup });
+  await expect(projectCaller(recipient).invitation(lookup)).rejects.toMatchObject({
+    code: 'NOT_FOUND',
+  });
+  expect(
+    (await projectCaller(recipient).detail({ projectId: project.id })).members.find(
+      (m) => m.userId === recipientId,
+    )?.role,
+  ).toBe('admin');
+});
+
+test.each(['canceled', 'expired'] as const)(
+  'recipients cannot open %s invitation links',
+  async (state) => {
+    const invited = await invite();
+    db.update(invitation)
+      .set(
+        state === 'expired' ? { expiresAt: new Date(Date.now() - 1000) } : { status: 'canceled' },
+      )
+      .where(eq(invitation.id, invited.id))
+      .run();
+    await expect(
+      projectCaller(recipient).invitation({ invitationId: invited.id }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  },
+);

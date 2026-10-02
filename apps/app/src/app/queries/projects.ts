@@ -45,6 +45,9 @@ export class ProjectsData {
       ) => page.nextCursor ?? undefined,
     };
   }
+  invitation(invitationId: string) {
+    return this.trpc.client.projects.invitation.query({ invitationId });
+  }
   invitations(
     sessionId: string | null,
     input: Parameters<
