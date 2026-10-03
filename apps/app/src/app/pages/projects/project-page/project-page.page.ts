@@ -1,5 +1,4 @@
-import { NgIcon, provideIcons } from '@ng-icons/core';
-import { lucideArrowLeft } from '@ng-icons/lucide';
+import { Breadcrumbs } from '../../../ui/breadcrumbs';
 import { HlmAvatarImports } from '@spartan-ng/helm/avatar';
 import { InitialsPipe } from '../../../ui/initials-pipe';
 import {
@@ -18,7 +17,7 @@ import {
   FormRoot,
   submit,
 } from '@angular/forms/signals';
-import { Router, RouterLink } from '@angular/router';
+import { Router } from '@angular/router';
 import { type ProjectRole } from '@senv/api/shared/project-permissions';
 import { toast } from '@spartan-ng/brain/sonner';
 import { HlmButtonImports } from '@spartan-ng/helm/button';
@@ -35,15 +34,16 @@ import { projectNameSchema } from '../../../tools/form-validation';
 import { ProjectInvitations } from '../project-invitations/project-invitations';
 import { isProjectSection, type ProjectSection } from '../project-sections';
 import { ProjectMembers } from '../project-members/project-members';
+import { ProjectDeployments } from '../project-deployments/project-deployments';
+import { ProjectDeploymentSettings } from '../project-deployment-settings/project-deployment-settings';
 
 @Component({
   selector: 'app-project-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    NgIcon,
+    Breadcrumbs,
     HlmAvatarImports,
     InitialsPipe,
-    RouterLink,
     FormField,
     FormRoot,
     HlmButtonImports,
@@ -55,15 +55,12 @@ import { ProjectMembers } from '../project-members/project-members';
     HlmTabsImports,
     ProjectInvitations,
     ProjectMembers,
+    ProjectDeployments,
+    ProjectDeploymentSettings,
   ],
-  providers: [provideIcons({ lucideArrowLeft })],
   template: `
     <div class="mx-auto grid w-full max-w-6xl gap-8 p-4 md:p-8">
-      <a
-        routerLink="/projects"
-        class="text-muted-foreground flex w-fit items-center gap-2 text-sm hover:underline"
-        ><ng-icon name="lucideArrowLeft" />Back to projects</a
-      >
+      <app-breadcrumbs [items]="breadcrumbs()" />
       @if (project.isPending()) {
         <hlm-spinner aria-label="Loading project" />
       } @else if (project.isError()) {
@@ -93,14 +90,12 @@ import { ProjectMembers } from '../project-members/project-members';
             <button hlmTabsTrigger="settings">Settings</button>
           </hlm-tabs-list>
           <div hlmTabsContent="deployments">
-            <div hlmEmpty class="border">
-              <div hlmEmptyHeader>
-                <h2 hlmEmptyTitle>No deployments yet</h2>
-                <p hlmEmptyDescription>
-                  Deployments for this project will appear here.
-                </p>
-              </div>
-            </div>
+            <app-project-deployments
+              [projectId]="projectId()"
+              [previewSlug]="current.previewSlug"
+              [canManage]="canManageDeployments()"
+              [isAdmin]="isAdmin()"
+            />
           </div>
           <div hlmTabsContent="members">
             <ng-template hlmTabsContentLazy>
@@ -122,86 +117,98 @@ import { ProjectMembers } from '../project-members/project-members';
           </div>
           <div hlmTabsContent="settings">
             <ng-template hlmTabsContentLazy>
-              @if (isAdmin()) {
-                <section hlmCard>
-                  <div hlmCardHeader>
-                    <h2 hlmCardTitle>Project settings</h2>
-                    <p hlmCardDescription>
-                      The project ID stays the same when you rename it.
-                    </p>
-                  </div>
-                  <form
-                    hlmCardContent
-                    [formRoot]="nameForm"
-                    class="grid gap-4"
-                    (submit)="rename($event)"
-                  >
-                    <div hlmField>
-                      <label hlmFieldLabel for="rename-project"
-                        >Project name</label
-                      >
-                      <input
-                        hlmInput
-                        id="rename-project"
-                        [formField]="nameForm.name"
-                      />
-                      @if (nameForm.name().touched()) {
-                        @for (error of nameForm.name().errors(); track error) {
-                          <hlm-field-error>{{ error.message }}</hlm-field-error>
+              <app-project-deployment-settings
+                [projectId]="projectId()"
+                [previewSlug]="current.previewSlug"
+                [canManage]="canManageDeployments()"
+                [isAdmin]="isAdmin()"
+              >
+                @if (isAdmin()) {
+                  <div>
+                    <form
+                      [formRoot]="nameForm"
+                      class="grid gap-4 sm:max-w-xl"
+                      (submit)="rename($event)"
+                    >
+                      <div hlmField>
+                        <label hlmFieldLabel for="rename-project"
+                          >Project name</label
+                        >
+                        <input
+                          hlmInput
+                          id="rename-project"
+                          [formField]="nameForm.name"
+                        />
+                        @if (nameForm.name().touched()) {
+                          @for (
+                            error of nameForm.name().errors();
+                            track error
+                          ) {
+                            <hlm-field-error>{{
+                              error.message
+                            }}</hlm-field-error>
+                          }
                         }
+                      </div>
+                      @if (remoteNameChanged()) {
+                        <div role="status" class="grid gap-2">
+                          <p>
+                            The project was renamed to “{{ current.name }}”
+                            while you were editing. Your draft is preserved.
+                            Save to use your draft, or load the current name.
+                          </p>
+                          <button
+                            hlmBtn
+                            type="button"
+                            variant="outline"
+                            (click)="loadCurrentName()"
+                          >
+                            Load current name
+                          </button>
+                        </div>
                       }
-                    </div>
-                    @if (remoteNameChanged()) {
-                      <div role="status" class="grid gap-2">
-                        <p>
-                          The project was renamed to “{{ current.name }}” while
-                          you were editing. Your draft is preserved. Save to use
-                          your draft, or load the current name.
-                        </p>
+                      <div class="flex flex-wrap gap-2">
                         <button
                           hlmBtn
-                          type="button"
                           variant="outline"
+                          type="submit"
+                          [disabled]="
+                            busy() ||
+                            nameForm().invalid() ||
+                            nameForm.name().value().trim() === current.name
+                          "
+                        >
+                          Save name
+                        </button>
+                        <button
+                          hlmBtn
+                          variant="ghost"
+                          type="button"
+                          [disabled]="
+                            busy() || nameForm.name().value() === current.name
+                          "
                           (click)="loadCurrentName()"
                         >
-                          Load current name
+                          Discard name change
                         </button>
                       </div>
-                    }
-                    <button
-                      hlmBtn
-                      variant="outline"
-                      type="submit"
-                      [disabled]="
-                        busy() ||
-                        nameForm().invalid() ||
-                        nameForm.name().value().trim() === current.name
-                      "
-                    >
-                      Save name
-                    </button>
-                  </form>
-                </section>
-              } @else {
-                <section hlmCard>
-                  <div hlmCardHeader>
-                    <h2 hlmCardTitle>Project settings</h2>
-                    <p hlmCardDescription>
-                      Only project admins can change settings.
-                    </p>
+                    </form>
                   </div>
-                  <dl hlmCardContent class="grid gap-4">
-                    <div>
-                      <dt class="text-muted-foreground">Project name</dt>
-                      <dd>{{ current.name }}</dd>
-                    </div>
-                    <div>
-                      <dt class="text-muted-foreground">Project ID</dt>
-                      <dd class="font-mono break-all">{{ current.id }}</dd>
-                    </div>
-                  </dl>
-                </section>
-              }
+                } @else {
+                  <div>
+                    <dl hlmCardContent class="grid gap-4">
+                      <div>
+                        <dt class="text-muted-foreground">Project name</dt>
+                        <dd>{{ current.name }}</dd>
+                      </div>
+                      <div>
+                        <dt class="text-muted-foreground">Project ID</dt>
+                        <dd class="font-mono break-all">{{ current.id }}</dd>
+                      </div>
+                    </dl>
+                  </div>
+                }
+              </app-project-deployment-settings>
             </ng-template>
           </div>
         </hlm-tabs>
@@ -210,7 +217,7 @@ import { ProjectMembers } from '../project-members/project-members';
   `,
 })
 export class ProjectPage {
-  readonly projectId = input.required<string>();
+  readonly projectSlug = input.required<string>();
   private readonly projects = inject(ProjectsData);
   private readonly router = inject(Router);
   readonly section = input<ProjectSection>('deployments');
@@ -218,8 +225,13 @@ export class ProjectPage {
   readonly user = injectAuthUser();
   readonly busy = signal(false);
   readonly project = injectQuery(() =>
-    this.projects.detail(this.sessionId(), this.projectId()),
+    this.projects.bySlug(this.sessionId(), this.projectSlug()),
   );
+  readonly projectId = computed(() => this.project.data()?.id ?? '');
+  readonly breadcrumbs = computed(() => [
+    { label: 'Projects', link: ['/projects'] },
+    { label: this.project.data()?.name ?? this.projectSlug() },
+  ]);
   readonly myRole = computed(
     () =>
       this.project.data()?.members.find((m) => m.userId === this.user()?.id)
@@ -227,6 +239,12 @@ export class ProjectPage {
   );
   readonly isAdmin = computed(
     () => this.user()?.role === 'admin' || this.myRole() === 'admin',
+  );
+  readonly canManageDeployments = computed(
+    () =>
+      this.user()?.role === 'admin' ||
+      this.myRole() === 'admin' ||
+      this.myRole() === 'developer',
   );
   private readonly nameModel = linkedSignal({
     source: () => ({
@@ -249,7 +267,7 @@ export class ProjectPage {
   );
   selectSection(section: string) {
     if (isProjectSection(section))
-      void this.router.navigate(['/projects', this.projectId(), section]);
+      void this.router.navigate(['/projects', this.projectSlug(), section]);
   }
   loadCurrentName() {
     const name = this.project.data()?.name ?? '';

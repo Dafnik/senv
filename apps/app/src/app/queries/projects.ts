@@ -1,12 +1,14 @@
 import { inject, Injectable } from '@angular/core';
 import { QueryClient } from '@tanstack/angular-query';
 import type { ProjectRole } from '@senv/api/shared/project-permissions';
-import { injectAuthClient } from '../auth/auth-client';
-import { unwrapAuthResult } from '../auth/auth-result';
 import { injectTrpc, type TrpcService } from '../trpc/trpc.service';
 
 export const projectKeys = {
   list: (sessionId: string | null) => ['projects', sessionId] as const,
+  previewSlugSuggestion: (sessionId: string | null, name: string) =>
+    ['project-preview-slug-suggestion', sessionId, name] as const,
+  bySlug: (sessionId: string | null, slug: string) =>
+    ['project-by-slug', sessionId, slug] as const,
   detail: (sessionId: string | null, projectId: string) =>
     ['project', sessionId, projectId] as const,
   invitations: (sessionId: string | null, projectId: string) =>
@@ -14,7 +16,6 @@ export const projectKeys = {
 };
 @Injectable({ providedIn: 'root' })
 export class ProjectsData {
-  private readonly auth = injectAuthClient();
   private readonly trpc = injectTrpc();
   private readonly queries = inject(QueryClient);
   list(sessionId: string | null) {
@@ -61,10 +62,21 @@ export class ProjectsData {
         this.trpc.client.projects.invitations.query(input, { signal }),
     };
   }
-  async create(name: string) {
-    return unwrapAuthResult(
-      await this.auth.organization.create({ name, slug: crypto.randomUUID() }),
-    );
+  create(name: string, previewSlug: string) {
+    return this.trpc.client.projects.create.mutate({ name, previewSlug });
+  }
+  previewSlugSuggestion(sessionId: string | null, name: string) {
+    return {
+      queryKey: projectKeys.previewSlugSuggestion(sessionId, name),
+      enabled: !!sessionId && !!name,
+      queryFn: async ({ signal }: { signal: AbortSignal }) => ({
+        name,
+        ...(await this.trpc.client.projects.suggestPreviewSlug.query(
+          { name },
+          { signal },
+        )),
+      }),
+    };
   }
   async invalidateInvitations(sessionId: string | null, projectId: string) {
     await this.queries.invalidateQueries({
@@ -79,8 +91,22 @@ export class ProjectsData {
         this.trpc.client.projects.detail.query({ projectId }, { signal }),
     };
   }
+  bySlug(sessionId: string | null, projectSlug: string) {
+    return {
+      queryKey: projectKeys.bySlug(sessionId, projectSlug),
+      enabled: !!sessionId && !!projectSlug,
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        this.trpc.client.projects.bySlug.query({ projectSlug }, { signal }),
+    };
+  }
   async invalidate(sessionId: string | null, projectId?: string) {
     await Promise.all([
+      this.queries.invalidateQueries({
+        queryKey: ['project-by-slug', sessionId],
+        predicate: (query) =>
+          !projectId ||
+          (query.state.data as { id?: string } | undefined)?.id === projectId,
+      }),
       this.queries.invalidateQueries({ queryKey: projectKeys.list(sessionId) }),
       ...(projectId
         ? [
@@ -96,6 +122,12 @@ export class ProjectsData {
   }
   rename(projectId: string, name: string) {
     return this.trpc.client.projects.rename.mutate({ projectId, name });
+  }
+  updatePreviewSlug(projectId: string, previewSlug: string) {
+    return this.trpc.client.projects.updatePreviewSlug.mutate({
+      projectId,
+      previewSlug,
+    });
   }
   changeRole(projectId: string, memberId: string, role: ProjectRole) {
     return this.trpc.client.projects.changeMemberRole.mutate({

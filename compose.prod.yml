@@ -24,8 +24,23 @@ services:
       - .env
     environment:
       DATABASE_URL: file:/data/senv.sqlite
+      DEPLOYMENT_STORAGE_DIR: /data/deployments
+      DEPLOYMENT_ARTIFACT_VOLUME: senv-deployment-data-${SENV_INSTANCE_ID:-${COMPOSE_PROJECT_NAME:-senv}}
+      SENV_INSTANCE_ID: ${SENV_INSTANCE_ID:-${COMPOSE_PROJECT_NAME:-senv}}
+      PREVIEW_BASE_DOMAIN: ${PREVIEW_BASE_DOMAIN:-preview.example.com}
+      PREVIEW_DYNAMIC_CONFIG: /data/deployments/senv-routes.yml
+      PREVIEW_ENTRYPOINTS: ${PREVIEW_ENTRYPOINTS:-websecure}
+      PREVIEW_TLS: ${PREVIEW_TLS:-true}
+      PREVIEW_TLS_RESOLVER: ${PREVIEW_TLS_RESOLVER:-}
+      PREVIEW_TRAEFIK_API_URL: ${PREVIEW_TRAEFIK_API_URL:-http://preview-proxy:8080}
+      DOCKER_SOCKET: /var/run/docker.sock
     volumes:
       - db-data:/data
+      - deployment-data:/data/deployments
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - default
+      - preview
 
   app:
     build:
@@ -41,5 +56,35 @@ services:
       # prevent SSRF for local development
       - APP_DOMAIN=${APP_DOMAIN:-localhost}
 
+  preview-proxy:
+    image: traefik:v3.5
+    restart: unless-stopped
+    command:
+      - --api.dashboard=false
+      - --api.insecure=true
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --providers.providersThrottleDuration=0s
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --log.level=INFO
+    ports:
+      - ${PREVIEW_HTTP_PORT:-80}:80
+      - ${PREVIEW_HTTPS_PORT:-443}:443
+      - '127.0.0.1:${PREVIEW_TRAEFIK_API_PORT:-8080}:8080'
+    volumes:
+      - deployment-data:/etc/traefik/dynamic:ro
+    networks:
+      - preview
+
 volumes:
   db-data:
+  deployment-data:
+    name: senv-deployment-data-${SENV_INSTANCE_ID:-${COMPOSE_PROJECT_NAME:-senv}}
+
+networks:
+  preview:
+    name: senv-preview-${SENV_INSTANCE_ID:-${COMPOSE_PROJECT_NAME:-senv}}
+    labels:
+      senv.managed: 'true'
+      senv.instance: ${SENV_INSTANCE_ID:-${COMPOSE_PROJECT_NAME:-senv}}

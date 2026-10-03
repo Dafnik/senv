@@ -2,7 +2,7 @@
 
 Angular 22 with SSR, Better Auth, spartan/ui, and tRPC. The Nitro API uses SQLite through Drizzle ORM, and Drizzle Kit manages the schema and migrations. Vite Plus runs workspace tasks, linting, formatting, and API tests.
 
-senv means simple environment. The [first deployment feature specification](docs/deployment-feature.md) records the planned deployment and preview behavior, the [glossary](CONTEXT.md) defines the project language, and [architecture decisions](docs/adr/) explain the agreed design. Deployment execution is not implemented yet.
+senv means simple environment. The [first deployment feature specification](docs/deployment-feature.md) records deployment behavior, the [glossary](CONTEXT.md) defines the project language, and [architecture decisions](docs/adr/) explain the design. The API runs static and container deployments through a local Docker Engine and routes previews through Traefik.
 
 ## Quick start
 
@@ -57,12 +57,15 @@ their signup email instead of password recovery.
 Every account and sign-in requires a valid email address. Internal user IDs remain
 generated IDs; email addresses are the login identifiers.
 
-Project pages open on **Deployments**, which currently shows an empty state. The
-**Members** section at `/projects/:projectId/members` contains the searchable, sortable member table and, for project
-admins, the invite form and invitation table. **Settings** contains project
-settings at `/projects/:projectId/settings`; project admins and instance admins
-can edit them. The default URL is `/projects/:projectId/deployments`. Unsaved name
-drafts survive background refreshes, with a warning if the saved name changes.
+Project pages open on **Deployments** at `/projects/:projectId/deployments`, where
+project members can inspect deployments and developers or admins can publish and
+manage them. **Members** at `/projects/:projectId/members` contains the searchable,
+sortable member table and, for project admins, the invite form and invitation table.
+**Settings** at `/projects/:projectId/settings` contains project deployment settings;
+developers and project admins can edit deployment defaults, while project admins
+control the preview slug and retention/resource defaults. Instance admins can
+manage instance upload, proxy, and log limits. Unsaved project-name drafts survive
+background refreshes, with a warning if the saved name changes.
 
 ## Workspace commands
 
@@ -133,9 +136,32 @@ vp run build
 docker compose -f compose.prod.yml up -d --build
 ```
 
-The `db-migrate` service applies Drizzle migrations before the API starts. Both services mount the same `db-data` volume and use `file:/data/senv.sqlite`. Keep this volume when recreating containers; it contains the database and SQLite journal files.
+The `db-migrate` service applies Drizzle migrations before the API starts. The API mounts `db-data` at `/data` and the separate `deployment-data` volume at `/data/deployments`. Keep both volumes when recreating containers. `preview-proxy` is Traefik's public entry point; it reads an atomically replaced route file from `deployment-data` and shares a private Docker network with the API and deployment containers.
 
-Set the authentication URLs and domains in `.env` for your deployment. Nitro includes the SQLite driver's prebuilt binaries for Linux and Alpine in the API output. The Docker publish workflow builds the app, API, and migration images together.
+Set the authentication URLs and preview address in `.env`. A production instance needs a unique senv namespace and a DNS name that points to the host:
+
+```dotenv
+SENV_INSTANCE_ID=main
+PREVIEW_BASE_DOMAIN=preview.example.com
+PREVIEW_ENTRYPOINTS=websecure
+PREVIEW_TLS=true
+PREVIEW_TLS_RESOLVER=letsencrypt
+PREVIEW_HTTP_PORT=80
+PREVIEW_HTTPS_PORT=443
+```
+
+The ID must be a lowercase DNS-safe label no longer than 31 characters and unique for every senv instance sharing the Docker host. Compose uses its project name if `SENV_INSTANCE_ID` is unset; set the variable explicitly when installations share a host or when changing the Compose project name. The preview domain must resolve to Traefik. Configure the `letsencrypt` resolver on `preview-proxy` for your DNS provider, and supply DNS credentials through the host's secret environment. A wildcard certificate for `*.preview.example.com` does not cover `dpl-id.project.preview.example.com`; configure per-project wildcard coverage or certificates that include the project label. Traefik wildcard issuance uses a DNS challenge.
+
+The API mounts `/var/run/docker.sock`, which grants it control over containers on the Docker host. Keep this socket restricted to the trusted senv operator. The API creates an instance-labelled private network and only removes containers carrying its own instance labels. Static deployment origins mount the shared artifact volume read-only. Uploaded bytes and expanded website bytes both use the instance upload limit; Static uploads accept ZIP and TAR, including TAR compressed with gzip, zlib/deflate, raw deflate, Brotli, or Zstandard. ZIP supports stored and deflate entries and rejects ZIP64. Archive extraction rejects traversal paths, links, duplicate names, unsupported entries or compression, and expansion over the limit. Image tags are resolved to repository digests before they are stored in a deployment snapshot. Logs from both origin and proxy are retained within the deployment's captured rotation allowance, including across API restarts.
+
+For local HTTP previews, `.env.dev` selects `preview.localhost`, the `web` entry point, and HTTP. Add `PREVIEW_TRAEFIK_API_URL=http://localhost:8080` to `.env` and start the local Traefik entry point before publishing:
+
+```bash
+docker compose -f compose.preview.dev.yml up -d
+vp run dev
+```
+
+The Docker publish workflow builds the app, API, and migration images together. The API waits for Traefik to acknowledge each changed route snapshot before a route mutation completes; the Traefik API port is bound to loopback on the host and is not exposed publicly.
 
 ## Projects and invitations
 
@@ -150,9 +176,14 @@ separate project roles. All three can view their project and its members. Projec
 invitations. Instance admins can view and manage all projects without membership.
 They can invite a new admin or change an existing member's role, including when a
 project has no members or admins. Removing a member revokes access to that project.
-Developers and viewers currently have the same read permissions; future project
-resource operations can distinguish them. Better Auth prevents the last project
-admin from leaving or demoting themselves.
+Developers can publish, start, stop, and delete deployments, assign tags, manage
+registry credentials, and edit deployment settings that do not change project-admin
+defaults. Viewers can inspect deployments, status, logs, and non-secret configuration;
+they cannot publish or change project resources. Project admins can do everything
+developers can and also manage project membership, invitations, the preview slug,
+and retention/resource defaults. Project runtime variables, secrets, and registry credentials are managed in Settings. Pin deployments to protect them from timed cleanup. Instance deployment defaults have their own page in the admin sidebar. Project and deployment pages use the editable project slug, with dedicated detail and log routes and breadcrumbs. Changing the slug immediately breaks old preview and senv links. Deployment lists and details show configuration differences and expiry or protection. Settings changes apply to new deployments, including retention. Secret values and registry credentials are never
+shown in deployment details. Instance admins can manage every project. Better Auth
+prevents the last project admin from leaving or demoting themselves.
 
 Run `pnpm db:migrate` before starting an existing installation to add the project,
 membership, and invitation tables. Existing accounts and sessions are preserved.

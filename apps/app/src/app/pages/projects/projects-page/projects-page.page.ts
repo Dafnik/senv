@@ -18,6 +18,10 @@ import {
   FormRoot,
   FormField,
   submit,
+  maxLength,
+  pattern,
+  required,
+  schema,
 } from '@angular/forms/signals';
 import { Router, RouterLink } from '@angular/router';
 import { toast } from '@spartan-ng/brain/sonner';
@@ -29,7 +33,7 @@ import { HlmEmptyImports } from '@spartan-ng/helm/empty';
 import { HlmFieldImports } from '@spartan-ng/helm/field';
 import { HlmInputImports } from '@spartan-ng/helm/input';
 import { HlmSpinnerImports } from '@spartan-ng/helm/spinner';
-import { injectInfiniteQuery } from '@tanstack/angular-query';
+import { injectInfiniteQuery, injectQuery } from '@tanstack/angular-query';
 import { injectAuthSessionId } from '../../../auth/auth-client';
 import { ProjectsData } from '../../../queries/projects';
 import { projectNameSchema } from '../../../tools/form-validation';
@@ -38,6 +42,18 @@ import { type TrpcService } from '../../../trpc/trpc.service';
 type ProjectListPage = Awaited<
   ReturnType<TrpcService['client']['projects']['list']['query']>
 >;
+
+const projectCreationSchema = schema<{
+  name: string;
+  previewSlug: string;
+}>((path) => {
+  apply(path.name, projectNameSchema);
+  required(path.previewSlug, { message: 'Enter a preview slug.' });
+  maxLength(path.previewSlug, 63, { message: 'Use 63 characters or fewer.' });
+  pattern(path.previewSlug, /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/, {
+    message: 'Use lowercase letters, digits, and internal hyphens.',
+  });
+});
 
 @Component({
   selector: 'app-projects-page',
@@ -93,7 +109,7 @@ type ProjectListPage = Awaited<
                 [attr.aria-setsize]="-1"
               >
                 <a
-                  [routerLink]="['/projects', project.id]"
+                  [routerLink]="['/projects', project.previewSlug]"
                   class="hover:bg-muted focus-visible:ring-ring flex h-full items-center gap-4 rounded-lg border px-5 transition-colors focus-visible:ring-2"
                 >
                   <hlm-avatar size="lg" aria-hidden="true">
@@ -171,6 +187,32 @@ type ProjectListPage = Awaited<
                 }
               }
             </div>
+            <div hlmField>
+              <label hlmFieldLabel for="project-preview-slug"
+                >Preview slug</label
+              >
+              <input
+                hlmInput
+                id="project-preview-slug"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="my-project"
+                [formField]="projectForm.previewSlug"
+                (input)="markSlugEdited()"
+              />
+              <p hlmFieldDescription>
+                Used in preview addresses. Suggested from the project name and
+                editable before creation.
+              </p>
+              @if (projectForm.previewSlug().touched()) {
+                @for (
+                  error of projectForm.previewSlug().errors();
+                  track error
+                ) {
+                  <hlm-field-error>{{ error.message }}</hlm-field-error>
+                }
+              }
+            </div>
             <button
               hlmBtn
               type="submit"
@@ -191,14 +233,19 @@ export class ProjectsPage {
   private readonly projectData = inject(ProjectsData);
   private readonly sessionId = injectAuthSessionId();
   private readonly router = inject(Router);
-  private readonly model = signal({ name: '' });
+  private readonly model = signal({ name: '', previewSlug: '' });
+  private readonly slugEdited = signal(false);
   readonly busy = signal(false);
   private readonly viewport = viewChild(CdkVirtualScrollViewport);
-  readonly projectForm = form(this.model, (p) =>
-    apply(p.name, projectNameSchema),
-  );
+  readonly projectForm = form(this.model, projectCreationSchema);
   readonly projects = injectInfiniteQuery(() =>
     this.projectData.list(this.sessionId()),
+  );
+  private readonly slugSuggestion = injectQuery(() =>
+    this.projectData.previewSlugSuggestion(
+      this.sessionId(),
+      this.model().name.trim(),
+    ),
   );
   readonly projectItems = computed(
     () => this.projects.data()?.pages.flatMap((page) => page.projects) ?? [],
@@ -209,6 +256,21 @@ export class ProjectsPage {
   ) => project.id;
 
   constructor() {
+    effect(() => {
+      const name = this.model().name.trim();
+      const suggestion = this.slugSuggestion.data();
+      if (
+        name &&
+        suggestion?.name === name &&
+        !this.slugEdited() &&
+        this.model().previewSlug !== suggestion.previewSlug
+      ) {
+        this.model.update((current) => ({
+          ...current,
+          previewSlug: suggestion.previewSlug,
+        }));
+      }
+    });
     // Reconnect when the viewport appears or another page changes the rendered range.
     effect((onCleanup) => {
       const viewport = this.viewport();
@@ -222,6 +284,9 @@ export class ProjectsPage {
     });
   }
 
+  markSlugEdited() {
+    this.slugEdited.set(true);
+  }
   loadMore(renderedEnd: number) {
     if (
       renderedEnd > 0 &&
@@ -240,9 +305,12 @@ export class ProjectsPage {
     void submit(this.projectForm, async () => {
       this.busy.set(true);
       try {
-        const project = await this.projectData.create(this.model().name.trim());
+        const project = await this.projectData.create(
+          this.model().name.trim(),
+          this.model().previewSlug.trim(),
+        );
         await this.projects.refetch();
-        await this.router.navigate(['/projects', project.id]);
+        await this.router.navigate(['/projects', project.previewSlug]);
       } catch (error) {
         toast.error(
           error instanceof Error

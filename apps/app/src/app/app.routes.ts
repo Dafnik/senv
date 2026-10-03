@@ -77,9 +77,27 @@ export const appRoutes: Route[] = [
         title: 'Projects',
       },
       {
-        path: 'projects/:projectId',
+        path: 'projects/:projectSlug',
         children: [
           { path: '', pathMatch: 'full', redirectTo: 'deployments' },
+          {
+            path: 'deployments/:deploymentId/logs',
+            loadComponent: () =>
+              import('./pages/projects/deployment-detail').then(
+                (m) => m.DeploymentDetail,
+              ),
+            data: { view: 'logs' },
+            title: 'Deployment logs',
+          },
+          {
+            path: 'deployments/:deploymentId',
+            loadComponent: () =>
+              import('./pages/projects/deployment-detail').then(
+                (m) => m.DeploymentDetail,
+              ),
+            data: { view: 'overview' },
+            title: 'Deployment details',
+          },
           {
             path: ':section',
             canMatch: [(_, segments) => isProjectSection(segments[0]?.path)],
@@ -105,8 +123,16 @@ export const appRoutes: Route[] = [
         children: [
           {
             path: '',
-            pathMatch: 'prefix',
+            pathMatch: 'full',
             redirectTo: 'users',
+          },
+          {
+            path: 'deployment-defaults',
+            loadComponent: () =>
+              import('./pages/admin/admin-deployment-defaults/admin-deployment-defaults').then(
+                (m) => m.AdminDeploymentDefaults,
+              ),
+            title: 'Deployment defaults',
           },
           {
             path: 'users',

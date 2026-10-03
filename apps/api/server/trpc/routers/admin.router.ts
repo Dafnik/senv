@@ -2,8 +2,17 @@ import { and, count, gte, lt } from 'drizzle-orm';
 import { user } from '../../../../../drizzle/schema';
 import { db } from '../../utils/db';
 import { adminProcedure, router } from '../trpc';
+import { instanceDeploymentDefaultsSchema } from '../../../shared/deployments';
+import {
+  getInstanceDeploymentDefaults,
+  updateInstanceDeploymentDefaults,
+} from '../../utils/deployments';
 
 export const adminRouter = router({
+  deploymentDefaults: adminProcedure.query(() => getInstanceDeploymentDefaults()),
+  updateDeploymentDefaults: adminProcedure
+    .input(instanceDeploymentDefaultsSchema)
+    .mutation(({ input }) => updateInstanceDeploymentDefaults(input)),
   stats: adminProcedure.query(async () => {
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);

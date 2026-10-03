@@ -42,7 +42,11 @@
       "@spartan-ng/helm/toggle-group": ["./libs/ui/toggle-group/src/index.ts"],
       "@spartan-ng/helm/toggle": ["./libs/ui/toggle/src/index.ts"],
       "@spartan-ng/helm/tabs": ["./libs/ui/tabs/src/index.ts"],
-      "@spartan-ng/helm/avatar": ["./libs/ui/avatar/src/index.ts"]
+      "@spartan-ng/helm/avatar": ["./libs/ui/avatar/src/index.ts"],
+      "@spartan-ng/helm/native-select": [
+        "./libs/ui/native-select/src/index.ts"
+      ],
+      "@spartan-ng/helm/breadcrumb": ["./libs/ui/breadcrumb/src/index.ts"]
     }
   },
   "angularCompilerOptions": {

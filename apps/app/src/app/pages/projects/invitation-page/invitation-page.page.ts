@@ -179,7 +179,10 @@ export class InvitationPage {
       );
       await this.projects.invalidate(sessionId, result.member.organizationId);
       toast.success('You joined the project.');
-      await this.router.navigate(['/projects', result.member.organizationId]);
+      const project = await this.projects
+        .detail(sessionId, result.member.organizationId)
+        .queryFn({ signal: new AbortController().signal });
+      await this.router.navigate(['/projects', project.previewSlug]);
     } catch (error) {
       toast.error(
         error instanceof Error

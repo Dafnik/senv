@@ -323,7 +323,7 @@ test('cursor pagination returns every membership beyond 100 with stable ordering
   for (let i = 0; i < 105; i++) {
     const id = `paged-project-${String(i).padStart(3, '0')}`;
     db.insert(organization)
-      .values({ id, slug: id, name: id, createdAt: new Date(1000) })
+      .values({ id, slug: id, name: id, previewSlug: id, createdAt: new Date(1000) })
       .run();
     db.insert(member)
       .values({

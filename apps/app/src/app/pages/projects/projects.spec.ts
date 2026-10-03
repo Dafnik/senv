@@ -4,6 +4,8 @@ import { provideRouter, Router } from '@angular/router';
 import { provideTanStackQuery, QueryClient } from '@tanstack/angular-query';
 import { afterEach, beforeEach, expect, test, vi } from 'vite-plus/test';
 import { AUTH_CLIENT } from '../../auth/auth-client';
+import { DeploymentUpload } from '../../queries/deployment-upload';
+import { DeploymentsData } from '../../queries/deployments';
 import { TrpcService } from '../../trpc/trpc.service';
 import { InvitationPage } from './invitation-page/invitation-page.page';
 import { ProjectPage } from './project-page/project-page.page';
@@ -13,6 +15,7 @@ const project = {
   id: 'project-id',
   name: 'Old name',
   slug: 'project-id',
+  previewSlug: 'old-name',
   members: [
     {
       id: 'member-id',
@@ -32,15 +35,85 @@ const session = signal({
 const list = vi.fn();
 const listInvitations = vi.fn();
 const update = vi.fn();
+const createProject = vi.fn();
+const suggestPreviewSlug = vi.fn();
 const removeMember = vi.fn();
 const getFullOrganization = vi.fn();
 const getInvitation = vi.fn();
 const acceptInvitation = vi.fn();
 const sendVerificationEmail = vi.fn();
+const deploymentDataMock = {
+  runtime: () => ({
+    queryKey: ['runtime'],
+    enabled: true,
+    queryFn: async () => ({ env: {}, secretNames: [] }),
+  }),
+  list: () => ({
+    queryKey: ['deployments'],
+    queryFn: async () => [],
+    refetchInterval: false,
+  }),
+  history: () => ({ queryKey: ['history'], queryFn: async () => [] }),
+  settings: () => ({
+    queryKey: ['settings'],
+    queryFn: async () => ({
+      spaFallback: false,
+      repository: '',
+      retentionDays: 7,
+      originCpus: '1',
+      originMemoryBytes: 536870912,
+      health: {
+        path: '/',
+        startupDeadlineSeconds: 60,
+        intervalSeconds: 5,
+        timeoutSeconds: 3,
+        unhealthyThreshold: 3,
+      },
+      proxy: {
+        routes: [],
+        cacheRules: [],
+        compression: { enabled: true, endings: [] },
+      },
+      baseDomain: 'preview.localhost',
+    }),
+  }),
+  credentials: () => ({
+    queryKey: ['credentials'],
+    enabled: false,
+    queryFn: async () => [],
+  }),
+  adminDefaults: () => ({
+    queryKey: ['defaults'],
+    enabled: false,
+    queryFn: async () => ({
+      uploadLimitBytes: 104857600,
+      proxyCpus: '0.1',
+      proxyMemoryBytes: 67108864,
+      logFiles: 3,
+      logFileSizeBytes: 10485760,
+    }),
+  }),
+  logs: () => ({
+    queryKey: ['logs'],
+    enabled: false,
+    initialPageParam: undefined,
+    queryFn: async () => ({ logs: [], nextCursor: null }),
+    getNextPageParam: () => undefined,
+  }),
+  invalidate: vi.fn(async () => undefined),
+};
 let queryClient: QueryClient;
 
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
   session.set({
     data: {
       session: { id: 'session-id' },
@@ -48,21 +121,32 @@ beforeEach(() => {
     },
   });
   listInvitations.mockResolvedValue({ invitations: [], total: 0 });
+  suggestPreviewSlug.mockImplementation(async ({ name }: { name: string }) => ({
+    previewSlug: `${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+  }));
   queryClient = new QueryClient({
     defaultOptions: { queries: { staleTime: 30000, retry: false } },
   });
   TestBed.configureTestingModule({
     providers: [
       provideRouter([]),
+      { provide: DeploymentsData, useValue: deploymentDataMock },
+      {
+        provide: DeploymentUpload,
+        useValue: { archive: vi.fn(), directory: vi.fn() },
+      },
       {
         provide: TrpcService,
         useValue: {
           client: {
             projects: {
               list: { query: list },
+              create: { mutate: createProject },
+              suggestPreviewSlug: { query: suggestPreviewSlug },
               invitations: { query: listInvitations },
               invitation: { query: getInvitation },
               detail: { query: getFullOrganization },
+              bySlug: { query: getFullOrganization },
               rename: { mutate: update },
               changeMemberRole: { mutate: vi.fn() },
               removeMember: { mutate: removeMember },
@@ -89,20 +173,26 @@ beforeEach(() => {
   });
   vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
 });
-afterEach(() => queryClient.clear());
+afterEach(() => {
+  queryClient.clear();
+  vi.unstubAllGlobals();
+});
 
 test('returning to Projects immediately after renaming shows the new name', async () => {
   queryClient.setQueryData(['projects', 'session-id'], {
     pages: [{ projects: [project], nextCursor: null }],
     pageParams: [undefined],
   });
-  queryClient.setQueryData(['project', 'session-id', project.id], project);
+  queryClient.setQueryData(
+    ['project-by-slug', 'session-id', project.previewSlug],
+    project,
+  );
   const renamed = { ...project, name: 'New name' };
   update.mockResolvedValue(renamed);
   getFullOrganization.mockResolvedValue(renamed);
   list.mockResolvedValue({ projects: [renamed], nextCursor: null });
   const detail = TestBed.createComponent(ProjectPage);
-  detail.componentRef.setInput('projectId', project.id);
+  detail.componentRef.setInput('projectSlug', project.previewSlug);
   await detail.whenStable();
   detail.nativeElement.querySelector('[hlmTabsTrigger="settings"]').click();
   detail.componentRef.setInput('section', 'settings');
@@ -126,6 +216,42 @@ test('returning to Projects immediately after renaming shows the new name', asyn
     expect(projects.nativeElement.textContent).not.toContain('Old name');
   });
   expect(list).toHaveBeenCalledTimes(1);
+});
+
+test('project creation suggests an editable DNS-safe slug and submits that value', async () => {
+  list.mockResolvedValue({ projects: [], nextCursor: null });
+  createProject.mockResolvedValue({
+    ...project,
+    id: 'new-project',
+    previewSlug: 'custom-preview',
+  });
+  const fixture = TestBed.createComponent(ProjectsPage);
+  await fixture.whenStable();
+
+  const name = fixture.nativeElement.querySelector(
+    '#project-name',
+  ) as HTMLInputElement;
+  const slug = fixture.nativeElement.querySelector(
+    '#project-preview-slug',
+  ) as HTMLInputElement;
+  name.value = 'My New Project';
+  name.dispatchEvent(new Event('input', { bubbles: true }));
+  await fixture.whenStable();
+  await vi.waitFor(() => expect(slug.value).toBe('my-new-project'));
+
+  slug.value = 'team-preview';
+  slug.dispatchEvent(new Event('input', { bubbles: true }));
+  name.value = 'Renamed Project';
+  name.dispatchEvent(new Event('input', { bubbles: true }));
+  await fixture.whenStable();
+  expect(slug.value).toBe('team-preview');
+
+  fixture.componentInstance.create(new Event('submit'));
+  await fixture.whenStable();
+  expect(createProject).toHaveBeenCalledWith({
+    name: 'Renamed Project',
+    previewSlug: 'team-preview',
+  });
 });
 
 test('returning to Projects immediately after acceptance shows the joined project', async () => {
@@ -259,9 +385,12 @@ test('a failed next page keeps loaded projects and can be retried', async () => 
 });
 
 test('project opens Deployments by default and loads member controls only after selecting Members', async () => {
-  queryClient.setQueryData(['project', 'session-id', project.id], project);
+  queryClient.setQueryData(
+    ['project-by-slug', 'session-id', project.previewSlug],
+    project,
+  );
   const fixture = TestBed.createComponent(ProjectPage);
-  fixture.componentRef.setInput('projectId', project.id);
+  fixture.componentRef.setInput('projectSlug', project.previewSlug);
   await fixture.whenStable();
   expect(
     fixture.nativeElement.querySelector('[role="tab"][aria-selected="true"]')
@@ -291,12 +420,15 @@ test('project opens Deployments by default and loads member controls only after 
 });
 
 test('viewers can see members and settings but cannot invite or change roles or settings', async () => {
-  queryClient.setQueryData(['project', 'session-id', project.id], {
-    ...project,
-    members: [{ ...project.members[0], role: 'viewer' }],
-  });
+  queryClient.setQueryData(
+    ['project-by-slug', 'session-id', project.previewSlug],
+    {
+      ...project,
+      members: [{ ...project.members[0], role: 'viewer' }],
+    },
+  );
   const fixture = TestBed.createComponent(ProjectPage);
-  fixture.componentRef.setInput('projectId', project.id);
+  fixture.componentRef.setInput('projectSlug', project.previewSlug);
   await fixture.whenStable();
   fixture.nativeElement.querySelector('[hlmTabsTrigger="members"]').click();
   fixture.componentRef.setInput('section', 'members');
@@ -318,14 +450,17 @@ test('viewers can see members and settings but cannot invite or change roles or 
   await fixture.whenStable();
   expect(fixture.nativeElement.querySelector('#rename-project')).toBeNull();
   expect(fixture.nativeElement.textContent).toContain(
-    'Only project admins can change settings.',
+    'Project developers and admins can configure runtime values.',
   );
 });
 
 test('background membership refresh preserves a dirty name draft and remote rename warns before saving', async () => {
-  queryClient.setQueryData(['project', 'session-id', project.id], project);
+  queryClient.setQueryData(
+    ['project-by-slug', 'session-id', project.previewSlug],
+    project,
+  );
   const fixture = TestBed.createComponent(ProjectPage);
-  fixture.componentRef.setInput('projectId', project.id);
+  fixture.componentRef.setInput('projectSlug', project.previewSlug);
   fixture.componentRef.setInput('section', 'settings');
   await fixture.whenStable();
   const name: HTMLInputElement =
@@ -333,18 +468,24 @@ test('background membership refresh preserves a dirty name draft and remote rena
   name.value = 'My unsaved name';
   name.dispatchEvent(new Event('input', { bubbles: true }));
   await fixture.whenStable();
-  queryClient.setQueryData(['project', 'session-id', project.id], {
-    ...project,
-    members: [],
-  });
+  queryClient.setQueryData(
+    ['project-by-slug', 'session-id', project.previewSlug],
+    {
+      ...project,
+      members: [],
+    },
+  );
   await fixture.whenStable();
   expect(name.value).toBe('My unsaved name');
   expect(fixture.componentInstance.remoteNameChanged()).toBe(false);
-  queryClient.setQueryData(['project', 'session-id', project.id], {
-    ...project,
-    name: 'Remote name',
-    members: [],
-  });
+  queryClient.setQueryData(
+    ['project-by-slug', 'session-id', project.previewSlug],
+    {
+      ...project,
+      name: 'Remote name',
+      members: [],
+    },
+  );
   await fixture.whenStable();
   expect(fixture.componentInstance.nameForm.name().value()).toBe(
     'My unsaved name',
@@ -362,12 +503,15 @@ test('an instance admin without membership sees recovery and project management 
     ...current,
     data: { ...current.data, user: { ...current.data.user, role: 'admin' } },
   }));
-  queryClient.setQueryData(['project', 'session-id', project.id], {
-    ...project,
-    members: [],
-  });
+  queryClient.setQueryData(
+    ['project-by-slug', 'session-id', project.previewSlug],
+    {
+      ...project,
+      members: [],
+    },
+  );
   const fixture = TestBed.createComponent(ProjectPage);
-  fixture.componentRef.setInput('projectId', project.id);
+  fixture.componentRef.setInput('projectSlug', project.previewSlug);
   fixture.componentRef.setInput('section', 'members');
   await fixture.whenStable();
   expect(fixture.nativeElement.querySelector('header [hlmBadge]')).toBeNull();
@@ -381,9 +525,20 @@ test('an instance admin without membership sees recovery and project management 
 });
 
 test('a late rename response updates its own cache without replacing a different project draft', async () => {
-  queryClient.setQueryData(['project', 'session-id', project.id], project);
-  const second = { ...project, id: 'second-project', name: 'Second project' };
-  queryClient.setQueryData(['project', 'session-id', second.id], second);
+  queryClient.setQueryData(
+    ['project-by-slug', 'session-id', project.previewSlug],
+    project,
+  );
+  const second = {
+    ...project,
+    id: 'second-project',
+    previewSlug: 'second-project',
+    name: 'Second project',
+  };
+  queryClient.setQueryData(
+    ['project-by-slug', 'session-id', second.previewSlug],
+    second,
+  );
   let resolve!: (value: unknown) => void;
   update.mockReturnValueOnce(
     new Promise((done) => {
@@ -391,7 +546,7 @@ test('a late rename response updates its own cache without replacing a different
     }),
   );
   const fixture = TestBed.createComponent(ProjectPage);
-  fixture.componentRef.setInput('projectId', project.id);
+  fixture.componentRef.setInput('projectSlug', project.previewSlug);
   fixture.componentRef.setInput('section', 'settings');
   await fixture.whenStable();
   const name: HTMLInputElement =
@@ -401,7 +556,7 @@ test('a late rename response updates its own cache without replacing a different
   await fixture.whenStable();
   fixture.componentInstance.rename(new Event('submit'));
   await vi.waitFor(() => expect(update).toHaveBeenCalled());
-  fixture.componentRef.setInput('projectId', second.id);
+  fixture.componentRef.setInput('projectSlug', second.previewSlug);
   await fixture.whenStable();
   resolve({ ...project, name: 'Saved first name' });
   await vi.waitFor(() => expect(fixture.componentInstance.busy()).toBe(false));
@@ -409,17 +564,26 @@ test('a late rename response updates its own cache without replacing a different
     'Second project',
   );
   expect(
-    queryClient.getQueryState(['project', 'session-id', project.id])
-      ?.isInvalidated,
+    queryClient.getQueryState([
+      'project-by-slug',
+      'session-id',
+      project.previewSlug,
+    ])?.isInvalidated,
   ).toBe(true);
   expect(
-    queryClient.getQueryState(['project', 'session-id', second.id])
-      ?.isInvalidated,
+    queryClient.getQueryState([
+      'project-by-slug',
+      'session-id',
+      second.previewSlug,
+    ])?.isInvalidated,
   ).toBe(false);
 });
 
 test('removing yourself updates project caches and returns to the projects list', async () => {
-  queryClient.setQueryData(['project', 'session-id', project.id], project);
+  queryClient.setQueryData(
+    ['project-by-slug', 'session-id', project.previewSlug],
+    project,
+  );
   queryClient.setQueryData(['projects', 'session-id'], {
     pages: [{ projects: [project], nextCursor: null }],
     pageParams: [undefined],
@@ -427,7 +591,7 @@ test('removing yourself updates project caches and returns to the projects list'
   removeMember.mockResolvedValue({ success: true });
   getFullOrganization.mockRejectedValue(new Error('Forbidden'));
   const fixture = TestBed.createComponent(ProjectPage);
-  fixture.componentRef.setInput('projectId', project.id);
+  fixture.componentRef.setInput('projectSlug', project.previewSlug);
   await fixture.whenStable();
   await fixture.componentInstance.removeMember('member-id');
   expect(removeMember).toHaveBeenCalledWith({

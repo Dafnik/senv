@@ -10,6 +10,21 @@ import { sendProjectInvitation } from '../../utils/email';
 import { invitationExpiresIn } from '../../utils/project-options';
 import { projectRoleNames } from '../../../shared/project-permissions';
 import { projectNameMaxLength } from '../../../shared/validation';
+import { projectDeploymentSettings } from '../../../../../drizzle/schema';
+import { customAlphabet } from 'nanoid';
+import { suggestUniquePreviewSlug } from '../../utils/project-options';
+import { assertProjectAccess, updateProjectPreviewSlug } from '../../utils/deployments';
+import {
+  deploymentSettingsSchema,
+  projectRuntimeUpdateSchema,
+  isValidPreviewHostname,
+} from '../../../shared/deployments';
+import {
+  getProjectDeploymentSettings,
+  getProjectRuntime,
+  updateProjectRuntime,
+  updateProjectDeploymentSettings,
+} from '../../utils/deployments';
 import { authedProcedure, router } from '../trpc';
 
 function access(projectId: string, actor: { id: string; role?: string | null }, manage = false) {
@@ -26,8 +41,91 @@ function access(projectId: string, actor: { id: string; role?: string | null }, 
 }
 const projectInput = z.object({ projectId: z.string().min(1) });
 const roleInput = z.enum(projectRoleNames);
+const newProjectId = customAlphabet('acdefghjkmnpqrtuvwxy34679', 21);
+function validatePreviewSlug(value: unknown, name: string) {
+  const candidate = value === undefined ? suggestUniquePreviewSlug(name) : value;
+  if (typeof candidate !== 'string' || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(candidate))
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message:
+        'Preview slugs must be lowercase DNS labels with letters, digits, and internal hyphens.',
+    });
+  let slug: string = candidate;
+  if (
+    value !== undefined &&
+    db.select().from(organization).where(eq(organization.previewSlug, slug)).get()
+  ) {
+    throw new TRPCError({ code: 'CONFLICT', message: 'That preview slug is already in use.' });
+  }
+  if (
+    !isValidPreviewHostname(
+      slug,
+      'a'.repeat(63),
+      process.env['PREVIEW_BASE_DOMAIN'] ?? 'preview.localhost',
+    )
+  )
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message:
+        'The configured preview domain leaves no room for valid deployment, branch, and tag labels.',
+    });
+  return slug;
+}
+
+function projectDetail(project: typeof organization.$inferSelect) {
+  const members = db
+    .select({
+      id: member.id,
+      userId: member.userId,
+      role: member.role,
+      createdAt: member.createdAt,
+      invitedById: member.invitedById,
+      invitedByName: member.invitedByName,
+      user: { id: user.id, name: user.name, email: user.email, image: user.image },
+    })
+    .from(member)
+    .innerJoin(user, eq(user.id, member.userId))
+    .where(eq(member.organizationId, project.id))
+    .all();
+  return { ...project, members };
+}
 
 export const projectsRouter = router({
+  suggestPreviewSlug: authedProcedure
+    .input(z.object({ name: z.string().trim().min(1).max(projectNameMaxLength) }))
+    .query(({ input }) => ({ previewSlug: suggestUniquePreviewSlug(input.name) })),
+  create: authedProcedure
+    .input(
+      z.object({
+        name: z.string().trim().min(1).max(projectNameMaxLength),
+        previewSlug: z.string().optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => {
+      const projectId = newProjectId();
+      const previewSlug = validatePreviewSlug(input.previewSlug, input.name);
+      const created = db.transaction((tx) => {
+        const project = tx
+          .insert(organization)
+          .values({ id: projectId, name: input.name, slug: projectId, previewSlug })
+          .returning()
+          .get()!;
+        tx.insert(member)
+          .values({
+            id: randomUUID(),
+            organizationId: projectId,
+            userId: ctx.user.id,
+            role: 'admin',
+          })
+          .run();
+        const defaults = deploymentSettingsSchema.parse({});
+        tx.insert(projectDeploymentSettings)
+          .values({ projectId, ...defaults, repository: null })
+          .run();
+        return project;
+      });
+      return created;
+    }),
   list: authedProcedure
     .input(
       z.object({
@@ -37,7 +135,12 @@ export const projectsRouter = router({
     )
     .query(({ ctx, input }) => {
       const rows = db
-        .select({ id: organization.id, name: organization.name, createdAt: organization.createdAt })
+        .select({
+          id: organization.id,
+          name: organization.name,
+          previewSlug: organization.previewSlug,
+          createdAt: organization.createdAt,
+        })
         .from(organization)
         .where(
           and(
@@ -80,22 +183,69 @@ export const projectsRouter = router({
     }),
   detail: authedProcedure.input(projectInput).query(({ ctx, input }) => {
     const project = access(input.projectId, ctx.user);
-    const members = db
-      .select({
-        id: member.id,
-        userId: member.userId,
-        role: member.role,
-        createdAt: member.createdAt,
-        invitedById: member.invitedById,
-        invitedByName: member.invitedByName,
-        user: { id: user.id, name: user.name, email: user.email, image: user.image },
-      })
-      .from(member)
-      .innerJoin(user, eq(user.id, member.userId))
-      .where(eq(member.organizationId, input.projectId))
-      .all();
-    return { ...project, members };
+    return projectDetail(project);
   }),
+  bySlug: authedProcedure
+    .input(z.object({ projectSlug: z.string().min(1).max(63) }))
+    .query(({ ctx, input }) => {
+      const project = db
+        .select()
+        .from(organization)
+        .where(eq(organization.previewSlug, input.projectSlug))
+        .get();
+      if (!project)
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Project not found. Its slug may have changed.',
+        });
+      return projectDetail(access(project.id, ctx.user));
+    }),
+  updatePreviewSlug: authedProcedure
+    .input(projectInput.extend({ previewSlug: z.string().min(1).max(63) }))
+    .mutation(async ({ ctx, input }) => {
+      assertProjectAccess(input.projectId, ctx.user, false, true);
+      return updateProjectPreviewSlug(input.projectId, input.previewSlug);
+    }),
+  runtime: authedProcedure.input(projectInput).query(({ ctx, input }) => {
+    assertProjectAccess(input.projectId, ctx.user, true);
+    return getProjectRuntime(input.projectId);
+  }),
+  updateRuntime: authedProcedure
+    .input(projectInput.extend({ runtime: projectRuntimeUpdateSchema }))
+    .mutation(({ ctx, input }) => {
+      assertProjectAccess(input.projectId, ctx.user, true);
+      return updateProjectRuntime(input.projectId, input.runtime);
+    }),
+  deploymentSettings: authedProcedure.input(projectInput).query(({ ctx, input }) => {
+    assertProjectAccess(input.projectId, ctx.user);
+    return {
+      ...getProjectDeploymentSettings(input.projectId),
+      baseDomain: process.env['PREVIEW_BASE_DOMAIN'] ?? 'preview.localhost',
+    };
+  }),
+  updateDeploymentSettings: authedProcedure
+    .input(projectInput.extend({ settings: deploymentSettingsSchema }))
+    .mutation(({ ctx, input }) => {
+      assertProjectAccess(input.projectId, ctx.user, true);
+      const membership = db
+        .select()
+        .from(member)
+        .where(and(eq(member.organizationId, input.projectId), eq(member.userId, ctx.user.id)))
+        .get();
+      const previous = getProjectDeploymentSettings(input.projectId);
+      const canChangeAdminOnly = ctx.user.role === 'admin' || membership?.role === 'admin';
+      return updateProjectDeploymentSettings(
+        input.projectId,
+        canChangeAdminOnly
+          ? input.settings
+          : {
+              ...input.settings,
+              retentionDays: previous.retentionDays,
+              originCpus: previous.originCpus,
+              originMemoryBytes: previous.originMemoryBytes,
+            },
+      );
+    }),
   rename: authedProcedure
     .input(projectInput.extend({ name: z.string().trim().min(1).max(projectNameMaxLength) }))
     .mutation(async ({ ctx, input }) => {

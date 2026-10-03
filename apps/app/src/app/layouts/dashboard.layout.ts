@@ -8,7 +8,12 @@ import {
   RouterOutlet,
 } from '@angular/router';
 import { NgIcon, provideIcons } from '@ng-icons/core';
-import { lucideFolder, lucidePanda, lucideUsers2 } from '@ng-icons/lucide';
+import {
+  lucideFolder,
+  lucidePanda,
+  lucideUsers2,
+  lucideSettings2,
+} from '@ng-icons/lucide';
 import { HlmSidebarImports } from '@spartan-ng/helm/sidebar';
 import { filter, map } from 'rxjs';
 import { AuthState } from '../auth/auth-state';
@@ -31,6 +36,7 @@ import { ImpersonationBanner } from './impersonation-banner';
       lucideFolder,
       lucidePanda,
       lucideUsers2,
+      lucideSettings2,
     }),
   ],
   template: `
@@ -78,6 +84,14 @@ import { ImpersonationBanner } from './impersonation-banner';
                     <ng-icon name="lucideUsers2" />
                     Users
                   </a>
+                </li>
+                <li hlmSidebarMenuItem>
+                  <a
+                    hlmSidebarMenuButton
+                    routerLink="/admin/deployment-defaults"
+                    [isActive]="currentPath() === '/admin/deployment-defaults'"
+                    ><ng-icon name="lucideSettings2" />Deployment defaults</a
+                  >
                 </li>
               </ul>
             </hlm-sidebar-group>

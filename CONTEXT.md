@@ -19,7 +19,7 @@ A named workspace with members and a permanent identity.
 _Avoid_: Organization
 
 **Project slug**:
-A readable, editable project name used in preview addresses. Changing it retires the old addresses immediately and allows reuse of the old slug without changing the project's identity.
+A readable, editable project name used in preview addresses and senv project, deployment, and log routes. Changing it retires the old links immediately and allows reuse of the old slug without changing the project's identity.
 _Avoid_: Project ID, display name, internal organization slug
 
 **Project member**:
@@ -51,6 +51,10 @@ _Avoid_: Signup email
 A publication of fixed application content within a project, with its own identity and preview address. Publishing the same source revision again creates another deployment.
 _Avoid_: Project
 
+**Deployment ID**:
+A permanent, six-character readable lowercase identifier without a prefix, used in a deployment's preview address. Existing deployments retain their earlier identifiers and addresses.
+_Avoid_: Project ID, deployment tag
+
 **Static deployment**:
 A deployment of built website files supplied as a directory or archive.
 _Avoid_: Static environment
@@ -59,9 +63,9 @@ _Avoid_: Static environment
 A deployment of a container image that contains a web application.
 _Avoid_: Database environment
 
-**Deployment lifetime**:
-The intended period for which a deployment remains available, either short-lived or long-lived.
-_Avoid_: Deployment type
+**Pinned deployment**:
+A deployment explicitly protected from automatic timed cleanup until it is unpinned. Unpinning starts a new retention period if no branch or tag protects it.
+_Avoid_: Deployment lifetime, long-lived deployment
 
 **Project resource limits**:
 Admin-controlled CPU and memory defaults applied independently to each new deployment's origin container. Each deployment retains its captured limits when the project defaults change.
@@ -74,6 +78,10 @@ _Avoid_: Pooled project budget
 **Project proxy settings**:
 The project's reverse-proxy, compression, and cache defaults managed by developers and admins and captured by each new deployment's proxy. Changes affect future deployments rather than modifying existing ones.
 _Avoid_: Instance proxy policy, live deployment edits
+
+**Client-side routing fallback**:
+A project setting that serves `index.html` when a static-site request does not match a file. New static deployments capture the setting at publication.
+_Avoid_: Per-deployment routing override
 
 **Project health settings**:
 The project's HTTP probe path, startup deadline, polling interval, probe timeout, and unhealthy threshold captured by new deployments. They are configured at project level rather than independently for a deployment.
@@ -92,7 +100,7 @@ A project-scoped credential that developers and admins can reuse when selecting 
 _Avoid_: Deployment tag, instance-wide credential
 
 **Stateless web deployment**:
-A static or container deployment whose persistent application data is not managed by senv. It can be short-lived or long-lived.
+A static or container deployment whose persistent application data is not managed by senv. It can be pinned or unpinned.
 _Avoid_: Stateless environment, temporary deployment
 
 **Stateful environment**:
@@ -102,6 +110,10 @@ _Avoid_: Long-lived deployment
 **Deployment artifact**:
 The fixed prebuilt website files or container image content supplied for a deployment.
 _Avoid_: Source repository
+
+**Project runtime settings**:
+The project's environment variables and runtime secrets, captured by each new deployment. Changes affect future publications. Secret values are never returned after saving.
+_Avoid_: Per-deployment runtime overrides
 
 **Deployment configuration**:
 The fixed runtime settings captured for a publication, including environment values, secrets, HTTP port, health check, SPA behavior, resource limits, and project proxy settings. Changing these settings requires a new deployment.
@@ -136,7 +148,7 @@ The project-configured time after which an unprotected deployment becomes eligib
 _Avoid_: Environment lifetime
 
 **Cleanup protection**:
-Exemption from automatic timed cleanup because a deployment is current for a branch or carries a deployment tag. Losing the final protection starts a fresh retention period.
+Exemption from automatic timed cleanup because a deployment is pinned, current for a branch, or carries a deployment tag. Losing the final protection starts a fresh retention period.
 _Avoid_: Permanent retention
 
 **Standalone deployment**:
