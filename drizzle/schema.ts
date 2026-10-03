@@ -2,6 +2,9 @@ import { sql } from 'drizzle-orm';
 import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import type {
   DeploymentActor,
+  DeploymentKind,
+  DeploymentStatus,
+  DeploymentLifetime,
   DeploymentHealth,
   DeploymentProxy,
   DeploymentSnapshot,
@@ -136,7 +139,7 @@ export const deploymentArtifact = sqliteTable('deploymentArtifact', {
   projectId: text('projectId')
     .notNull()
     .references(() => organization.id, { onDelete: 'cascade' }),
-  kind: text('kind').notNull(),
+  kind: text('kind').$type<DeploymentKind>().notNull(),
   storageKey: text('storageKey').notNull(),
   sha256: text('sha256').notNull(),
   size: integer('size').notNull(),
@@ -154,10 +157,10 @@ export const deployment = sqliteTable(
     artifactId: text('artifactId').references(() => deploymentArtifact.id, {
       onDelete: 'set null',
     }),
-    kind: text('kind').notNull(),
-    status: text('status').notNull().default('queued'),
-    desiredState: text('desiredState').notNull().default('running'),
-    lifetime: text('lifetime').notNull(),
+    kind: text('kind').$type<DeploymentKind>().notNull(),
+    status: text('status').$type<DeploymentStatus>().notNull().default('queued'),
+    desiredState: text('desiredState').$type<'running' | 'stopped'>().notNull().default('running'),
+    lifetime: text('lifetime').$type<DeploymentLifetime>().notNull(),
     submittedAt: integer('submittedAt', { mode: 'timestamp_ms' }).notNull(),
     submissionOrder: integer('submissionOrder').notNull(),
     readyAt: integer('readyAt', { mode: 'timestamp_ms' }),

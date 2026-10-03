@@ -13,7 +13,8 @@ import { projectNameMaxLength } from '../../../shared/validation';
 import { projectDeploymentSettings } from '../../../../../drizzle/schema';
 import { customAlphabet } from 'nanoid';
 import { suggestUniquePreviewSlug } from '../../utils/project-options';
-import { assertProjectAccess, updateProjectPreviewSlug } from '../../utils/deployments';
+import { assertProjectAccess } from '../../utils/project-access';
+import { updateProjectPreviewSlug } from '../../utils/deployments';
 import {
   deploymentSettingsSchema,
   projectRuntimeUpdateSchema,
@@ -24,21 +25,9 @@ import {
   getProjectRuntime,
   updateProjectRuntime,
   updateProjectDeploymentSettings,
-} from '../../utils/deployments';
+} from '../../utils/project-deployment-settings';
 import { authedProcedure, router } from '../trpc';
 
-function access(projectId: string, actor: { id: string; role?: string | null }, manage = false) {
-  const project = db.select().from(organization).where(eq(organization.id, projectId)).get();
-  if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found.' });
-  const membership = db
-    .select()
-    .from(member)
-    .where(and(eq(member.organizationId, projectId), eq(member.userId, actor.id)))
-    .get();
-  if (actor.role !== 'admin' && (!membership || (manage && membership.role !== 'admin')))
-    throw new TRPCError({ code: 'FORBIDDEN' });
-  return project;
-}
 const projectInput = z.object({ projectId: z.string().min(1) });
 const roleInput = z.enum(projectRoleNames);
 const newProjectId = customAlphabet('acdefghjkmnpqrtuvwxy34679', 21);
@@ -182,7 +171,7 @@ export const projectsRouter = router({
       };
     }),
   detail: authedProcedure.input(projectInput).query(({ ctx, input }) => {
-    const project = access(input.projectId, ctx.user);
+    const project = assertProjectAccess(input.projectId, ctx.user);
     return projectDetail(project);
   }),
   bySlug: authedProcedure
@@ -198,7 +187,7 @@ export const projectsRouter = router({
           code: 'NOT_FOUND',
           message: 'Project not found. Its slug may have changed.',
         });
-      return projectDetail(access(project.id, ctx.user));
+      return projectDetail(assertProjectAccess(project.id, ctx.user));
     }),
   updatePreviewSlug: authedProcedure
     .input(projectInput.extend({ previewSlug: z.string().min(1).max(63) }))
@@ -207,7 +196,7 @@ export const projectsRouter = router({
       return updateProjectPreviewSlug(input.projectId, input.previewSlug);
     }),
   runtime: authedProcedure.input(projectInput).query(({ ctx, input }) => {
-    assertProjectAccess(input.projectId, ctx.user, true);
+    assertProjectAccess(input.projectId, ctx.user);
     return getProjectRuntime(input.projectId);
   }),
   updateRuntime: authedProcedure
@@ -249,7 +238,7 @@ export const projectsRouter = router({
   rename: authedProcedure
     .input(projectInput.extend({ name: z.string().trim().min(1).max(projectNameMaxLength) }))
     .mutation(async ({ ctx, input }) => {
-      access(input.projectId, ctx.user, true);
+      assertProjectAccess(input.projectId, ctx.user, false, true);
       if (ctx.user.role !== 'admin')
         return auth.api.updateOrganization({
           headers: ctx.req.headers,
@@ -265,7 +254,7 @@ export const projectsRouter = router({
   changeMemberRole: authedProcedure
     .input(projectInput.extend({ memberId: z.string().min(1), role: roleInput }))
     .mutation(async ({ ctx, input }) => {
-      access(input.projectId, ctx.user, true);
+      assertProjectAccess(input.projectId, ctx.user, false, true);
       if (ctx.user.role !== 'admin')
         return auth.api.updateMemberRole({
           headers: ctx.req.headers,
@@ -284,7 +273,7 @@ export const projectsRouter = router({
   removeMember: authedProcedure
     .input(projectInput.extend({ memberId: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      access(input.projectId, ctx.user, true);
+      assertProjectAccess(input.projectId, ctx.user, false, true);
       const target = db
         .select()
         .from(member)
@@ -310,7 +299,7 @@ export const projectsRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const project = access(input.projectId, ctx.user, true);
+      const project = assertProjectAccess(input.projectId, ctx.user, false, true);
       if (ctx.user.role !== 'admin')
         return auth.api.createInvitation({
           headers: ctx.req.headers,
@@ -375,7 +364,7 @@ export const projectsRouter = router({
   cancelInvitation: authedProcedure
     .input(projectInput.extend({ invitationId: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      access(input.projectId, ctx.user, true);
+      assertProjectAccess(input.projectId, ctx.user, false, true);
       const saved = db
         .select()
         .from(invitation)
@@ -440,7 +429,7 @@ export const projectsRouter = router({
       }),
     )
     .query(({ ctx, input }) => {
-      access(input.projectId, ctx.user, true);
+      assertProjectAccess(input.projectId, ctx.user, false, true);
 
       const filter = and(
         eq(invitation.organizationId, input.projectId),

@@ -165,8 +165,14 @@ const deploymentData = {
 afterEach(() => {
   queries?.clear();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 test('project section URLs support direct links and the base URL redirects to Deployments', async () => {
+  const settingsSpy = vi.spyOn(deploymentData, 'settings');
+  const credentialsSpy = vi.spyOn(deploymentData, 'credentials');
+  const listSpy = vi.spyOn(deploymentData, 'list');
+  const historySpy = vi.spyOn(deploymentData, 'history');
+
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -255,6 +261,10 @@ test('project section URLs support direct links and the base URL redirects to De
   await harness.navigateByUrl('/projects/project-preview/members', ProjectPage);
   expect(TestBed.inject(Router).url).toBe('/projects/project-preview/members');
 
+  settingsSpy.mockClear();
+  credentialsSpy.mockClear();
+  listSpy.mockClear();
+  historySpy.mockClear();
   const details = await harness.navigateByUrl(
     '/projects/project-preview/deployments/acf379',
     DeploymentDetail,
@@ -271,6 +281,13 @@ test('project section URLs support direct links and the base URL redirects to De
     'project-id',
     'acf379',
   );
+  expect(settingsSpy).not.toHaveBeenCalled();
+  expect(credentialsSpy).not.toHaveBeenCalled();
+  expect(listSpy).not.toHaveBeenCalled();
+  expect(historySpy).not.toHaveBeenCalled();
+  expect(
+    harness.routeNativeElement?.querySelector('#publish-deployment-card'),
+  ).toBeNull();
   expect(harness.routeNativeElement?.textContent).toContain('Health checks');
   expect(harness.routeNativeElement?.textContent).toContain('Ada');
   expect(

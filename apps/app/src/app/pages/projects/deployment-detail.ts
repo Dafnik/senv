@@ -17,7 +17,7 @@ import { ProjectsData } from '../../queries/projects';
 import { DeploymentsData } from '../../queries/deployments';
 import { Breadcrumbs, type BreadcrumbItem } from '../../ui/breadcrumbs';
 import { DeploymentLogs } from './deployment-logs';
-import { ProjectDeployments } from './project-deployments/project-deployments';
+import { DeploymentView } from './deployment-view';
 
 @Component({
   selector: 'app-deployment-detail',
@@ -29,7 +29,7 @@ import { ProjectDeployments } from './project-deployments/project-deployments';
     HlmSpinnerImports,
     Breadcrumbs,
     DeploymentLogs,
-    ProjectDeployments,
+    DeploymentView,
   ],
   providers: [provideIcons({ lucideCopy, lucideLink })],
   template: `
@@ -153,13 +153,13 @@ import { ProjectDeployments } from './project-deployments/project-deployments';
             [source]="source()"
           />
         } @else {
-          <app-project-deployments
+          <app-deployment-view
             [projectId]="deployment.projectId"
             [previewSlug]="projectSlug()"
             [canManage]="canManage()"
             [isAdmin]="isAdmin()"
             [detailDeployment]="deployment"
-            [detailHistory]="deployment.history"
+            [history]="deployment.history"
           />
         }
       }

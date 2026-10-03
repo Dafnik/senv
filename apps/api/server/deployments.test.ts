@@ -168,9 +168,7 @@ test('authenticated API enforces viewer/developer/admin capabilities and redacts
       settings: deploymentSettingsSchema.parse({}),
     }),
   ).rejects.toMatchObject({ code: 'FORBIDDEN' });
-  await expect(viewer.api.projects.runtime({ projectId })).rejects.toMatchObject({
-    code: 'FORBIDDEN',
-  });
+  expect(await viewer.api.projects.runtime({ projectId })).toEqual({ env: {}, secretNames: [] });
   await expect(
     viewer.api.projects.updateRuntime({ projectId, runtime: { env: {}, secrets: {} } }),
   ).rejects.toMatchObject({ code: 'FORBIDDEN' });
@@ -179,6 +177,8 @@ test('authenticated API enforces viewer/developer/admin capabilities and redacts
     runtime: { env: { MODE: 'preview' }, secrets: { TOKEN: 'hidden' } },
   });
   expect(runtime).toEqual({ env: { MODE: 'preview' }, secretNames: ['TOKEN'] });
+  expect(await viewer.api.projects.runtime({ projectId })).toEqual(runtime);
+  expect(JSON.stringify(await viewer.api.projects.runtime({ projectId }))).not.toContain('hidden');
   await expect(
     developer.api.projects.updatePreviewSlug({ projectId, previewSlug: 'changed' }),
   ).rejects.toMatchObject({ code: 'FORBIDDEN' });

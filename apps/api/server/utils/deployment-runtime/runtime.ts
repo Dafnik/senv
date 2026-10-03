@@ -1,43 +1,18 @@
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { StringDecoder } from 'node:string_decoder';
 import { DockerEngine } from '../docker-engine';
-import { createNginxConfig, type ProxySettings } from './nginx-config';
+import { createNginxConfig } from './nginx-config';
 import { ArtifactStore } from './artifacts';
 import { deploymentStorageRoot } from '../deployment-storage';
 import { withArtifactStorageLock } from '../deployment-storage-lock';
 import { PreviewRoutePublisher, containerName, type PreviewRouteTargets } from './preview-routes';
 import { writeTarFromDirectory } from './tar';
+import { collectDockerLogs, dockerStreamText } from './docker-logs';
 
-export type RuntimeConfig = {
-  id: string;
-  projectId: string;
-  kind: 'static' | 'container';
-  artifactId: string | null;
-  imageDigest?: string | null;
-  port: number;
-  env: Record<string, string>;
-  secrets: Record<string, string>;
-  registryAuth?: { serverAddress: string; username: string; password: string };
-  health: {
-    path: string;
-    startupDeadlineSeconds: number;
-    intervalSeconds: number;
-    timeoutSeconds: number;
-    unhealthyThreshold: number;
-  };
-  spaFallback: boolean;
-  proxy: ProxySettings;
-  limits: {
-    origin: { cpus: string; memoryBytes: number };
-    proxy: { cpus: string; memoryBytes: number };
-  };
-  logs?: { files: number; fileSizeBytes: number };
-  desiredState: 'running' | 'stopped';
-  status: string;
-  submittedAt: Date;
-};
+import type { RuntimeConfig, RuntimeServices } from './contracts';
+export type { RuntimeConfig, RuntimeServices } from './contracts';
+
 type EngineContainer = {
   Id: string;
   Names: string[];
@@ -51,12 +26,9 @@ type ContainerInspect = {
   Config?: { Image?: string; Labels?: Record<string, string> };
   NetworkSettings?: { Networks?: Record<string, { IPAddress?: string }> };
 };
-export type RuntimeServices = typeof import('../deployments');
 
 const DEFAULT_LOG_BYTES = 10 * 1024 * 1024;
 const DEFAULT_LOG_FILES = 3;
-const MAX_LOG_FRAGMENT_CHARS = 8_000; // At most 32 KiB of UTF-8, even for four-byte code points.
-const MAX_LOG_BATCH_BYTES = 32 * 1024;
 
 export type RuntimeOptions = {
   engine?: DockerEngine;
@@ -202,27 +174,15 @@ export class DeploymentRuntime {
     if (!this.#services || this.#reconciling) return;
     this.#reconciling = true;
     try {
-      let networkError: unknown;
-      try {
-        await this.routes.ensureNetwork();
-      } catch (error) {
-        networkError = error;
-      }
+      // A host outage is retryable infrastructure failure, not a failed publication.
+      await this.routes.ensureNetwork();
       await this.#services.cleanupDueDeployments();
-      const configs = (this.#services.listDeploymentRuntimeConfigs() as RuntimeConfig[]).filter(
-        Boolean,
-      );
+      const configs = this.#services.listDeploymentRuntimeConfigs();
       await Promise.allSettled(
-        configs.map((config) =>
-          this.#withLock(config.id, () =>
-            networkError ? Promise.reject(networkError) : this.#reconcileOne(config),
-          ),
-        ),
+        configs.map((config) => this.#withLock(config.id, () => this.#reconcileOne(config))),
       );
-      if (!networkError) {
-        await this.#removeOrphanContainers(new Set(configs.map((config) => config.id)));
-        await this.#removeUnreferencedArtifacts(configs);
-      }
+      await this.#removeOrphanContainers(new Set(configs.map((config) => config.id)));
+      await this.#removeUnreferencedArtifacts(configs);
       await this.refreshPreviewRoutes();
     } finally {
       this.#reconciling = false;
@@ -230,7 +190,7 @@ export class DeploymentRuntime {
   }
 
   async #reconcileOne(config: RuntimeConfig): Promise<void> {
-    const current = this.#services?.getDeploymentRuntimeConfig(config.id) as RuntimeConfig | null;
+    const current = this.#services?.getDeploymentRuntimeConfig(config.id);
     if (!current || this.#removing.has(config.id)) return;
     config = current;
     if (config.desiredState === 'stopped') {
@@ -260,16 +220,13 @@ export class DeploymentRuntime {
     } else if (!origin.State.Running || !proxy.State.Running) {
       if (!(await this.#start(config))) return;
     }
-    const latest = this.#services?.getDeploymentRuntimeConfig(config.id) as RuntimeConfig | null;
+    const latest = this.#services?.getDeploymentRuntimeConfig(config.id);
     if (!latest || latest.desiredState !== 'running' || this.#removing.has(config.id)) return;
     await this.#probe(latest, originName, proxyName);
   }
 
   async #start(config: RuntimeConfig): Promise<RuntimeConfig | null> {
-    const started = (await this.#services?.markDeploymentStarting(config.id)) as
-      | RuntimeConfig
-      | null
-      | undefined;
+    const started = await this.#services?.markDeploymentStarting(config.id);
     if (!started || started.desiredState !== 'running' || this.#removing.has(config.id))
       return null;
     config = started;
@@ -536,7 +493,7 @@ export class DeploymentRuntime {
   }
 
   async #probe(config: RuntimeConfig, originName: string, proxyName: string): Promise<void> {
-    const current = this.#services?.getDeploymentRuntimeConfig(config.id) as RuntimeConfig | null;
+    const current = this.#services?.getDeploymentRuntimeConfig(config.id);
     if (!current || current.desiredState !== 'running' || this.#removing.has(config.id)) return;
     config = current;
     const now = Date.now();
@@ -789,7 +746,7 @@ export class DeploymentRuntime {
     if (!this.#services || this.#collectingLogs) return;
     this.#collectingLogs = true;
     try {
-      const configs = this.#services.listDeploymentRuntimeConfigs() as RuntimeConfig[];
+      const configs = this.#services.listDeploymentRuntimeConfigs();
       for (const config of configs) {
         if (this.#removing.has(config.id)) continue;
         if (['deleted', 'cleaned'].includes(config.status)) continue;
@@ -810,62 +767,23 @@ export class DeploymentRuntime {
           if (!response) continue;
           const seen = this.#seenLogRows.get(key) ?? new Set<string>();
           let latest = since ?? 0;
-          let pending = '';
-          let fragmentIndex = 0;
-          let batch: string[] = [];
-          let batchBytes = 0;
-          const append = () => {
-            if (batch.length) this.#services?.appendDeploymentLog(config.id, role, batch.join(''));
-            batch = [];
-            batchBytes = 0;
-          };
-          const consumeLine = (line: string, ending = '', fragment = 0) => {
-            if (!line) return;
-            const timestamp = line.match(/^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z)/)?.[1];
-            const unix = timestamp ? Date.parse(timestamp) / 1000 : 0;
-            const fingerprint = createHash('sha256')
-              .update(String(fragment))
-              .update('\0')
-              .update(line)
-              .digest('hex');
-            if (seen.has(fingerprint)) return;
-            seen.add(fingerprint);
-            if (seen.size > 50_000) seen.delete(seen.values().next().value!);
-            let offset = 0;
-            for (const part of utf8Fragments(line)) {
-              batch.push(part);
-              batchBytes += Buffer.byteLength(part);
-              offset += part.length;
-              if (batchBytes >= MAX_LOG_BATCH_BYTES) append();
-            }
-            if (ending) {
-              batch.push(ending);
-              batchBytes += Buffer.byteLength(ending);
-            }
-            latest = Math.max(latest, unix);
-          };
-          for await (const chunk of dockerStreamTextChunks(response)) {
-            pending += chunk;
-            while (pending) {
-              const newline = pending.indexOf('\n');
-              if (newline >= 0 && newline < MAX_LOG_FRAGMENT_CHARS) {
-                const hasCarriageReturn = newline > 0 && pending[newline - 1] === '\r';
-                const line = pending.slice(0, hasCarriageReturn ? newline - 1 : newline);
-                consumeLine(line, hasCarriageReturn ? '\r\n' : '\n', fragmentIndex);
-                fragmentIndex = 0;
-                pending = pending.slice(newline + 1);
-              } else if (
-                pending.length >= MAX_LOG_FRAGMENT_CHARS ||
-                (newline >= 0 && newline >= MAX_LOG_FRAGMENT_CHARS)
-              ) {
-                const fragment = takeUtf8Prefix(pending, MAX_LOG_FRAGMENT_CHARS);
-                consumeLine(fragment, '', fragmentIndex++);
-                pending = pending.slice(fragment.length);
-              } else break;
-            }
-          }
-          consumeLine(pending, '', fragmentIndex);
-          append();
+          await collectDockerLogs(
+            response,
+            (content) => this.#services?.appendDeploymentLog(config.id, role, content),
+            ({ content, index }) => {
+              const fingerprint = createHash('sha256')
+                .update(String(index))
+                .update('\0')
+                .update(content)
+                .digest('hex');
+              if (seen.has(fingerprint)) return false;
+              seen.add(fingerprint);
+              if (seen.size > 50_000) seen.delete(seen.values().next().value!);
+              const timestamp = content.match(/^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z)/)?.[1];
+              if (timestamp) latest = Math.max(latest, Date.parse(timestamp) / 1000);
+              return true;
+            },
+          );
           this.#seenLogRows.set(key, seen);
           if (latest > (since ?? 0)) {
             this.#logSince.set(key, latest);
@@ -891,47 +809,9 @@ export class DeploymentRuntime {
       )
       .catch(() => null);
     if (!response) return;
-    let pending = '';
-    let batch: string[] = [];
-    let bytes = 0;
-    const append = () => {
-      if (batch.length) this.#services?.appendDeploymentLog(deploymentId, source, batch.join(''));
-      batch = [];
-      bytes = 0;
-    };
-    const consumeLine = (line: string, ending = '') => {
-      if (!line) return;
-      for (const part of utf8Fragments(line)) {
-        batch.push(part);
-        bytes += Buffer.byteLength(part);
-        if (bytes >= MAX_LOG_BATCH_BYTES) append();
-      }
-      if (ending) {
-        batch.push(ending);
-        bytes += Buffer.byteLength(ending);
-      }
-    };
-    for await (const chunk of dockerStreamTextChunks(response)) {
-      pending += chunk;
-      while (pending) {
-        const newline = pending.indexOf('\n');
-        if (newline >= 0 && newline < MAX_LOG_FRAGMENT_CHARS) {
-          const hasCarriageReturn = newline > 0 && pending[newline - 1] === '\r';
-          const line = pending.slice(0, hasCarriageReturn ? newline - 1 : newline);
-          consumeLine(line, hasCarriageReturn ? '\r\n' : '\n');
-          pending = pending.slice(newline + 1);
-        } else if (
-          pending.length >= MAX_LOG_FRAGMENT_CHARS ||
-          (newline >= 0 && newline >= MAX_LOG_FRAGMENT_CHARS)
-        ) {
-          const fragment = takeUtf8Prefix(pending, MAX_LOG_FRAGMENT_CHARS);
-          consumeLine(fragment);
-          pending = pending.slice(fragment.length);
-        } else break;
-      }
-    }
-    consumeLine(pending);
-    append();
+    await collectDockerLogs(response, (content) =>
+      this.#services?.appendDeploymentLog(deploymentId, source, content),
+    );
   }
 
   async #loadLogCursors(): Promise<void> {
@@ -967,7 +847,7 @@ export class DeploymentRuntime {
         await task();
       } catch (error) {
         console.error(`[deployment-runtime] deployment ${id} reconciliation failed`, error);
-        const config = this.#services?.getDeploymentRuntimeConfig(id) as RuntimeConfig | null;
+        const config = this.#services?.getDeploymentRuntimeConfig(id);
         if (config?.desiredState === 'running') {
           if (config.status === 'healthy' || config.status === 'unhealthy')
             await this.#services
@@ -997,92 +877,4 @@ export function createStaticOriginNginxConfig(port: number, root: string): strin
 function safeError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return message.slice(0, 4000).replace(/(password|token|secret)([=: ]+)\S+/gi, '$1$2[redacted]');
-}
-function dockerStreamText(buffer: Buffer): string {
-  // Docker's non-TTY stream multiplexing uses an 8-byte header per stdout/stderr frame.
-  let offset = 0;
-  const chunks: Buffer[] = [];
-  while (offset + 8 <= buffer.length) {
-    const stream = buffer[offset];
-    const length = buffer.readUInt32BE(offset + 4);
-    if (length > buffer.length - offset - 8 || ![0, 1, 2].includes(stream ?? -1)) break;
-    chunks.push(buffer.subarray(offset + 8, offset + 8 + length));
-    offset += 8 + length;
-  }
-  return (chunks.length ? Buffer.concat(chunks) : buffer).toString('utf8');
-}
-
-async function* dockerStreamTextChunks(stream: AsyncIterable<Uint8Array>): AsyncGenerator<string> {
-  let pending = Buffer.alloc(0);
-  let multiplexed: boolean | undefined;
-  const rawDecoder = new StringDecoder('utf8');
-  const frameDecoders = new Map<number, StringDecoder>();
-  for await (const raw of stream) {
-    pending = Buffer.concat([pending, Buffer.from(raw)]);
-    if (multiplexed === undefined && pending.length >= 8) {
-      multiplexed =
-        [0, 1, 2].includes(pending[0] ?? -1) &&
-        pending[1] === 0 &&
-        pending[2] === 0 &&
-        pending[3] === 0;
-      if (!multiplexed) {
-        yield* decodeDockerTextChunks(rawDecoder, pending);
-        pending = Buffer.alloc(0);
-      }
-    }
-    if (multiplexed === undefined) continue;
-    if (!multiplexed) {
-      if (pending.length) {
-        yield* decodeDockerTextChunks(rawDecoder, pending);
-        pending = Buffer.alloc(0);
-      }
-      continue;
-    }
-    while (pending.length >= 8) {
-      const size = pending.readUInt32BE(4);
-      if (size > 128 * 1024 * 1024) throw new Error('Docker log frame is too large.');
-      if (pending.length < 8 + size) break;
-      const channel = pending[0] ?? 1;
-      let decoder = frameDecoders.get(channel);
-      if (!decoder) {
-        decoder = new StringDecoder('utf8');
-        frameDecoders.set(channel, decoder);
-      }
-      yield* decodeDockerTextChunks(decoder, pending.subarray(8, 8 + size));
-      pending = pending.subarray(8 + size);
-    }
-  }
-  if (pending.length) {
-    if (multiplexed) throw new Error('Docker log stream ended inside a multiplex frame.');
-    yield* decodeDockerTextChunks(rawDecoder, pending);
-  }
-  for (const decoder of multiplexed ? frameDecoders.values() : [rawDecoder]) {
-    const final = decoder.end();
-    if (final) yield final;
-  }
-}
-
-function* decodeDockerTextChunks(decoder: StringDecoder, buffer: Buffer): Generator<string> {
-  const decoderChunkBytes = 32 * 1024;
-  for (let offset = 0; offset < buffer.length; offset += decoderChunkBytes) {
-    const decoded = decoder.write(
-      buffer.subarray(offset, Math.min(buffer.length, offset + decoderChunkBytes)),
-    );
-    if (decoded) yield decoded;
-  }
-}
-
-function* utf8Fragments(value: string): Generator<string> {
-  for (let offset = 0; offset < value.length;) {
-    let end = Math.min(value.length, offset + MAX_LOG_FRAGMENT_CHARS);
-    if (end < value.length && /[\uD800-\uDBFF]/.test(value[end - 1] ?? '')) end--;
-    yield value.slice(offset, end);
-    offset = end;
-  }
-}
-
-function takeUtf8Prefix(value: string, maxCodePoints: number): string {
-  let end = Math.min(value.length, maxCodePoints);
-  if (end < value.length && /[\uD800-\uDBFF]/.test(value[end - 1] ?? '')) end--;
-  return value.slice(0, end);
 }

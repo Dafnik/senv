@@ -24,6 +24,7 @@ class FakeDocker extends DockerEngine {
   readonly logPayloads: Buffer[] = [];
   readonly streamPaths: string[] = [];
   networkReady = false;
+  unavailable = false;
   probeStatuses: number[] = [];
   redirectProbe = false;
   createGate?: { entered: Promise<void>; release: () => void };
@@ -36,6 +37,7 @@ class FakeDocker extends DockerEngine {
     body?: unknown,
   ): Promise<DockerResponse<T>> {
     this.requests.push(`${method} ${path}`);
+    if (this.unavailable) throw new Error('Docker daemon is unavailable.');
     let value: unknown = {};
     if (path.startsWith('/networks?'))
       value = this.networkReady ? [{ Id: 'network-1', Name: 'senv-preview-test' }] : [];
@@ -197,7 +199,7 @@ function runtimeFixture(overrides: Partial<RuntimeConfig> = {}) {
     let removalHandler: ((id: string) => Promise<void>) | undefined;
     const artifact = {
       id: 'artifact',
-      kind: 'static',
+      kind: 'static' as const,
       storageKey: '0'.repeat(64),
       sha256: '0'.repeat(64),
       size: 5,
@@ -216,7 +218,7 @@ function runtimeFixture(overrides: Partial<RuntimeConfig> = {}) {
       }),
       cleanupDueDeployments: async () => 0,
       listDeploymentRuntimeConfigs: () => [config],
-      getDeploymentRuntimeConfig: () => (config.desiredState === 'stopped' ? config : config),
+      getDeploymentRuntimeConfig: () => config,
       markDeploymentStarting: async () => {
         if (
           config.desiredState !== 'running' ||
@@ -245,7 +247,7 @@ function runtimeFixture(overrides: Partial<RuntimeConfig> = {}) {
       forgetArtifactStorageKey: () => false,
       appendDeploymentLog: (_id: string, source: 'proxy' | 'origin', content: string) =>
         logRows.push({ source, content }),
-    } as unknown as RuntimeServices;
+    } satisfies RuntimeServices;
     const logRows: Array<{ source: 'proxy' | 'origin'; content: string }> = [];
     const runtime = new DeploymentRuntime({
       engine,
@@ -399,3 +401,21 @@ test('deletion waits for an in-flight start and prevents its containers from sur
     runtime.stop();
   }
 });
+
+for (const status of ['queued', 'starting'] as const) {
+  test(`retries ${status} deployments after a temporary Docker outage`, async () => {
+    const { runtime, engine, config, containers } = await runtimeFixture({ status });
+    engine.unavailable = true;
+    try {
+      await runtime.start();
+      expect(config.status).toBe(status);
+      expect(containers()).toHaveLength(0);
+      engine.unavailable = false;
+      await runtime.reconcile();
+      expect(config.status).toBe('healthy');
+      expect(containers()).toHaveLength(2);
+    } finally {
+      runtime.stop();
+    }
+  });
+}

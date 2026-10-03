@@ -21,7 +21,13 @@ import {
   submit,
   validate,
 } from '@angular/forms/signals';
-import type { DeploymentSettings } from '@senv/api/shared/deployments';
+import {
+  repositoryUrlSchema,
+  deploymentHealthSchema,
+  proxyRouteSchema,
+  cacheRuleSchema,
+  type DeploymentSettings,
+} from '@senv/api/shared/deployments';
 import { toast } from '@spartan-ng/brain/sonner';
 import { HlmBadgeImports } from '@spartan-ng/helm/badge';
 import { HlmButtonImports } from '@spartan-ng/helm/button';
@@ -705,30 +711,15 @@ export class ProjectDeploymentSettings {
   readonly model = signal<SettingsModel>(this.emptySettings());
   readonly settingsForm = form(this.model, (path) => {
     disabled(path.spaFallback, () => !this.canManage() || this.saving());
-    validate(path.repository, ({ value }) => {
-      if (!value().trim()) return null;
-      try {
-        const url = new URL(value());
-        const allowedProtocol =
-          ['https:', 'http:'].includes(url.protocol) ||
-          (url.protocol === 'ssh:' && url.username === 'git');
-        return allowedProtocol &&
-          !url.password &&
-          !url.search &&
-          !url.hash &&
-          url.toString().length <= 2048
-          ? null
-          : {
-              kind: 'repository',
-              message: 'Use an HTTP(S) repository URL or an SSH URL for git.',
-            };
-      } catch {
-        return {
-          kind: 'repository',
-          message: 'Enter a valid repository URL, or clear the field.',
-        };
-      }
-    });
+    validate(path.repository, ({ value }) =>
+      repositoryUrlSchema.safeParse(value().trim()).success
+        ? undefined
+        : {
+            kind: 'repository',
+            message:
+              'Use an HTTP(S) repository URL or SSH URL without credentials, queries, or fragments.',
+          },
+    );
     min(path.retentionDays, 1, {
       message: 'Retention must be at least one day.',
     });
@@ -742,9 +733,6 @@ export class ProjectDeploymentSettings {
     required(path.health.path, {
       message: 'Enter an absolute HTTP probe path.',
     });
-    pattern(path.health.path, /^\/[a-zA-Z0-9_~./-]*$/, {
-      message: 'Use an absolute path without query strings or fragments.',
-    });
     pattern(
       path.originCpus,
       /^(?:0\.0*[1-9]\d{0,2}|[1-9]\d{0,2}(?:\.\d{1,3})?)$/,
@@ -756,8 +744,8 @@ export class ProjectDeploymentSettings {
         : { kind: 'cpuLimit', message: 'CPU allowance cannot exceed 128.' },
     );
     validate(path.health.path, ({ value }) =>
-      /^\/(?!.*(?:^|\/)\.\.(?:\/|$))[^\s?#]*$/.test(value())
-        ? null
+      deploymentHealthSchema.shape.path.safeParse(value()).success
+        ? undefined
         : {
             kind: 'healthPath',
             message:
@@ -812,10 +800,7 @@ export class ProjectDeploymentSettings {
       required(route.target, { message: 'Enter an HTTP(S) destination.' });
       validate(route.path, ({ value, valueOf }) => {
         const routes = valueOf(path.proxy.routes);
-        if (
-          !/^\/(?!.*(?:^|\/)\.\.(?:\/|$))[^\s?#]*$/.test(value()) ||
-          value().includes('//')
-        )
+        if (!proxyRouteSchema.shape.path.safeParse(value()).success)
           return {
             kind: 'routePath',
             message: 'Use a normalized absolute path.',
@@ -827,33 +812,23 @@ export class ProjectDeploymentSettings {
             }
           : null;
       });
-      validate(route.target, ({ value }) => {
-        try {
-          const target = new URL(
-            value().includes('://') ? value() : `http://${value()}`,
-          );
-          const safePath = !target.pathname
-            .split('/')
-            .some((part) => part === '.' || part === '..');
-          return ['http:', 'https:'].includes(target.protocol) &&
-            !target.username &&
-            !target.password &&
-            !target.search &&
-            !target.hash &&
-            safePath
-            ? null
-            : {
-                kind: 'routeTarget',
-                message:
-                  'Use an HTTP(S) destination without credentials, query, fragments, or traversal paths.',
-              };
-        } catch {
-          return {
-            kind: 'routeTarget',
-            message: 'Enter a valid HTTP(S) destination.',
-          };
-        }
-      });
+      validate(route.target, ({ value }) =>
+        proxyRouteSchema.shape.target.safeParse(value()).success
+          ? undefined
+          : {
+              kind: 'routeTarget',
+              message:
+                'Use an HTTP(S) destination without credentials, query, fragments, or unsafe characters.',
+            },
+      );
+      validate(route.rewrite, ({ value }) =>
+        proxyRouteSchema.shape.rewrite.safeParse(value() || undefined).success
+          ? undefined
+          : {
+              kind: 'routeRewrite',
+              message: 'Enter an absolute rewrite path or leave it blank.',
+            },
+      );
       for (const duration of [
         route.connectTimeoutSeconds,
         route.readTimeoutSeconds,
@@ -889,11 +864,11 @@ export class ProjectDeploymentSettings {
       validate(rule.value, ({ value, valueOf }) => {
         const matcher = valueOf(rule.matcher);
         const rules = valueOf(path.proxy.cacheRules);
-        const valid =
-          matcher === 'path'
-            ? /^\/(?!.*(?:^|\/)\.\.(?:\/|$))[^\s?#]*$/.test(value()) &&
-              !value().includes('//')
-            : /^\.[A-Za-z0-9]+$/.test(value());
+        const valid = cacheRuleSchema.safeParse({
+          matcher,
+          value: value(),
+          durationSeconds: valueOf(rule.durationSeconds),
+        }).success;
         if (!valid)
           return {
             kind: 'cacheMatcher',

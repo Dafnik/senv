@@ -1,9 +1,11 @@
 import { provideRouter } from '@angular/router';
 import { signal } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideTanStackQuery, QueryClient } from '@tanstack/angular-query';
 import type { PublicDeployment } from '@senv/api/shared/deployments';
 import { afterEach, beforeEach, expect, test, vi } from 'vite-plus/test';
+import { By } from '@angular/platform-browser';
+import { DeploymentView } from '../deployment-view';
 import { AUTH_CLIENT } from '../../../auth/auth-client';
 import { DeploymentUpload } from '../../../queries/deployment-upload';
 import { DeploymentsData } from '../../../queries/deployments';
@@ -241,6 +243,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+function display(
+  fixture: ComponentFixture<ProjectDeployments>,
+): DeploymentView {
+  return fixture.debugElement.query(By.directive(DeploymentView))
+    .componentInstance;
+}
+
 test('viewers can inspect status, preview, configuration, and history without mutation controls', async () => {
   const fixture = createFixture(false);
   await fixture.whenStable();
@@ -254,7 +263,7 @@ test('viewers can inspect status, preview, configuration, and history without mu
   expect(fixture.nativeElement.textContent).toContain('deployment-old');
   expect(fixture.nativeElement.textContent).toContain('Ada');
   expect(fixture.nativeElement.textContent).toContain('user-123');
-  expect(fixture.componentInstance.branchUrl(deployments[0]!)).toBe(
+  expect(display(fixture).branchUrl(deployments[0]!)).toBe(
     'https://br-feature-ui-a1b2c3d4.project.preview.example.test',
   );
   expect(fixture.nativeElement.textContent.toLowerCase()).toContain(
@@ -514,7 +523,7 @@ test('switching sessions closes publishing and clears tags and details', async (
   await fixture.whenStable();
   const component = fixture.componentInstance;
   component.publishOpen.set(true);
-  component.tagDrafts.set({ 'deployment-a': 'prod' });
+  display(fixture).tagDrafts.set({ 'deployment-a': 'prod' });
 
   session.set({
     data: {
@@ -526,7 +535,7 @@ test('switching sessions closes publishing and clears tags and details', async (
   await fixture.whenStable();
 
   expect(component.publishOpen()).toBe(false);
-  expect(component.tagDrafts()).toEqual({});
+  expect(display(fixture).tagDrafts()).toEqual({});
 });
 
 test('upload failures stay visible and do not create a deployment', async () => {
@@ -553,7 +562,7 @@ test('upload failures stay visible and do not create a deployment', async () => 
 test('tag forms reject unsafe names and allow healthy deployments to assign a valid tag', async () => {
   const fixture = createFixture(true);
   await fixture.whenStable();
-  const component = fixture.componentInstance;
+  const component = display(fixture);
   component.tagDrafts.set({ 'deployment-a': 'dpl-release' });
   await component.assignTag(new Event('submit'), deployments[0] as never);
   expect(mock.assignTag).not.toHaveBeenCalled();
@@ -571,7 +580,7 @@ test('tag forms reject unsafe names and allow healthy deployments to assign a va
 test('pinning a deployment uses the project mutation and refreshes the list', async () => {
   const fixture = createFixture(true);
   await fixture.whenStable();
-  await fixture.componentInstance.setPinned(deployments[0]!);
+  await display(fixture).setPinned(deployments[0]!);
   expect(mock.setPinned).toHaveBeenCalledWith(
     'project-a',
     'deployment-a',
@@ -597,7 +606,9 @@ test('list links open deployment details and logs using the project slug', async
 });
 
 test('deployment expiry and current configuration are visible in list and details', async () => {
-  const fixture = createFixture();
+  const fixture = TestBed.createComponent(DeploymentView);
+  fixture.componentRef.setInput('projectId', 'project-a');
+  fixture.componentRef.setInput('previewSlug', 'project');
   fixture.componentRef.setInput('detailDeployment', {
     ...deployments[0]!,
     branchAlias: null,

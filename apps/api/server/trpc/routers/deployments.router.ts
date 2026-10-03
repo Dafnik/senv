@@ -5,7 +5,6 @@ import { deployment } from '../../../../../drizzle/schema';
 import { publishDeploymentSchema, registryServerSchema } from '../../../shared/deployments';
 import { db } from '../../utils/db';
 import {
-  assertProjectAccess,
   assignDeploymentTag,
   deleteDeployment,
   deleteRegistryCredential,
@@ -22,30 +21,18 @@ import {
   stopDeployment,
   setDeploymentPinned,
 } from '../../utils/deployments';
+import { assertProjectAccess } from '../../utils/project-access';
 import { authedProcedure, router } from '../trpc';
 
 const projectIdInput = z.object({ projectId: z.string().min(1) });
 const deploymentInput = z.object({ projectId: z.string().min(1), deploymentId: z.string().min(1) });
-function managedDeployment(
+function accessibleDeployment(
   projectId: string,
   deploymentId: string,
   actor: { id: string; role?: string | null },
+  permission: 'read' | 'manage' = 'read',
 ) {
-  assertProjectAccess(projectId, actor, true);
-  const row = db
-    .select()
-    .from(deployment)
-    .where(and(eq(deployment.id, deploymentId), eq(deployment.projectId, projectId)))
-    .get();
-  if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: 'Deployment not found.' });
-  return row;
-}
-function readableDeployment(
-  projectId: string,
-  deploymentId: string,
-  actor: { id: string; role?: string | null },
-) {
-  assertProjectAccess(projectId, actor);
+  assertProjectAccess(projectId, actor, permission === 'manage');
   const row = db
     .select()
     .from(deployment)
@@ -79,19 +66,19 @@ export const deploymentsRouter = router({
   setPinned: authedProcedure
     .input(deploymentInput.extend({ pinned: z.boolean() }))
     .mutation(({ ctx, input }) => {
-      managedDeployment(input.projectId, input.deploymentId, ctx.user);
+      accessibleDeployment(input.projectId, input.deploymentId, ctx.user, 'manage');
       return setDeploymentPinned(input.projectId, input.deploymentId, input.pinned, ctx.user);
     }),
   stop: authedProcedure.input(deploymentInput).mutation(({ ctx, input }) => {
-    managedDeployment(input.projectId, input.deploymentId, ctx.user);
+    accessibleDeployment(input.projectId, input.deploymentId, ctx.user, 'manage');
     return stopDeployment(input.deploymentId, ctx.user);
   }),
   restart: authedProcedure.input(deploymentInput).mutation(({ ctx, input }) => {
-    managedDeployment(input.projectId, input.deploymentId, ctx.user);
+    accessibleDeployment(input.projectId, input.deploymentId, ctx.user, 'manage');
     return requestDeploymentStart(input.deploymentId, ctx.user);
   }),
   delete: authedProcedure.input(deploymentInput).mutation(({ ctx, input }) => {
-    managedDeployment(input.projectId, input.deploymentId, ctx.user);
+    accessibleDeployment(input.projectId, input.deploymentId, ctx.user, 'manage');
     return deleteDeployment(input.deploymentId, ctx.user);
   }),
   history: authedProcedure
@@ -112,8 +99,7 @@ export const deploymentsRouter = router({
   assignTag: authedProcedure
     .input(deploymentInput.extend({ name: z.string().trim().min(1).max(63) }))
     .mutation(async ({ ctx, input }) => {
-      assertProjectAccess(input.projectId, ctx.user, true);
-      managedDeployment(input.projectId, input.deploymentId, ctx.user);
+      accessibleDeployment(input.projectId, input.deploymentId, ctx.user, 'manage');
       return assignDeploymentTag(input.projectId, input.name, input.deploymentId, ctx.user);
     }),
   removeTag: authedProcedure
@@ -135,7 +121,7 @@ export const deploymentsRouter = router({
       }),
     )
     .query(({ ctx, input }) => {
-      readableDeployment(input.projectId, input.deploymentId, ctx.user);
+      accessibleDeployment(input.projectId, input.deploymentId, ctx.user);
       return getDeploymentLogs(input.deploymentId, input.source, input.limit, input.cursor);
     }),
   registryCredentials: authedProcedure.input(projectIdInput).query(({ ctx, input }) => {

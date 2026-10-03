@@ -3,12 +3,8 @@ import { createHash } from 'node:crypto';
 import { dirname, basename, join } from 'node:path';
 import type { DockerEngine } from '../docker-engine';
 
-export type PreviewRouteTargets = {
-  baseDomain: string;
-  deployments: Array<{ deploymentId: string; projectSlug: string }>;
-  branches: Array<{ branchAlias: string; projectSlug: string; deploymentId: string }>;
-  tags: Array<{ tag: string; projectSlug: string; deploymentId: string }>;
-};
+import type { PreviewRouteTargets } from './contracts';
+export type { PreviewRouteTargets } from './contracts';
 export type PreviewRouteOptions = {
   configFile: string;
   instanceId: string;

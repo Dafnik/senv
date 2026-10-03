@@ -210,14 +210,12 @@ export const instanceDeploymentDefaultsSchema = z.object({
     .default(10485760),
 });
 
-const runtimeValuesSchema = z.record(
-  z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
-  z.string().max(16384),
-);
+export const runtimeVariableNameSchema = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/);
+const runtimeValuesSchema = z.record(runtimeVariableNameSchema, z.string().max(16384));
 export const projectRuntimeUpdateSchema = z.object({
   env: runtimeValuesSchema,
   secrets: runtimeValuesSchema.default({}),
-  removeSecretNames: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/)).default([]),
+  removeSecretNames: z.array(runtimeVariableNameSchema).default([]),
 });
 export type ProjectRuntimeUpdate = z.infer<typeof projectRuntimeUpdateSchema>;
 

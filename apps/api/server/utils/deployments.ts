@@ -1,4 +1,4 @@
-import { createHash, createHmac, createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { TRPCError } from '@trpc/server';
 import { and, asc, desc, eq, isNotNull, isNull, lte, lt, max, or, sql } from 'drizzle-orm';
 import { customAlphabet } from 'nanoid';
@@ -7,32 +7,43 @@ import {
   deploymentArtifact,
   deploymentBranchAlias,
   deploymentHistory,
-  deploymentInstanceDefaults,
   deploymentLog,
   deploymentRegistryCredential,
   deploymentSecret,
   deploymentTag,
-  member,
   organization,
-  user,
-  projectDeploymentSettings,
-  projectDeploymentRuntime,
 } from '../../../../drizzle/schema';
-import env from './env';
 import { db } from './db';
+import { canonicalJson, runtimeFingerprint, encrypt, decrypt } from './deployment-secrets';
+import {
+  getProjectDeploymentSettings,
+  getInstanceDeploymentDefaults,
+  projectRuntimeValues,
+} from './project-deployment-settings';
+import { getRegistrySecret } from './deployment-registry-credentials';
+import type { RuntimeConfig } from './deployment-runtime/contracts';
+export { assertProjectAccess, assertCanPublishProject } from './project-access';
+export {
+  getProjectDeploymentSettings,
+  updateProjectDeploymentSettings,
+  getProjectRuntime,
+  updateProjectRuntime,
+  getInstanceDeploymentDefaults,
+  updateInstanceDeploymentDefaults,
+} from './project-deployment-settings';
+export {
+  listRegistryCredentials,
+  saveRegistryCredential,
+  deleteRegistryCredential,
+  getRegistrySecret,
+} from './deployment-registry-credentials';
+export { getDeploymentLogs, appendDeploymentLog } from './deployment-logs';
 import { withArtifactStorageLock } from './deployment-storage-lock';
 import { deploymentStorageRoot } from './deployment-storage';
 import {
-  deploymentSettingsSchema,
-  projectRuntimeUpdateSchema,
-  deploymentProxySchema,
-  instanceDeploymentDefaultsSchema,
   isValidPreviewHostname,
   type DeploymentActor,
-  type DeploymentKind,
-  type DeploymentLogPage,
   type DeploymentSnapshot,
-  type DeploymentStatus,
   type PublicDeployment,
   type PublishDeploymentInput,
 } from '../../shared/deployments';
@@ -70,8 +81,6 @@ function newDeploymentId(projectId: string) {
 type DeploymentTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type DeploymentQueryHandle = typeof db | DeploymentTx;
 type DeploymentRemovalAction = 'delete' | 'clean';
-const defaultSettings = deploymentSettingsSchema.parse({});
-const defaultInstance = instanceDeploymentDefaultsSchema.parse({});
 let previewRoutesRefresh: (() => Promise<void>) | undefined;
 export function registerPreviewRoutesRefresh(callback: () => Promise<void>) {
   previewRoutesRefresh = callback;
@@ -120,183 +129,6 @@ export function registerDeploymentRemovalHandler(
   callback: (deploymentId: string) => Promise<void>,
 ) {
   deploymentRemovalHandler = callback;
-}
-
-const secretKey = () => createHash('sha256').update(env.BETTER_AUTH_SECRET).digest();
-function encrypt(value: unknown) {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', secretKey(), iv);
-  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(value), 'utf8'), cipher.final()]);
-  return `${iv.toString('base64url')}.${cipher.getAuthTag().toString('base64url')}.${ciphertext.toString('base64url')}`;
-}
-function decrypt<T>(value: string): T {
-  const [iv, tag, ciphertext] = value.split('.');
-  const decipher = createDecipheriv('aes-256-gcm', secretKey(), Buffer.from(iv!, 'base64url'));
-  decipher.setAuthTag(Buffer.from(tag!, 'base64url'));
-  return JSON.parse(
-    Buffer.concat([
-      decipher.update(Buffer.from(ciphertext!, 'base64url')),
-      decipher.final(),
-    ]).toString('utf8'),
-  ) as T;
-}
-
-export function assertProjectAccess(
-  projectId: string,
-  actor: { id: string; role?: string | null },
-  manage = false,
-  adminOnly = false,
-) {
-  const project = db.select().from(organization).where(eq(organization.id, projectId)).get();
-  if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found.' });
-  if (actor.role === 'admin') return project;
-  const membership = db
-    .select()
-    .from(member)
-    .where(and(eq(member.organizationId, projectId), eq(member.userId, actor.id)))
-    .get();
-  if (
-    !membership ||
-    (adminOnly && membership.role !== 'admin') ||
-    (manage && membership.role === 'viewer')
-  ) {
-    throw new TRPCError({ code: 'FORBIDDEN' });
-  }
-  return project;
-}
-export function assertCanPublishProject(userId: string, projectId: string) {
-  const actor = db
-    .select({ id: user.id, role: user.role })
-    .from(user)
-    .where(eq(user.id, userId))
-    .get();
-  if (!actor) throw new TRPCError({ code: 'UNAUTHORIZED' });
-  return assertProjectAccess(projectId, actor, true);
-}
-
-function projectRuntimeValues(projectId: string) {
-  const saved = db
-    .select()
-    .from(projectDeploymentRuntime)
-    .where(eq(projectDeploymentRuntime.projectId, projectId))
-    .get();
-  return {
-    env: saved?.env ?? {},
-    secrets: saved?.secretsCiphertext
-      ? decrypt<Record<string, string>>(saved.secretsCiphertext)
-      : {},
-  };
-}
-export function getProjectRuntime(projectId: string) {
-  const runtime = projectRuntimeValues(projectId);
-  return { env: runtime.env, secretNames: Object.keys(runtime.secrets) };
-}
-export function updateProjectRuntime(projectId: string, input: unknown) {
-  const valid = projectRuntimeUpdateSchema.parse(input);
-  db.transaction((tx) => {
-    const previous = projectRuntimeValues(projectId);
-    const secrets: Record<string, string> = Object.assign(Object.create(null), previous.secrets);
-    for (const name of valid.removeSecretNames) delete secrets[name];
-    Object.assign(secrets, valid.secrets);
-    const overlap = Object.keys(valid.env).find((name) =>
-      Object.prototype.hasOwnProperty.call(secrets, name),
-    );
-    if (overlap)
-      throw new TRPCError({
-        code: 'BAD_REQUEST',
-        message: `${overlap} is already used by a runtime secret.`,
-      });
-    const values = {
-      env: valid.env,
-      secretsCiphertext: Object.keys(secrets).length ? encrypt(secrets) : null,
-      updatedAt: new Date(),
-    };
-    tx.insert(projectDeploymentRuntime)
-      .values({ projectId, ...values })
-      .onConflictDoUpdate({ target: projectDeploymentRuntime.projectId, set: values })
-      .run();
-  });
-  return getProjectRuntime(projectId);
-}
-
-export function getProjectDeploymentSettings(projectId: string) {
-  const saved = db
-    .select()
-    .from(projectDeploymentSettings)
-    .where(eq(projectDeploymentSettings.projectId, projectId))
-    .get();
-  return deploymentSettingsSchema.parse(
-    saved
-      ? {
-          spaFallback: saved.spaFallback,
-          repository: saved.repository ?? '',
-          retentionDays: saved.retentionDays,
-          originCpus: saved.originCpus,
-          originMemoryBytes: saved.originMemoryBytes,
-          health: saved.health,
-          proxy: saved.proxy,
-        }
-      : defaultSettings,
-  );
-}
-export function updateProjectDeploymentSettings(projectId: string, settings: unknown) {
-  const valid = deploymentSettingsSchema.parse(settings);
-  // Parse through the strict shared proxy schema and reject ambiguous duplicate matchers.
-  const proxy = deploymentProxySchema.parse(valid.proxy);
-  const routePaths = proxy.routes.map((r) => r.path.replace(/\/+$/g, '') || '/');
-  const matchers = proxy.cacheRules.map(
-    (r) =>
-      `${r.matcher}:${r.matcher === 'path' ? r.value.replace(/\/+$/g, '') || '/' : r.value.replace(/^\./, '').toLowerCase()}`,
-  );
-  if (
-    new Set(routePaths).size !== routePaths.length ||
-    new Set(matchers).size !== matchers.length
-  ) {
-    throw new TRPCError({
-      code: 'BAD_REQUEST',
-      message: 'Proxy routes and cache rules cannot contain duplicate matchers.',
-    });
-  }
-  const now = new Date();
-  const previousRetentionDays = getProjectDeploymentSettings(projectId).retentionDays;
-  db.transaction((tx) => {
-    // Preserve the policy of snapshots created before retention was captured.
-    for (const row of tx
-      .select()
-      .from(deployment)
-      .where(eq(deployment.projectId, projectId))
-      .all()) {
-      if (row.snapshot.retentionDays === undefined)
-        tx.update(deployment)
-          .set({ snapshot: { ...row.snapshot, retentionDays: previousRetentionDays } })
-          .where(eq(deployment.id, row.id))
-          .run();
-    }
-    tx.insert(projectDeploymentSettings)
-      .values({ projectId, ...valid, repository: valid.repository || null })
-      .onConflictDoUpdate({
-        target: projectDeploymentSettings.projectId,
-        set: { ...valid, repository: valid.repository || null, updatedAt: now },
-      })
-      .run();
-  });
-  return valid;
-}
-export function getInstanceDeploymentDefaults() {
-  const saved = db.select().from(deploymentInstanceDefaults).get();
-  if (!saved) return defaultInstance;
-  return instanceDeploymentDefaultsSchema.parse(saved);
-}
-export function updateInstanceDeploymentDefaults(input: unknown) {
-  const valid = instanceDeploymentDefaultsSchema.parse(input);
-  const existing = db.select().from(deploymentInstanceDefaults).get();
-  if (existing)
-    db.update(deploymentInstanceDefaults)
-      .set({ ...valid, updatedAt: new Date() })
-      .where(eq(deploymentInstanceDefaults.id, existing.id))
-      .run();
-  else db.insert(deploymentInstanceDefaults).values(valid).run();
-  return valid;
 }
 
 function isProtected(tx: DeploymentQueryHandle, deploymentId: string) {
@@ -434,22 +266,6 @@ function finishDeploymentRemoval(deploymentId: string, action: DeploymentRemoval
     return true;
   });
 }
-function canonicalJson(value: unknown): string {
-  const canonical = (value: unknown): unknown =>
-    Array.isArray(value)
-      ? value.map(canonical)
-      : value && typeof value === 'object'
-        ? Object.fromEntries(
-            Object.entries(value)
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([key, value]) => [key, canonical(value)]),
-          )
-        : value;
-  return JSON.stringify(canonical(value));
-}
-function runtimeFingerprint(runtime: ReturnType<typeof projectRuntimeValues>) {
-  return createHmac('sha256', secretKey()).update(canonicalJson(runtime)).digest('hex');
-}
 function currentConfiguration(projectId: string) {
   return {
     settings: getProjectDeploymentSettings(projectId),
@@ -523,9 +339,9 @@ function publicDeployment(
   current = currentConfiguration(row.projectId),
 ): PublicDeployment {
   const changes = configurationChanges(row, current);
-  const snapshot = row.snapshot as DeploymentSnapshot;
-  const source = (row.source ?? {}) as PublishDeploymentInput['source'];
-  const snapshotSecrets = (snapshot.secretNames ?? []) as string[];
+  const snapshot = row.snapshot;
+  const source = row.source ?? {};
+  const snapshotSecrets = snapshot.secretNames ?? [];
   const branch = db
     .select()
     .from(deploymentBranchAlias)
@@ -543,10 +359,10 @@ function publicDeployment(
     configurationOutdated: changes.length > 0,
     configurationChanges: changes,
     projectId: row.projectId,
-    kind: row.kind as DeploymentKind,
-    status: row.status as DeploymentStatus,
+    kind: row.kind,
+    status: row.status,
     removalPending: row.cleanupStartedAt !== null,
-    desiredState: row.desiredState as 'running' | 'stopped',
+    desiredState: row.desiredState,
     pinned: row.lifetime === 'long',
     artifactId: row.artifactId,
     imageDigest: row.imageDigest,
@@ -1486,10 +1302,10 @@ export async function resumePendingDeploymentRemovals() {
   return completed;
 }
 
-export function getDeploymentRuntimeConfig(deploymentId: string) {
+export function getDeploymentRuntimeConfig(deploymentId: string): RuntimeConfig | null {
   const row = db.select().from(deployment).where(eq(deployment.id, deploymentId)).get();
   if (!row || row.deletedAt || row.cleanupStartedAt) return null;
-  const snapshot = row.snapshot as DeploymentSnapshot;
+  const snapshot = row.snapshot;
   const encrypted = db
     .select()
     .from(deploymentSecret)
@@ -1542,7 +1358,7 @@ export function getDeploymentRuntimeConfig(deploymentId: string) {
     submittedAt: row.submittedAt,
   };
 }
-export function listDeploymentRuntimeConfigs() {
+export function listDeploymentRuntimeConfigs(): RuntimeConfig[] {
   return db
     .select({ id: deployment.id })
     .from(deployment)
@@ -1550,7 +1366,7 @@ export function listDeploymentRuntimeConfigs() {
     .orderBy(asc(deployment.submissionOrder))
     .all()
     .map((row) => getDeploymentRuntimeConfig(row.id))
-    .filter(Boolean);
+    .filter((config): config is RuntimeConfig => config !== null);
 }
 export function getPreviewRouteTargets() {
   const projects = db
@@ -1681,173 +1497,4 @@ export function setDeploymentImageDigest(deploymentId: string, digest: string) {
       message: 'A deployment image digest is immutable once resolved.',
     });
   db.update(deployment).set({ imageDigest: digest }).where(eq(deployment.id, deploymentId)).run();
-}
-
-export function listRegistryCredentials(projectId: string) {
-  return db
-    .select({
-      id: deploymentRegistryCredential.id,
-      name: deploymentRegistryCredential.name,
-      registry: deploymentRegistryCredential.registry,
-      username: deploymentRegistryCredential.username,
-      createdAt: deploymentRegistryCredential.createdAt,
-    })
-    .from(deploymentRegistryCredential)
-    .where(eq(deploymentRegistryCredential.projectId, projectId))
-    .all();
-}
-export function saveRegistryCredential(input: {
-  projectId: string;
-  id?: string;
-  name: string;
-  registry: string;
-  username: string;
-  secret: string;
-}) {
-  const saved = input.id
-    ? db
-        .select()
-        .from(deploymentRegistryCredential)
-        .where(
-          and(
-            eq(deploymentRegistryCredential.id, input.id),
-            eq(deploymentRegistryCredential.projectId, input.projectId),
-          ),
-        )
-        .get()
-    : undefined;
-  if (saved)
-    db.update(deploymentRegistryCredential)
-      .set({
-        name: input.name,
-        registry: input.registry,
-        username: input.username,
-        ciphertext: input.secret ? encrypt(input.secret) : saved.ciphertext,
-        updatedAt: new Date(),
-      })
-      .where(eq(deploymentRegistryCredential.id, saved.id))
-      .run();
-  else
-    db.insert(deploymentRegistryCredential)
-      .values({
-        id: id(),
-        projectId: input.projectId,
-        name: input.name,
-        registry: input.registry,
-        username: input.username,
-        ciphertext: encrypt(input.secret),
-      })
-      .run();
-  return listRegistryCredentials(input.projectId);
-}
-export function deleteRegistryCredential(projectId: string, credentialId: string) {
-  db.delete(deploymentRegistryCredential)
-    .where(
-      and(
-        eq(deploymentRegistryCredential.id, credentialId),
-        eq(deploymentRegistryCredential.projectId, projectId),
-      ),
-    )
-    .run();
-  return { success: true };
-}
-export function getRegistrySecret(credentialId: string) {
-  const credential = db
-    .select()
-    .from(deploymentRegistryCredential)
-    .where(eq(deploymentRegistryCredential.id, credentialId))
-    .get();
-  return credential
-    ? {
-        registry: credential.registry,
-        username: credential.username,
-        secret: decrypt<string>(credential.ciphertext),
-      }
-    : null;
-}
-export function getDeploymentLogs(
-  deploymentId: string,
-  source: 'proxy' | 'origin',
-  limit = 100,
-  cursor?: { createdAt: number; id: string },
-): DeploymentLogPage {
-  const page = db
-    .select()
-    .from(deploymentLog)
-    .where(
-      and(
-        eq(deploymentLog.deploymentId, deploymentId),
-        eq(deploymentLog.source, source),
-        cursor
-          ? or(
-              lt(deploymentLog.createdAt, new Date(cursor.createdAt)),
-              and(
-                eq(deploymentLog.createdAt, new Date(cursor.createdAt)),
-                lt(deploymentLog.id, cursor.id),
-              ),
-            )
-          : undefined,
-      ),
-    )
-    .orderBy(desc(deploymentLog.createdAt), desc(deploymentLog.id))
-    .limit(Math.min(limit, 500) + 1)
-    .all();
-  const hasOlder = page.length > Math.min(limit, 500);
-  const rows = page.slice(0, Math.min(limit, 500));
-  const oldest = rows[rows.length - 1];
-  return {
-    logs: rows.reverse().map((row) => ({ ...row, source })),
-    nextCursor:
-      hasOlder && oldest ? { createdAt: oldest.createdAt.getTime(), id: oldest.id } : null,
-  };
-}
-export function appendDeploymentLog(
-  deploymentId: string,
-  source: 'proxy' | 'origin',
-  content: string,
-) {
-  const row = db
-    .select({
-      snapshot: deployment.snapshot,
-      status: deployment.status,
-      deletedAt: deployment.deletedAt,
-      cleanupStartedAt: deployment.cleanupStartedAt,
-    })
-    .from(deployment)
-    .where(eq(deployment.id, deploymentId))
-    .get();
-  if (
-    !row ||
-    row.deletedAt ||
-    row.cleanupStartedAt ||
-    row.status === 'deleted' ||
-    row.status === 'cleaned'
-  )
-    return;
-  const limits = (row.snapshot as DeploymentSnapshot).logs ?? {
-    files: 3,
-    fileSizeBytes: 10 * 1024 * 1024,
-  };
-  const maxBytes = Math.max(1024, limits.files * limits.fileSizeBytes);
-  const encoded = Buffer.from(content, 'utf8');
-  let start = Math.max(0, encoded.length - maxBytes);
-  while (start < encoded.length && (encoded[start]! & 0xc0) === 0x80) start++;
-  const clipped = encoded.subarray(start).toString('utf8');
-  db.transaction((tx) => {
-    tx.insert(deploymentLog)
-      .values({ id: id(), deploymentId, source, content: clipped, createdAt: new Date() })
-      .run();
-    const rows = tx
-      .select({ id: deploymentLog.id, content: deploymentLog.content })
-      .from(deploymentLog)
-      .where(and(eq(deploymentLog.deploymentId, deploymentId), eq(deploymentLog.source, source)))
-      .orderBy(asc(deploymentLog.createdAt), asc(deploymentLog.id))
-      .all();
-    let bytes = rows.reduce((total, item) => total + Buffer.byteLength(item.content), 0);
-    for (const item of rows) {
-      if (bytes <= maxBytes) break;
-      tx.delete(deploymentLog).where(eq(deploymentLog.id, item.id)).run();
-      bytes -= Buffer.byteLength(item.content);
-    }
-  });
 }

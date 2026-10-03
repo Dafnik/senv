@@ -1,16 +1,8 @@
-export type ProxyRoute = {
-  path: string;
-  target: string;
-  rewrite?: string;
-  connectTimeoutSeconds: number;
-  readTimeoutSeconds: number;
-};
-export type CacheRule = { matcher: 'path' | 'extension'; value: string; durationSeconds: number };
-export type ProxySettings = {
-  routes: ProxyRoute[];
-  cacheRules: CacheRule[];
-  compression: { enabled: boolean; endings: string[] };
-};
+import type { DeploymentProxy } from '../../../shared/deployments';
+
+export type ProxySettings = DeploymentProxy;
+export type ProxyRoute = DeploymentProxy['routes'][number];
+export type CacheRule = DeploymentProxy['cacheRules'][number];
 
 export function createNginxConfig(input: {
   deploymentId: string;
@@ -26,11 +18,11 @@ export function createNginxConfig(input: {
     .sort((a, b) => b.value.length - a.value.length)
     .map((rule) => {
       const path = normalizePath(rule.value);
-      return `    location ~ ${pathRegex(path)} {\n${proxyBlock(origin, rule.durationSeconds, false)}\n    }`;
+      return `    location ~ ${pathRegex(path)} {\n${proxyBlock(origin, rule.durationSeconds, spaFallback)}\n    }`;
     });
   const extensionLocations = cacheExtensions.map((rule) => {
     const extension = normalizeExtension(rule.value);
-    return `    location ~* \\.${regexEscape(extension)}$ {\n${proxyBlock(origin, rule.durationSeconds, false)}\n    }`;
+    return `    location ~* \\.${regexEscape(extension)}$ {\n${proxyBlock(origin, rule.durationSeconds, spaFallback)}\n    }`;
   });
   const routes = settings.routes
     .slice()

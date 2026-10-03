@@ -1,11 +1,27 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   effect,
   inject,
   input,
   signal,
 } from '@angular/core';
+import {
+  applyEach,
+  disabled,
+  form,
+  FormField,
+  FormRoot,
+  readonly as readOnly,
+  submit,
+  validate,
+} from '@angular/forms/signals';
+import {
+  projectRuntimeUpdateSchema,
+  runtimeVariableNameSchema,
+  type ProjectRuntimeUpdate,
+} from '@senv/api/shared/deployments';
 import { toast } from '@spartan-ng/brain/sonner';
 import { HlmButtonImports } from '@spartan-ng/helm/button';
 import { HlmCardImports } from '@spartan-ng/helm/card';
@@ -20,6 +36,8 @@ import { DeploymentsData } from '../../../queries/deployments';
   selector: 'app-project-runtime-settings',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    FormField,
+    FormRoot,
     HlmButtonImports,
     HlmCardImports,
     HlmFieldImports,
@@ -36,19 +54,43 @@ import { DeploymentsData } from '../../../queries/deployments';
         </p>
       </div>
       <div hlmCardContent>
-        @if (!canManage()) {
-          <p class="text-muted-foreground text-sm">
-            Project developers and admins can configure runtime values.
-          </p>
-        } @else if (runtime.isPending()) {
+        @if (runtime.isPending()) {
           <hlm-spinner aria-label="Loading runtime configuration" />
         } @else if (runtime.isError()) {
           <p role="alert">{{ runtime.error().message }}</p>
           <button hlmBtn variant="outline" (click)="runtime.refetch()">
             Try again
           </button>
+        } @else if (!canManage()) {
+          <dl class="grid gap-4 text-sm">
+            <div>
+              <dt class="font-medium">Environment variables</dt>
+              <dd>
+                <pre class="mt-2 font-mono whitespace-pre-wrap">{{
+                  envText() || 'No environment variables.'
+                }}</pre>
+              </dd>
+            </div>
+            <div>
+              <dt class="font-medium">Runtime secret names</dt>
+              <dd class="mt-2 font-mono">
+                {{
+                  runtime.data()?.secretNames?.join(', ') ||
+                    'No runtime secrets.'
+                }}
+              </dd>
+            </div>
+          </dl>
+          <p class="text-muted-foreground mt-4 text-sm">
+            Project developers and admins can configure runtime values. Saved
+            secret values stay hidden.
+          </p>
         } @else {
-          <form class="grid gap-6" (submit)="save($event)">
+          <form
+            class="grid gap-6"
+            [formRoot]="runtimeForm"
+            (submit)="save($event)"
+          >
             <fieldset class="grid gap-6" [disabled]="saving()">
               <div hlmField>
                 <label hlmFieldLabel for="project-runtime-env"
@@ -61,8 +103,7 @@ import { DeploymentsData } from '../../../queries/deployments';
                   rows="5"
                   autocomplete="off"
                   placeholder="PUBLIC_API_URL=https://api.example.com"
-                  [value]="envText()"
-                  (input)="setEnv($event)"
+                  [formField]="runtimeForm.envText"
                 ></textarea>
                 <p hlmFieldDescription>
                   One KEY=value pair per line. Use secrets for sensitive values.
@@ -74,7 +115,11 @@ import { DeploymentsData } from '../../../queries/deployments';
                   Saved values stay hidden. Enter a value to add or replace a
                   secret. Leave existing values blank to keep them.
                 </p>
-                @for (secret of secrets(); track $index; let index = $index) {
+                @for (
+                  secret of runtimeForm.secrets;
+                  track $index;
+                  let index = $index
+                ) {
                   <div class="grid items-end gap-3 sm:grid-cols-[1fr_2fr_auto]">
                     <div hlmField>
                       <label
@@ -85,10 +130,8 @@ import { DeploymentsData } from '../../../queries/deployments';
                       <input
                         hlmInput
                         [id]="'project-secret-name-' + index"
-                        [value]="secret.name"
-                        [readOnly]="secret.saved"
+                        [formField]="secret.name"
                         autocomplete="off"
-                        (input)="editSecret(index, 'name', $event)"
                       />
                     </div>
                     <div hlmField>
@@ -96,24 +139,29 @@ import { DeploymentsData } from '../../../queries/deployments';
                         hlmFieldLabel
                         [for]="'project-secret-value-' + index"
                         >{{
-                          secret.saved ? 'Replace value' : 'Secret value'
+                          secret.saved().value()
+                            ? 'Replace value'
+                            : 'Secret value'
                         }}</label
                       >
                       <input
                         hlmInput
                         type="password"
                         [id]="'project-secret-value-' + index"
-                        [value]="secret.value"
-                        [placeholder]="secret.saved ? 'Saved value hidden' : ''"
+                        [formField]="secret.value"
+                        [placeholder]="
+                          secret.saved().value() ? 'Saved value hidden' : ''
+                        "
                         autocomplete="new-password"
-                        (input)="editSecret(index, 'value', $event)"
                       />
                     </div>
                     <button
                       hlmBtn
                       variant="outline"
                       type="button"
-                      [attr.aria-label]="'Remove secret ' + secret.name"
+                      [attr.aria-label]="
+                        'Remove secret ' + secret.name().value()
+                      "
                       (click)="removeSecret(index)"
                     >
                       Remove
@@ -135,6 +183,13 @@ import { DeploymentsData } from '../../../queries/deployments';
                 </button>
               </div>
             </fieldset>
+            @if (runtimeForm().touched() || runtimeForm().dirty()) {
+              @for (issue of runtimeForm().errors(); track issue) {
+                <hlm-field-error [validator]="issue.kind">{{
+                  issue.message
+                }}</hlm-field-error>
+              }
+            }
             @if (error()) {
               <p class="text-destructive text-sm" role="alert">{{ error() }}</p>
             }
@@ -167,15 +222,38 @@ export class ProjectRuntimeSettings {
   private readonly sessionId = injectAuthSessionId();
   private readonly data = inject(DeploymentsData);
   readonly runtime = injectQuery(() =>
-    this.data.runtime(this.sessionId(), this.projectId(), this.canManage()),
+    this.data.runtime(this.sessionId(), this.projectId()),
   );
-  readonly envText = signal('');
-  readonly secrets = signal<
-    Array<{ name: string; value: string; saved: boolean }>
-  >([]);
-  readonly removedNames = signal<string[]>([]);
+  readonly model = signal<RuntimeDraft>({
+    envText: '',
+    secrets: [],
+    removedNames: [],
+  });
+  readonly runtimeForm = form(this.model, (path) => {
+    disabled(path, () => !this.canManage() || this.saving());
+    applyEach(path.secrets, (secret) => {
+      readOnly(secret.name, ({ valueOf }) => valueOf(secret.saved));
+    });
+    validate(path, ({ value }) => {
+      try {
+        runtimeUpdateFromDraft(value());
+        return undefined;
+      } catch (error) {
+        return {
+          kind: 'runtime',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Check runtime configuration.',
+        };
+      }
+    });
+  });
+  readonly envText = computed(() => this.model().envText);
+  readonly secrets = computed(() => this.model().secrets);
+  readonly removedNames = computed(() => this.model().removedNames);
   readonly saving = signal(false);
-  readonly dirty = signal(false);
+  readonly dirty = computed(() => this.runtimeForm().dirty());
   readonly error = signal('');
   private loadedKey = '';
   constructor() {
@@ -183,10 +261,11 @@ export class ProjectRuntimeSettings {
       const key = `${this.sessionId()}:${this.projectId()}`;
       if (key !== this.loadedKey) {
         this.loadedKey = key;
-        this.envText.set('');
-        this.secrets.set([]);
-        this.removedNames.set([]);
-        this.dirty.set(false);
+        this.runtimeForm().reset({
+          envText: '',
+          secrets: [],
+          removedNames: [],
+        });
         this.error.set('');
       }
       const runtime = this.runtime.data();
@@ -197,107 +276,117 @@ export class ProjectRuntimeSettings {
     env: Record<string, string>;
     secretNames: string[];
   }) {
-    this.envText.set(
-      Object.entries(runtime.env)
+    this.runtimeForm().reset({
+      envText: Object.entries(runtime.env)
         .map(([key, value]) => `${key}=${value}`)
         .join('\n'),
-    );
-    this.secrets.set(
-      runtime.secretNames.map((name) => ({ name, value: '', saved: true })),
-    );
-    this.removedNames.set([]);
+      secrets: runtime.secretNames.map((name) => ({
+        name,
+        value: '',
+        saved: true,
+      })),
+      removedNames: [],
+    });
     this.error.set('');
-    this.dirty.set(false);
   }
   discard() {
     const runtime = this.runtime.data();
     if (runtime) this.load(runtime);
   }
-  setEnv(event: Event) {
-    this.dirty.set(true);
-    this.envText.set((event.target as HTMLTextAreaElement).value);
-  }
   addSecret() {
-    this.dirty.set(true);
-    this.secrets.update((items) => [
-      ...items,
-      { name: '', value: '', saved: false },
-    ]);
-  }
-  editSecret(index: number, field: 'name' | 'value', event: Event) {
-    this.dirty.set(true);
-    const value = (event.target as HTMLInputElement).value;
-    this.secrets.update((items) =>
-      items.map((item, i) =>
-        i === index ? { ...item, [field]: value } : item,
-      ),
-    );
+    this.runtimeForm().markAsDirty();
+    this.model.update((draft) => ({
+      ...draft,
+      secrets: [...draft.secrets, { name: '', value: '', saved: false }],
+    }));
   }
   removeSecret(index: number) {
-    this.dirty.set(true);
-    const secret = this.secrets()[index];
-    if (secret?.saved)
-      this.removedNames.update((names) => [...names, secret.name]);
-    this.secrets.update((items) => items.filter((_, i) => i !== index));
-  }
-  private parseEnv() {
-    const env: Record<string, string> = Object.create(null);
-    for (const [index, line] of this.envText().split('\n').entries()) {
-      if (!line.trim()) continue;
-      const separator = line.indexOf('=');
-      const name = line.slice(0, separator).trim();
-      if (separator < 1 || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
-        throw new Error(
-          `Line ${index + 1}: use KEY=value with a valid variable name.`,
-        );
-      if (Object.prototype.hasOwnProperty.call(env, name))
-        throw new Error(`Line ${index + 1}: ${name} is repeated.`);
-      env[name] = line.slice(separator + 1);
-    }
-    return env;
+    this.runtimeForm().markAsDirty();
+    this.model.update((draft) => {
+      const secret = draft.secrets[index];
+      return {
+        ...draft,
+        removedNames: secret?.saved
+          ? [...draft.removedNames, secret.name]
+          : draft.removedNames,
+        secrets: draft.secrets.filter((_, i) => i !== index),
+      };
+    });
   }
   async save(event: Event) {
     event.preventDefault();
     if (!this.canManage() || this.saving()) return;
-    const projectId = this.projectId();
-    const sessionId = this.sessionId();
-    this.saving.set(true);
-    try {
-      const env = this.parseEnv();
-      const secrets: Record<string, string> = Object.create(null);
-      const names = new Set<string>();
-      for (const secret of this.secrets()) {
-        const name = secret.name.trim();
-        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
-          throw new Error('Use a valid name for each secret.');
-        if (names.has(name) || Object.prototype.hasOwnProperty.call(env, name))
-          throw new Error(
-            `${name} is already used by an environment variable or secret.`,
-          );
-        names.add(name);
-        if (!secret.saved && !secret.value)
-          throw new Error(`Enter a value for ${name}.`);
-        if (secret.value) secrets[name] = secret.value;
-      }
-      const saved = await this.data.updateRuntime(projectId, {
-        env,
-        secrets,
-        removeSecretNames: this.removedNames(),
-      });
-      if (projectId !== this.projectId() || sessionId !== this.sessionId())
-        return;
-      this.load(saved);
-      await this.data.invalidate(sessionId, projectId);
-      toast.success('Project runtime configuration saved.');
-    } catch (error) {
-      if (projectId === this.projectId() && sessionId === this.sessionId())
-        this.error.set(
-          error instanceof Error
-            ? error.message
-            : 'Runtime configuration could not be saved.',
+    this.error.set('');
+    await submit(this.runtimeForm, async () => {
+      const projectId = this.projectId();
+      const sessionId = this.sessionId();
+      this.saving.set(true);
+      try {
+        const saved = await this.data.updateRuntime(
+          projectId,
+          runtimeUpdateFromDraft(this.model()),
         );
-    } finally {
-      this.saving.set(false);
-    }
+        if (projectId !== this.projectId() || sessionId !== this.sessionId())
+          return;
+        this.load(saved);
+        await this.data.invalidate(sessionId, projectId);
+        toast.success('Project runtime configuration saved.');
+      } catch (error) {
+        if (projectId === this.projectId() && sessionId === this.sessionId())
+          this.error.set(
+            error instanceof Error
+              ? error.message
+              : 'Runtime configuration could not be saved.',
+          );
+      } finally {
+        this.saving.set(false);
+      }
+    });
   }
+}
+
+type RuntimeDraft = {
+  envText: string;
+  secrets: Array<{ name: string; value: string; saved: boolean }>;
+  removedNames: string[];
+};
+
+function runtimeUpdateFromDraft(draft: RuntimeDraft): ProjectRuntimeUpdate {
+  const env: Record<string, string> = Object.create(null);
+  const nameSchema = runtimeVariableNameSchema;
+  for (const [index, line] of draft.envText.split('\n').entries()) {
+    if (!line.trim()) continue;
+    const separator = line.indexOf('=');
+    const name = line.slice(0, separator).trim();
+    if (separator < 1 || !nameSchema.safeParse(name).success)
+      throw new Error(
+        `Line ${index + 1}: use KEY=value with a valid variable name.`,
+      );
+    if (Object.prototype.hasOwnProperty.call(env, name))
+      throw new Error(`Line ${index + 1}: ${name} is repeated.`);
+    env[name] = line.slice(separator + 1);
+  }
+  const secrets: Record<string, string> = Object.create(null);
+  const names = new Set<string>();
+  for (const secret of draft.secrets) {
+    const name = secret.name.trim();
+    if (!nameSchema.safeParse(name).success)
+      throw new Error('Use a valid name for each secret.');
+    if (names.has(name) || Object.prototype.hasOwnProperty.call(env, name))
+      throw new Error(
+        `${name} is already used by an environment variable or secret.`,
+      );
+    names.add(name);
+    if (!secret.saved && !secret.value)
+      throw new Error(`Enter a value for ${name}.`);
+    if (secret.value) secrets[name] = secret.value;
+  }
+  const parsed = projectRuntimeUpdateSchema.safeParse({
+    env,
+    secrets,
+    removeSecretNames: draft.removedNames,
+  });
+  if (!parsed.success)
+    throw new Error('Runtime values cannot exceed 16384 characters.');
+  return parsed.data;
 }

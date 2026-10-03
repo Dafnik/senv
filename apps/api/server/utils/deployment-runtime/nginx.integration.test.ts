@@ -28,7 +28,7 @@ const server = http.createServer((req, res) => {
     setTimeout(() => res.end('last\\n'), 1000);
     return;
   }
-  if (req.url === '/missing') {
+  if (req.url === '/missing' || req.url === '/app/dashboard' || req.url === '/missing.js') {
     res.writeHead(404); res.end('missing'); return;
   }
   const body = JSON.stringify({ path: req.url, count, padding: 'a'.repeat(512) });
@@ -97,6 +97,7 @@ describe.skipIf(!enabled)('live deployment Nginx behavior', () => {
           ],
           cacheRules: [
             { matcher: 'path', value: '/assets', durationSeconds: 1 },
+            { matcher: 'path', value: '/app', durationSeconds: 60 },
             { matcher: 'extension', value: '.js', durationSeconds: 60 },
           ],
           compression: { enabled: true, endings: index === 0 ? ['.js'] : [] },
@@ -187,6 +188,14 @@ describe.skipIf(!enabled)('live deployment Nginx behavior', () => {
       expect((await request(0, '/identity.js', headers)).body).not.toBe(publicResponse.body);
     }
     expect((await request(0, '/identity.js')).body).toBe(publicResponse.body);
+  });
+
+  test('SPA fallback survives both path and extension cache rules', async () => {
+    for (const path of ['/app/dashboard', '/missing.js']) {
+      const result = await request(0, path);
+      expect(result.response.status).toBe(200);
+      expect(JSON.parse(result.body).path).toBe('/index.html');
+    }
   });
 
   test('compression follows allowed endings and includes extensionless paths by default', async () => {

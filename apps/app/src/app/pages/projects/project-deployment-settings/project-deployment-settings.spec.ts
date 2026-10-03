@@ -364,3 +364,48 @@ test('static routing belongs to project defaults, can be discarded, and is read 
   await fixture.whenStable();
   expect(checkbox.disabled).toBe(true);
 });
+
+test('form validation agrees with API rules for repository URLs and normalized health paths', async () => {
+  const fixture = createFixture();
+  await fixture.whenStable();
+  const component = fixture.componentInstance;
+  for (const repository of [
+    'https://user@example.com/repo',
+    'https://example.com/repo?token=secret',
+  ]) {
+    component.model.update((value) => ({ ...value, repository }));
+    await fixture.whenStable();
+    expect(component.settingsForm.repository().invalid()).toBe(true);
+    await component.saveSettings(new Event('submit'));
+    expect(data.updateSettings).not.toHaveBeenCalled();
+  }
+  component.model.update((value) => ({
+    ...value,
+    repository: 'ssh://git@example.com/repo',
+  }));
+  for (const path of ['/./', '//', '/a/../b', '/a//b']) {
+    component.model.update((value) => ({
+      ...value,
+      health: { ...value.health, path },
+    }));
+    await fixture.whenStable();
+    expect(component.settingsForm.health.path().invalid()).toBe(true);
+    await component.saveSettings(new Event('submit'));
+    expect(data.updateSettings).not.toHaveBeenCalled();
+  }
+  component.model.update((value) => ({
+    ...value,
+    health: { ...value.health, path: '/health/ready' },
+  }));
+  await fixture.whenStable();
+  expect(component.settingsForm().valid()).toBe(true);
+  await component.saveSettings(new Event('submit'));
+  await fixture.whenStable();
+  expect(data.updateSettings).toHaveBeenCalledWith(
+    'project-settings',
+    expect.objectContaining({
+      repository: 'ssh://git@example.com/repo',
+      health: expect.objectContaining({ path: '/health/ready' }),
+    }),
+  );
+});
