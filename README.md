@@ -2,6 +2,8 @@
 
 Angular 22 with SSR, Better Auth, spartan/ui, and tRPC. The Nitro API uses SQLite through Drizzle ORM, and Drizzle Kit manages the schema and migrations. Vite Plus runs workspace tasks, linting, formatting, and API tests.
 
+senv means simple environment. The [first deployment feature specification](docs/deployment-feature.md) records the planned deployment and preview behavior, the [glossary](CONTEXT.md) defines the project language, and [architecture decisions](docs/adr/) explain the agreed design. Deployment execution is not implemented yet.
+
 ## Quick start
 
 The root `package.json` specifies the Node.js version in `engines.node`. CI reads this field through Vite Plus setup.
