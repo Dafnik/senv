@@ -69,26 +69,24 @@ import { ProjectDeploymentSettings } from '../project-deployment-settings/projec
           Try again
         </button>
       } @else if (project.data(); as current) {
-        <header class="flex items-center gap-4">
-          <hlm-avatar size="lg" aria-hidden="true">
-            <span hlmAvatarFallback>{{ current.name | initials }}</span>
-          </hlm-avatar>
-          <div class="min-w-0">
-            <h1 class="text-3xl font-semibold tracking-tight break-words">
-              {{ current.name }}
-            </h1>
-          </div>
-        </header>
         <hlm-tabs
           [tab]="section()"
           (tabActivated)="selectSection($event)"
           class="gap-6"
         >
-          <hlm-tabs-list aria-label="Project sections">
-            <button hlmTabsTrigger="deployments">Deployments</button>
-            <button hlmTabsTrigger="members">Members</button>
-            <button hlmTabsTrigger="settings">Settings</button>
-          </hlm-tabs-list>
+          <header class="flex items-center gap-4">
+            <h1 class="sr-only">{{ current.name }}</h1>
+            <hlm-avatar size="lg" aria-hidden="true"
+              ><span hlmAvatarFallback>{{
+                current.name | initials
+              }}</span></hlm-avatar
+            >
+            <hlm-tabs-list aria-label="Project sections">
+              <button hlmTabsTrigger="deployments">Deployments</button>
+              <button hlmTabsTrigger="members">Members</button>
+              <button hlmTabsTrigger="settings">Settings</button>
+            </hlm-tabs-list>
+          </header>
           <div hlmTabsContent="deployments">
             <app-project-deployments
               [projectId]="projectId()"

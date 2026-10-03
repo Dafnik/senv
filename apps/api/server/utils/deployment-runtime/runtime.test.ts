@@ -419,3 +419,36 @@ for (const status of ['queued', 'starting'] as const) {
     }
   });
 }
+
+test('keeps repeated continuation fragments from distinct log records and deduplicates overlapping polls', async () => {
+  const { runtime, engine, logRows } = await runtimeFixture();
+  try {
+    await runtime.start();
+    const first = `2026-10-03T00:00:00.123456789Z ${'x'.repeat(80000)}\n`;
+    const second = `2026-10-03T00:00:01.123456789Z ${'x'.repeat(80000)}\n`;
+    engine.logPayloads.push(dockerFrame(first + second));
+    await runtime.collectLogs();
+    expect(logRows.map((row) => row.content).join('')).toBe(first + second);
+    // A second poll includes the last record because the persisted timestamp is rounded down.
+    engine.logPayloads.push(dockerFrame(second));
+    await runtime.collectLogs();
+    expect(logRows.map((row) => row.content).join('')).toBe(first + second);
+  } finally {
+    runtime.stop();
+  }
+});
+
+test('preserves duplicate complete Docker records sharing a timestamp across overlapping polls', async () => {
+  const { runtime, engine, logRows } = await runtimeFixture();
+  try {
+    await runtime.start();
+    const record = '2026-10-03T00:00:00.123456789Z duplicate\n';
+    engine.logPayloads.push(dockerFrame(record + record));
+    await runtime.collectLogs();
+    engine.logPayloads.push(dockerFrame(record + record));
+    await runtime.collectLogs();
+    expect(logRows.map((row) => row.content).join('')).toBe(record + record);
+  } finally {
+    runtime.stop();
+  }
+});

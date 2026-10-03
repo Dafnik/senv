@@ -1,4 +1,10 @@
-import type { DeploymentProxy } from '../../../shared/deployments';
+import {
+  deploymentProxySchema,
+  normalizedPathSchema,
+  proxyPathKey,
+  proxyExtensionKey,
+  type DeploymentProxy,
+} from '../../../shared/deployments';
 
 export type ProxySettings = DeploymentProxy;
 export type ProxyRoute = DeploymentProxy['routes'][number];
@@ -10,7 +16,8 @@ export function createNginxConfig(input: {
   settings: ProxySettings;
   spaFallback: boolean;
 }): string {
-  const { deploymentId, origin, settings, spaFallback } = input;
+  const { deploymentId, origin, spaFallback } = input;
+  const settings = deploymentProxySchema.parse(input.settings);
   const cachePathRules = settings.cacheRules.filter((rule) => rule.matcher === 'path');
   const cacheExtensions = settings.cacheRules.filter((rule) => rule.matcher === 'extension');
   const pathLocations = cachePathRules
@@ -29,7 +36,7 @@ export function createNginxConfig(input: {
     .sort((a, b) => b.path.length - a.path.length)
     .map((route) => {
       const path = normalizePath(route.path);
-      return routeLocation(path, route, input);
+      return routeLocation(path, route);
     });
   const gzip = settings.compression.enabled
     ? `    gzip on;\n    gzip_vary on;\n    gzip_proxied any;\n    gzip_types *;`
@@ -53,12 +60,6 @@ http {
         server_tokens off;
         ${gzip.replaceAll('\n', '\n        ')}
         proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
-        proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection $connection_upgrade;
     proxy_buffering off;
     proxy_request_buffering off;
     proxy_ssl_server_name on;
@@ -76,21 +77,26 @@ ${proxyBlock(origin, null, spaFallback)}
 }
 `;
 
-  function routeLocation(path: string, route: ProxyRoute, _args: typeof input): string {
+  function routeLocation(path: string, route: ProxyRoute): string {
     const target = normalizeTarget(route.target);
     const rewritePrefix = route.rewrite ?? target.basePath;
     const basePath = path === '/' ? '' : path.replace(/\/$/, '');
-    const replacementPrefix = rewritePrefix ? normalizePath(rewritePrefix).replace(/\/+$/, '') : '';
+    const replacementPrefix = rewritePrefix ? proxyPathKey(rewritePrefix).replace(/\/+$/, '') : '';
     const replacement = replacementPrefix ? `${replacementPrefix}/$1` : '/$1';
     const rewrite = rewritePrefix
       ? `\n            rewrite ${basePath ? `^${regexEscape(basePath)}(?:/(.*))?$` : '^/(.*)$'} ${replacement} break;`
       : '';
     const timeouts = `\n            proxy_connect_timeout ${seconds(route.connectTimeoutSeconds, 3600)}s;\n            proxy_read_timeout ${seconds(route.readTimeoutSeconds, 3600)}s;`;
-    return `        location ~ ${pathRegex(path)} {${rewrite}${timeouts}\n${proxyBlock(target.origin, null, false)}\n        }`;
+    return `        location ~ ${pathRegex(path)} {${rewrite}${timeouts}\n${proxyBlock(target.origin, null, false, target.authority)}\n        }`;
   }
 }
 
-function proxyBlock(upstream: string, cacheSeconds: number | null, spaFallback: boolean): string {
+function proxyBlock(
+  upstream: string,
+  cacheSeconds: number | null,
+  spaFallback: boolean,
+  host = '$host',
+): string {
   const cache =
     cacheSeconds === null
       ? ''
@@ -98,47 +104,33 @@ function proxyBlock(upstream: string, cacheSeconds: number | null, spaFallback: 
   const tryFiles = spaFallback
     ? `\n            proxy_intercept_errors on;\n            error_page 404 =200 /index.html;`
     : '';
-  return `            if ($compression_disallowed) { gzip off; }\n            proxy_pass ${upstream};${cache}${tryFiles}`;
+  return `            proxy_set_header Host ${host};
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection $connection_upgrade;
+            if ($compression_disallowed) { gzip off; }\n            proxy_pass ${upstream};${cache}${tryFiles}`;
 }
 
-function normalizeTarget(input: string): { origin: string; basePath: string } {
-  let url: URL;
-  try {
-    url = new URL(input.includes('://') ? input : `http://${input}`);
-  } catch {
-    throw new Error(`Invalid proxy target: ${input}`);
-  }
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash)
-    throw new Error(`Invalid proxy target: ${input}`);
-  if (
-    !/^[a-zA-Z0-9.-]+$/.test(url.hostname) ||
-    (url.port && (!/^\d+$/.test(url.port) || Number(url.port) > 65535))
-  )
-    throw new Error(`Invalid proxy target: ${input}`);
-  if (/[\r\n;{}]/.test(input)) throw new Error(`Invalid proxy target: ${input}`);
-  if (url.search) throw new Error(`Proxy target must not include a query string: ${input}`);
+function normalizeTarget(input: string): { origin: string; authority: string; basePath: string } {
+  const url = new URL(input.includes('://') ? input : `http://${input}`);
   return {
     origin: `${url.protocol}//${url.host}`,
+    authority: url.host,
     basePath: url.pathname === '/' ? '' : url.pathname,
   };
 }
 
 function normalizePath(path: string): string {
-  if (
-    !path.startsWith('/') ||
-    path.startsWith('//') ||
-    /[\r\n?#{};$`\\]/.test(path) ||
-    path.split('/').some((part) => part === '..' || part === '.')
-  )
-    throw new Error(`Invalid proxy path: ${path}`);
-  return path;
+  return proxyPathKey(normalizedPathSchema.parse(path));
 }
 function pathRegex(path: string): string {
   const base = path.endsWith('/') ? path.slice(0, -1) : path;
   return base ? `^${regexEscape(base)}(?:/|$)` : '^/';
 }
 function normalizeExtension(extension: string): string {
-  return extension.replace(/^\./, '').toLowerCase();
+  return proxyExtensionKey(extension);
 }
 function regexEscape(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

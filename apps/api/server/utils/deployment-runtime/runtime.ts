@@ -27,9 +27,6 @@ type ContainerInspect = {
   NetworkSettings?: { Networks?: Record<string, { IPAddress?: string }> };
 };
 
-const DEFAULT_LOG_BYTES = 10 * 1024 * 1024;
-const DEFAULT_LOG_FILES = 3;
-
 export type RuntimeOptions = {
   engine?: DockerEngine;
   services?: RuntimeServices;
@@ -398,8 +395,8 @@ export class DeploymentRuntime {
     limits: { cpus: string; memoryBytes: number },
     config: RuntimeConfig,
   ): Record<string, unknown> {
-    const fileSize = config.logs?.fileSizeBytes ?? DEFAULT_LOG_BYTES;
-    const files = config.logs?.files ?? DEFAULT_LOG_FILES;
+    const fileSize = config.logs.fileSizeBytes;
+    const files = config.logs.files;
     return {
       NetworkMode: this.networkName,
       Memory: limits.memoryBytes,
@@ -770,17 +767,21 @@ export class DeploymentRuntime {
           await collectDockerLogs(
             response,
             (content) => this.#services?.appendDeploymentLog(config.id, role, content),
-            ({ content, index }) => {
+            ({ content, ending, index, recordId, timestamp }) => {
+              if (timestamp) latest = Math.max(latest, Date.parse(timestamp) / 1000);
+              // Untimestamped output has no stable identity across polls. Preserve it.
+              if (!recordId) return true;
               const fingerprint = createHash('sha256')
+                .update(recordId)
+                .update('\0')
                 .update(String(index))
                 .update('\0')
                 .update(content)
+                .update(ending)
                 .digest('hex');
               if (seen.has(fingerprint)) return false;
               seen.add(fingerprint);
               if (seen.size > 50_000) seen.delete(seen.values().next().value!);
-              const timestamp = content.match(/^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z)/)?.[1];
-              if (timestamp) latest = Math.max(latest, Date.parse(timestamp) / 1000);
               return true;
             },
           );

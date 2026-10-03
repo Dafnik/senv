@@ -93,3 +93,21 @@ Validated on 2026-10-03 against the integrated worktree:
 - `SENV_DOCKER_TESTS=true vp test run apps/api/server/deployment-lifecycle.integration.test.ts apps/api/server/utils/deployment-runtime/nginx.integration.test.ts`: all 10 live cases passed. These use the built API, a migrated temporary SQLite database, real Docker origins/proxies, and Traefik. They verify static directory upload, captured limits and secret redaction, immutable image digests, independent content reuse, immediate slug/tag/stop/delete URL retirement, restart recovery, explicit stopped intent, production read-only volume mounts, interrupted deletion recovery, final artifact/log/secret cleanup, admin history removal, proxy precedence, cache safety, compression, streaming, and WebSockets.
 - T3 browser acceptance: created a project with an editable custom preview slug and published a built directory through the actual upload form; the resulting deployment became healthy.
 - Production Compose configuration and `git diff --check`: passed. Temporary API/dev processes, databases, and Docker containers/networks/volumes created for acceptance checks were removed; unrelated host resources were preserved.
+
+### Branch review follow-up
+
+- Shared normalized-path validation and canonical duplicate detection across the settings form, API, and proxy configuration generator. Invalid rewrites and equivalent matchers retain the previous defaults.
+- External proxy routes send the target authority as Host. Default-origin requests preserve the preview Host; both paths retain forwarding and WebSocket headers.
+- Docker log fragments carry their original record identity and occurrence so overlapping polls preserve distinct repeated records. Migration `0011_deployment_log_sequence` preserves old log IDs, timestamps, and insertion order, and adds a persistent sequence for pagination and eviction.
+- Extracted publication, artifacts, addresses, summaries, history, retention, routing, and runtime configuration from the lifecycle module. Deletion, cleanup, and recovery share one removal coordinator and require an available runtime before releasing retained data.
+- Removed the unused download method. The domain uses `pinned`; a single schema adapter preserves the existing storage representation.
+- Regression tests cover long repeated log records, overlapping polls, same-timestamp duplicates, batch ordering and eviction, invalid settings, unavailable runtime removal, and actual Nginx Host behavior.
+- Verification: 121 API/database tests, 119 Angular tests, and all 12 live Docker lifecycle/proxy tests passed. API type checking, lint, formatting, production builds, and `git diff --check` passed. Production builds retain the previously recorded bundle and dependency warnings.
+
+### Deployment presentation and WIP schema
+
+- Redesigned list entries and deployment details around source, status, preview actions, runtime configuration, retention, and audit history.
+- Preview open/copy controls share one button group; detail-link copy and section quick links are removed. Pin and Unpin show action-specific icons.
+- Replaced the migration chain with one initial schema, storing pinning as a boolean. Removed legacy snapshot, secret-envelope, retention, log-quota, audit, and removal-intent fallbacks and backfill tests. Existing WIP databases require a reset.
+
+- Verification after the WIP reset: 117 API/database tests, 120 Angular tests, and 12 live Docker tests passed. Desktop and 390 px browser checks confirmed no horizontal overflow and preview copying.

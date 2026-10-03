@@ -15,7 +15,7 @@ export type RuntimeConfig = Pick<
   imageDigest?: string | null;
   secrets: Record<string, string>;
   registryAuth?: { serverAddress: string; username: string; password: string };
-  logs?: DeploymentSnapshot['logs'];
+  logs: DeploymentSnapshot['logs'];
   desiredState: 'running' | 'stopped';
   status: DeploymentStatus;
   submittedAt: Date;

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { APIError, createAuthEndpoint, formCsrfMiddleware } from 'better-auth/api';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import * as z from 'zod';
 import {
   accountNameMaxLength,
@@ -11,12 +11,7 @@ import { account, user } from '../../../../drizzle/schema';
 import { db } from './db';
 
 export function hasInstanceAdmin(database: Pick<typeof db, 'select'> = db) {
-  return !!database
-    .select({ id: user.id })
-    .from(user)
-    .where(sql`instr(',' || coalesce(${user.role}, '') || ',', ',admin,') > 0`)
-    .limit(1)
-    .get();
+  return !!database.select({ id: user.id }).from(user).where(eq(user.role, 'admin')).limit(1).get();
 }
 
 export const instanceSetup = {

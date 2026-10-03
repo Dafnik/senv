@@ -17,7 +17,7 @@ cp .env.dev .env
 
 Set `BETTER_AUTH_SECRET` in `.env`, for example with `openssl rand -base64 32`. The default `DATABASE_URL=file:./data/senv.sqlite` creates a local database under `data/`. Database paths are relative to the working directory, and workspace scripts run database commands and the API from the repository root.
 
-Apply the checked-in migrations and start both apps:
+Initialize the database and start both apps:
 
 ```bash
 vp run db:migrate
@@ -31,8 +31,7 @@ instance admin with a name, email, and password. Setup signs you in immediately
 and marks the first admin as email verified. Setup closes as soon as any instance admin
 exists, including a banned admin, and concurrent setup requests create only one
 admin. The last instance admin cannot be deleted or demoted. Instance roles are
-singular, either `user` or `admin`; migrations normalize legacy role lists while
-preserving administrators. Existing ordinary accounts are preserved and cannot be claimed by setup.
+singular, either `user` or `admin`. Ordinary accounts cannot be claimed by setup.
 
 Public registration is disabled in both the UI and the API. Instance admins can
 create accounts under **Users → Add user** using a name and email only. The signup
@@ -115,7 +114,7 @@ vp run auth:generate
 vp run db:generate
 ```
 
-The SQLite migrations initialize a new database. They do not transfer existing PostgreSQL data. Export and convert any existing users, accounts, sessions, and verification records separately, including timestamps and booleans.
+This WIP uses a single initial SQLite migration. There is no upgrade or data conversion path. When the schema changes, stop the apps, remove the local database (`data/senv.sqlite`, `data/senv.sqlite-wal`, and `data/senv.sqlite-shm`), and run `vp run db:migrate` to initialize a fresh database. Setup then creates a new admin.
 
 ## SSR preview
 
@@ -150,18 +149,18 @@ PREVIEW_HTTP_PORT=80
 PREVIEW_HTTPS_PORT=443
 ```
 
-The ID must be a lowercase DNS-safe label no longer than 31 characters and unique for every senv instance sharing the Docker host. Compose uses its project name if `SENV_INSTANCE_ID` is unset; set the variable explicitly when installations share a host or when changing the Compose project name. The preview domain must resolve to Traefik. Configure the `letsencrypt` resolver on `preview-proxy` for your DNS provider, and supply DNS credentials through the host's secret environment. A wildcard certificate for `*.preview.example.com` does not cover `dpl-id.project.preview.example.com`; configure per-project wildcard coverage or certificates that include the project label. Traefik wildcard issuance uses a DNS challenge.
+The ID must be a lowercase DNS-safe label no longer than 31 characters and unique for every senv instance sharing the Docker host. Compose uses its project name if `SENV_INSTANCE_ID` is unset; set the variable explicitly when installations share a host or when changing the Compose project name. The preview domain must resolve to Traefik. Configure the `letsencrypt` resolver on `preview-proxy` for your DNS provider, and supply DNS credentials through the host's secret environment. A wildcard certificate for `*.preview.example.com` does not cover `ac3467.project.preview.example.com`; configure per-project wildcard coverage or certificates that include the project label. Traefik wildcard issuance uses a DNS challenge.
 
 The API mounts `/var/run/docker.sock`, which grants it control over containers on the Docker host. Keep this socket restricted to the trusted senv operator. The API creates an instance-labelled private network and only removes containers carrying its own instance labels. Static deployment origins mount the shared artifact volume read-only. Uploaded bytes and expanded website bytes both use the instance upload limit; Static uploads accept ZIP and TAR, including TAR compressed with gzip, zlib/deflate, raw deflate, Brotli, or Zstandard. ZIP supports stored and deflate entries and rejects ZIP64. Archive extraction rejects traversal paths, links, duplicate names, unsupported entries or compression, and expansion over the limit. Image tags are resolved to repository digests before they are stored in a deployment snapshot. Logs from both origin and proxy are retained within the deployment's captured rotation allowance, including across API restarts.
 
-For local HTTP previews, `.env.dev` selects `preview.localhost`, the `web` entry point, and HTTP. Add `PREVIEW_TRAEFIK_API_URL=http://localhost:8080` to `.env` and start the local Traefik entry point before publishing:
+For local HTTP previews, `.env.dev` selects `preview.localhost`, the `web` entry point, HTTP, and the local Traefik acknowledgement API. Start the local Traefik entry point before publishing:
 
 ```bash
 docker compose -f compose.preview.dev.yml up -d
 vp run dev
 ```
 
-The Docker publish workflow builds the app, API, and migration images together. The API waits for Traefik to acknowledge each changed route snapshot before a route mutation completes; the Traefik API port is bound to loopback on the host and is not exposed publicly.
+The Docker publish workflow builds the app, API, and migration images together. The API waits for Traefik to acknowledge each changed route snapshot before a route mutation completes; the Traefik API port is bound to loopback on the host and is not exposed publicly. Container health checks run inside the private network. The deployment detail page also requests the public preview root URL and reports its HTTP status, connection errors, and check time separately. It refreshes every 30 seconds and can be checked manually.
 
 ## Projects and invitations
 
@@ -185,8 +184,7 @@ and retention/resource defaults. Project runtime variables, secrets, and registr
 shown in deployment details. Instance admins can manage every project. Better Auth
 prevents the last project admin from leaving or demoting themselves.
 
-Run `pnpm db:migrate` before starting an existing installation to add the project,
-membership, and invitation tables. Existing accounts and sessions are preserved.
+Run `pnpm db:migrate` to initialize the database before starting a fresh installation.
 
 Invitation emails link to `/invitations/:invitationId`. The recipient signs in
 using the invited email address and accepts the invitation. **Use another account**

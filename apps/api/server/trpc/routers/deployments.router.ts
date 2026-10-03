@@ -22,6 +22,7 @@ import {
   setDeploymentPinned,
 } from '../../utils/deployments';
 import { assertProjectAccess } from '../../utils/project-access';
+import { requestDeploymentPreview } from '../../utils/deployment-preview-status';
 import { authedProcedure, router } from '../trpc';
 
 const projectIdInput = z.object({ projectId: z.string().min(1) });
@@ -58,6 +59,11 @@ export const deploymentsRouter = router({
       history: listDeploymentHistory(input.projectId, 100, undefined, input.deploymentId),
       baseDomain: process.env['PREVIEW_BASE_DOMAIN'] ?? 'preview.localhost',
     };
+  }),
+  previewStatus: authedProcedure.input(deploymentInput).query(({ ctx, input }) => {
+    assertProjectAccess(input.projectId, ctx.user);
+    const detail = getProjectDeployment(input.projectId, input.deploymentId);
+    return requestDeploymentPreview(detail.previewUrl);
   }),
   publish: authedProcedure.input(publishDeploymentSchema).mutation(({ ctx, input }) => {
     assertProjectAccess(input.projectId, ctx.user, true);
@@ -115,9 +121,7 @@ export const deploymentsRouter = router({
         deploymentId: z.string().min(1),
         source: z.enum(['proxy', 'origin']),
         limit: z.number().int().min(1).max(500).default(100),
-        cursor: z
-          .object({ createdAt: z.number().int().nonnegative(), id: z.string().min(1) })
-          .optional(),
+        cursor: z.object({ sequence: z.number().int().positive() }).optional(),
       }),
     )
     .query(({ ctx, input }) => {

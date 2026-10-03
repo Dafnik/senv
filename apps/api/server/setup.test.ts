@@ -354,19 +354,15 @@ test('admins cannot choose a password when creating a user through the API', asy
   expect(db.select().from(user).all()).toHaveLength(1);
 });
 
-test.each(['admin', 'user,admin', 'admin,user'])(
-  'an existing %s account closes setup even when unverified or banned',
-  async (role) => {
-    const existing = await auth.api.createUser({
-      body: { ...credentials, role: 'admin', data: { banned: true } },
-    });
-    db.update(user).set({ role }).where(eq(user.id, existing.user.id)).run();
-    expect(await (await request('instance/setup-status')).json()).toEqual({ needsSetup: false });
-    expect(
-      (await request('instance/setup', { ...credentials, email: 'new@example.com' })).status,
-    ).toBe(403);
-  },
-);
+test('an existing admin account closes setup even when unverified or banned', async () => {
+  await auth.api.createUser({
+    body: { ...credentials, role: 'admin', data: { banned: true } },
+  });
+  expect(await (await request('instance/setup-status')).json()).toEqual({ needsSetup: false });
+  expect(
+    (await request('instance/setup', { ...credentials, email: 'new@example.com' })).status,
+  ).toBe(403);
+});
 
 test('instances with ordinary users can be set up without replacing an existing account', async () => {
   const existing = await auth.api.createUser({ body: { ...credentials, role: 'user' } });

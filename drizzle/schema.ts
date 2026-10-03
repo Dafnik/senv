@@ -4,11 +4,10 @@ import type {
   DeploymentActor,
   DeploymentKind,
   DeploymentStatus,
-  DeploymentLifetime,
   DeploymentHealth,
   DeploymentProxy,
   DeploymentSnapshot,
-  PublishDeploymentInput,
+  DeploymentSource,
 } from '../apps/api/shared/deployments';
 
 const createdAt = () =>
@@ -106,6 +105,9 @@ export const projectDeploymentSettings = sqliteTable('projectDeploymentSettings'
     .primaryKey()
     .references(() => organization.id, { onDelete: 'cascade' }),
   repository: text('repository'),
+  repositoryProvider: text('repositoryProvider', { enum: ['github', 'gitlab', 'forgejo', 'gitea'] })
+    .notNull()
+    .default('github'),
   spaFallback: integer('spaFallback', { mode: 'boolean' }).notNull().default(false),
   retentionDays: integer('retentionDays').notNull().default(7),
   originCpus: text('originCpus').notNull().default('1'),
@@ -160,16 +162,16 @@ export const deployment = sqliteTable(
     kind: text('kind').$type<DeploymentKind>().notNull(),
     status: text('status').$type<DeploymentStatus>().notNull().default('queued'),
     desiredState: text('desiredState').$type<'running' | 'stopped'>().notNull().default('running'),
-    lifetime: text('lifetime').$type<DeploymentLifetime>().notNull(),
+    pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
     submittedAt: integer('submittedAt', { mode: 'timestamp_ms' }).notNull(),
     submissionOrder: integer('submissionOrder').notNull(),
     readyAt: integer('readyAt', { mode: 'timestamp_ms' }),
     retentionStartedAt: integer('retentionStartedAt', { mode: 'timestamp_ms' }),
     retentionDeadlineAt: integer('retentionDeadlineAt', { mode: 'timestamp_ms' }),
     cleanupStartedAt: integer('cleanupStartedAt', { mode: 'timestamp_ms' }),
-    cleanupAction: text('cleanupAction'),
+    cleanupAction: text('cleanupAction').$type<'delete' | 'clean'>(),
     cleanupActor: text('cleanupActor', { mode: 'json' }).$type<DeploymentActor>(),
-    source: jsonText<PublishDeploymentInput['source'] & { repository?: string }>('source'),
+    source: jsonText<DeploymentSource>('source'),
     snapshot: jsonText<DeploymentSnapshot>('snapshot'),
     imageDigest: text('imageDigest'),
     failureReason: text('failureReason'),
@@ -255,7 +257,7 @@ export const deploymentHistory = sqliteTable(
       .references(() => organization.id, { onDelete: 'cascade' }),
     deploymentId: text('deploymentId').notNull(),
     event: text('event').notNull(),
-    actorType: text('actorType').notNull().default('unknown'),
+    actorType: text('actorType').$type<'user' | 'system'>().notNull().default('system'),
     actor: text('actor', { mode: 'json' }).$type<DeploymentActor>(),
     details: jsonText<Record<string, unknown>>('details'),
     createdAt: createdAt(),
@@ -269,7 +271,8 @@ export const deploymentHistory = sqliteTable(
 export const deploymentLog = sqliteTable(
   'deploymentLog',
   {
-    id: text('id').primaryKey(),
+    sequence: integer('sequence').primaryKey({ autoIncrement: true }),
+    id: text('id').notNull().unique(),
     deploymentId: text('deploymentId')
       .notNull()
       .references(() => deployment.id, { onDelete: 'cascade' }),
@@ -277,7 +280,13 @@ export const deploymentLog = sqliteTable(
     content: text('content').notNull(),
     createdAt: createdAt(),
   },
-  (table) => [index('deployment_log_deployment_time_idx').on(table.deploymentId, table.createdAt)],
+  (table) => [
+    index('deployment_log_deployment_sequence_idx').on(
+      table.deploymentId,
+      table.source,
+      table.sequence,
+    ),
+  ],
 );
 
 export const member = sqliteTable(

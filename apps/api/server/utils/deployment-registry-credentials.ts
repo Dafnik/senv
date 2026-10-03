@@ -2,7 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import { customAlphabet } from 'nanoid';
 import { deploymentRegistryCredential } from '../../../../drizzle/schema';
 import { db } from './db';
-import { encrypt, decrypt } from './deployment-secrets';
+import { encrypt } from './deployment-secrets';
 
 const id = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 21);
 
@@ -73,18 +73,4 @@ export function deleteRegistryCredential(projectId: string, credentialId: string
     )
     .run();
   return { success: true };
-}
-export function getRegistrySecret(credentialId: string) {
-  const credential = db
-    .select()
-    .from(deploymentRegistryCredential)
-    .where(eq(deploymentRegistryCredential.id, credentialId))
-    .get();
-  return credential
-    ? {
-        registry: credential.registry,
-        username: credential.username,
-        secret: decrypt<string>(credential.ciphertext),
-      }
-    : null;
 }

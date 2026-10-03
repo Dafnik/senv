@@ -18,6 +18,7 @@ const session = signal({
 const settings = {
   spaFallback: true,
   repository: 'https://github.com/acme/site',
+  repositoryProvider: 'github',
   retentionDays: 7,
   originCpus: '1',
   originMemoryBytes: 536870912,
@@ -216,6 +217,26 @@ test('unsafe proxy destinations fail local validation and viewers cannot change 
   expect(data.updateSettings).not.toHaveBeenCalled();
 });
 
+test('the selected Git provider is saved with repository settings', async () => {
+  const fixture = createFixture();
+  await fixture.whenStable();
+  const select = fixture.nativeElement.querySelector(
+    '#project-repository-provider',
+  ) as HTMLSelectElement;
+  expect(
+    [...select.options].map((option) => option.textContent?.trim()),
+  ).toEqual(['GitHub', 'GitLab', 'Forgejo', 'Gitea']);
+  select.value = 'gitlab';
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+  await fixture.whenStable();
+  await fixture.componentInstance.saveSettings(new Event('submit'));
+  await fixture.whenStable();
+  expect(data.updateSettings).toHaveBeenCalledWith(
+    'project-settings',
+    expect.objectContaining({ repositoryProvider: 'gitlab' }),
+  );
+});
+
 test('instance administrators can save instance upload, proxy, and log defaults', async () => {
   const fixture = TestBed.createComponent(AdminDeploymentDefaults);
   await fixture.whenStable();
@@ -408,4 +429,47 @@ test('form validation agrees with API rules for repository URLs and normalized h
       health: expect.objectContaining({ path: '/health/ready' }),
     }),
   );
+});
+
+test('the form rejects equivalent proxy matchers and non-normalized rewrite paths before saving', async () => {
+  const fixture = createFixture();
+  await fixture.whenStable();
+  const component = fixture.componentInstance;
+  const route = {
+    path: '/api',
+    target: 'http://example.com',
+    rewrite: '',
+    connectTimeoutSeconds: 10,
+    readTimeoutSeconds: 60,
+  };
+  component.model.update((model) => ({
+    ...model,
+    proxy: { ...model.proxy, routes: [route, { ...route, path: '/api/' }] },
+  }));
+  await fixture.whenStable();
+  expect(
+    component.settingsForm.proxy.routes[0]
+      .path()
+      .errors()
+      .some((error) => error.kind === 'duplicateRoute'),
+  ).toBe(true);
+  component.model.update((model) => ({
+    ...model,
+    proxy: {
+      ...model.proxy,
+      routes: [{ ...route, rewrite: '/../' }],
+      cacheRules: [
+        { matcher: 'extension', value: 'js', durationSeconds: 60 },
+        { matcher: 'extension', value: '.JS', durationSeconds: 60 },
+      ],
+    },
+  }));
+  await fixture.whenStable();
+  expect(component.settingsForm.proxy.routes[0].rewrite().invalid()).toBe(true);
+  expect(
+    component.settingsForm.proxy.cacheRules[0]
+      .value()
+      .errors()
+      .some((error) => error.kind === 'duplicateCacheRule'),
+  ).toBe(true);
 });

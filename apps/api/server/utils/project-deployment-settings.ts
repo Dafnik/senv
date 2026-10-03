@@ -1,7 +1,6 @@
 import { TRPCError } from '@trpc/server';
 import { eq } from 'drizzle-orm';
 import {
-  deployment,
   deploymentInstanceDefaults,
   projectDeploymentRuntime,
   projectDeploymentSettings,
@@ -9,7 +8,6 @@ import {
 import {
   deploymentSettingsSchema,
   projectRuntimeUpdateSchema,
-  deploymentProxySchema,
   instanceDeploymentDefaultsSchema,
 } from '../../shared/deployments';
 import { db } from './db';
@@ -74,6 +72,7 @@ export function getProjectDeploymentSettings(projectId: string) {
       ? {
           spaFallback: saved.spaFallback,
           repository: saved.repository ?? '',
+          repositoryProvider: saved.repositoryProvider,
           retentionDays: saved.retentionDays,
           originCpus: saved.originCpus,
           originMemoryBytes: saved.originMemoryBytes,
@@ -85,45 +84,14 @@ export function getProjectDeploymentSettings(projectId: string) {
 }
 export function updateProjectDeploymentSettings(projectId: string, settings: unknown) {
   const valid = deploymentSettingsSchema.parse(settings);
-  // Parse through the strict shared proxy schema and reject ambiguous duplicate matchers.
-  const proxy = deploymentProxySchema.parse(valid.proxy);
-  const routePaths = proxy.routes.map((r) => r.path.replace(/\/+$/g, '') || '/');
-  const matchers = proxy.cacheRules.map(
-    (r) =>
-      `${r.matcher}:${r.matcher === 'path' ? r.value.replace(/\/+$/g, '') || '/' : r.value.replace(/^\./, '').toLowerCase()}`,
-  );
-  if (
-    new Set(routePaths).size !== routePaths.length ||
-    new Set(matchers).size !== matchers.length
-  ) {
-    throw new TRPCError({
-      code: 'BAD_REQUEST',
-      message: 'Proxy routes and cache rules cannot contain duplicate matchers.',
-    });
-  }
   const now = new Date();
-  const previousRetentionDays = getProjectDeploymentSettings(projectId).retentionDays;
-  db.transaction((tx) => {
-    // Preserve the policy of snapshots created before retention was captured.
-    for (const row of tx
-      .select()
-      .from(deployment)
-      .where(eq(deployment.projectId, projectId))
-      .all()) {
-      if (row.snapshot.retentionDays === undefined)
-        tx.update(deployment)
-          .set({ snapshot: { ...row.snapshot, retentionDays: previousRetentionDays } })
-          .where(eq(deployment.id, row.id))
-          .run();
-    }
-    tx.insert(projectDeploymentSettings)
-      .values({ projectId, ...valid, repository: valid.repository || null })
-      .onConflictDoUpdate({
-        target: projectDeploymentSettings.projectId,
-        set: { ...valid, repository: valid.repository || null, updatedAt: now },
-      })
-      .run();
-  });
+  db.insert(projectDeploymentSettings)
+    .values({ projectId, ...valid, repository: valid.repository || null })
+    .onConflictDoUpdate({
+      target: projectDeploymentSettings.projectId,
+      set: { ...valid, repository: valid.repository || null, updatedAt: now },
+    })
+    .run();
   return valid;
 }
 export function getInstanceDeploymentDefaults() {

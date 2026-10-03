@@ -1,10 +1,9 @@
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from 'vite-plus/test';
-import { createDatabase } from '../../../drizzle/database';
 import { invitation, member, organization, user } from '../../../drizzle/schema';
 
 let auth: typeof import('./utils/auth').auth;
@@ -613,41 +612,6 @@ test('open invitation pagination counts only pending unexpired invitations', asy
   expect(second.total).toBe(105);
   expect(second.invitations).toHaveLength(5);
   expect(new Set([...first.invitations, ...second.invitations].map((i) => i.id)).size).toBe(105);
-});
-
-test('the inviter migration backfills accepted memberships and allows deleting the inviter', () => {
-  const folder = join(directory, 'previous-migrations');
-  mkdirSync(join(folder, 'meta'), { recursive: true });
-  const journal = JSON.parse(readFileSync('drizzle/migrations/meta/_journal.json', 'utf8'));
-  journal.entries = journal.entries.filter((entry: { idx: number }) => entry.idx < 3);
-  writeFileSync(join(folder, 'meta/_journal.json'), JSON.stringify(journal));
-  for (const entry of journal.entries)
-    copyFileSync(`drizzle/migrations/${entry.tag}.sql`, join(folder, `${entry.tag}.sql`));
-  const previous = createDatabase(`file:${join(directory, 'previous.sqlite')}`);
-  try {
-    migrate(previous, { migrationsFolder: folder });
-    previous.$client.exec(`
-      INSERT INTO user (id, name, email) VALUES ('inviter', 'Inviting Admin', 'inviter@example.com'), ('recipient', 'Recipient', 'recipient@example.com');
-      INSERT INTO organization (id, name, slug) VALUES ('project', 'Project', 'project');
-      INSERT INTO member (id, organizationId, userId, role, createdAt) VALUES ('creator', 'project', 'inviter', 'admin', 500), ('joined', 'project', 'recipient', 'viewer', 1500);
-      INSERT INTO invitation (id, organizationId, email, role, status, expiresAt, createdAt, inviterId) VALUES ('accepted', 'project', 'recipient@example.com', 'viewer', 'accepted', 2000, 1000, 'inviter');
-    `);
-    migrate(previous, { migrationsFolder: 'drizzle/migrations' });
-    expect(previous.select().from(member).where(eq(member.id, 'joined')).get()).toMatchObject({
-      invitedById: 'inviter',
-      invitedByName: 'Inviting Admin',
-    });
-    expect(
-      previous.select().from(member).where(eq(member.id, 'creator')).get()?.invitedByName,
-    ).toBeNull();
-    previous.delete(user).where(eq(user.id, 'inviter')).run();
-    expect(previous.select().from(member).where(eq(member.id, 'joined')).get()).toMatchObject({
-      invitedById: null,
-      invitedByName: 'Inviting Admin',
-    });
-  } finally {
-    previous.$client.close();
-  }
 });
 
 test('open invitations show their sender and sort by inviter name without requiring inviter membership', async () => {

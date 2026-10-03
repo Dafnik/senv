@@ -2,7 +2,13 @@ import { StringDecoder } from 'node:string_decoder';
 
 const MAX_LOG_FRAGMENT_CHARS = 8_000; // At most 32 KiB of UTF-8.
 const MAX_LOG_BATCH_BYTES = 32 * 1024;
-type LogFragment = { content: string; ending: string; index: number };
+type LogFragment = {
+  content: string;
+  ending: string;
+  index: number;
+  timestamp?: string;
+  recordId?: string;
+};
 
 /** Decodes Docker frames and appends bounded UTF-8 batches without changing line endings. */
 export async function collectDockerLogs(
@@ -33,6 +39,16 @@ export async function collectDockerLogs(
 async function* logFragments(stream: AsyncIterable<Uint8Array>): AsyncGenerator<LogFragment> {
   let pending = '';
   let index = 0;
+  let record: Pick<LogFragment, 'timestamp' | 'recordId'> | undefined;
+  const occurrences = new Map<string, number>();
+  const identifyRecord = () => {
+    if (record) return record;
+    const timestamp = pending.match(/^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z)/)?.[1];
+    if (!timestamp) return (record = {});
+    const occurrence = occurrences.get(timestamp) ?? 0;
+    occurrences.set(timestamp, occurrence + 1);
+    return (record = { timestamp, recordId: `${timestamp}:${occurrence}` });
+  };
   for await (const chunk of dockerStreamTextChunks(stream)) {
     pending += chunk;
     while (pending) {
@@ -40,22 +56,24 @@ async function* logFragments(stream: AsyncIterable<Uint8Array>): AsyncGenerator<
       if (newline >= 0 && newline < MAX_LOG_FRAGMENT_CHARS) {
         const crlf = newline > 0 && pending[newline - 1] === '\r';
         yield {
+          ...identifyRecord(),
           content: pending.slice(0, crlf ? newline - 1 : newline),
           ending: crlf ? '\r\n' : '\n',
           index,
         };
         pending = pending.slice(newline + 1);
         index = 0;
+        record = undefined;
       } else if (pending.length >= MAX_LOG_FRAGMENT_CHARS) {
         let content = takeUtf8Prefix(pending, MAX_LOG_FRAGMENT_CHARS);
         // Hold a possible CRLF pair together across chunk/fragment boundaries.
         if (content.endsWith('\r')) content = content.slice(0, -1);
-        yield { content, ending: '', index: index++ };
+        yield { ...identifyRecord(), content, ending: '', index: index++ };
         pending = pending.slice(content.length);
       } else break;
     }
   }
-  if (pending) yield { content: pending, ending: '', index };
+  if (pending) yield { ...identifyRecord(), content: pending, ending: '', index };
 }
 
 export function dockerStreamText(buffer: Buffer): string {

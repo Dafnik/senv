@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { connect } from 'node:net';
+import { get } from 'node:http';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, test } from 'vite-plus/test';
 import { createNginxConfig } from './nginx-config';
@@ -31,7 +32,7 @@ const server = http.createServer((req, res) => {
   if (req.url === '/missing' || req.url === '/app/dashboard' || req.url === '/missing.js') {
     res.writeHead(404); res.end('missing'); return;
   }
-  const body = JSON.stringify({ path: req.url, count, padding: 'a'.repeat(512) });
+  const body = JSON.stringify({ path: req.url, host: req.headers.host, forwardedFor: req.headers['x-forwarded-for'], count, padding: 'a'.repeat(512) });
   const headers = { 'Content-Type': req.url.endsWith('.html') ? 'text/html' : 'text/plain', 'Content-Length': Buffer.byteLength(body), 'X-Origin-Count': String(count) };
   if (req.url.includes('private')) headers['Cache-Control'] = 'private, max-age=60';
   if (req.url.includes('no-store')) headers['Cache-Control'] = 'no-store';
@@ -50,9 +51,28 @@ async function run(...args: string[]) {
   return (await docker('docker', args, { maxBuffer: 4 * 1024 * 1024 })).stdout.trim();
 }
 
-async function request(index: number, path: string, headers?: Record<string, string>) {
-  const response = await fetch(`http://127.0.0.1:${ports[index]}${path}`, { headers });
-  return { response, body: await response.text() };
+function request(index: number, path: string, headers?: Record<string, string>) {
+  return new Promise<{ response: { status: number; headers: Headers }; body: string }>(
+    (resolve, reject) => {
+      const req = get(`http://127.0.0.1:${ports[index]}${path}`, { headers }, (response) => {
+        const chunks: Buffer[] = [];
+        response.on('data', (chunk: Buffer) => chunks.push(chunk));
+        response.once('error', reject);
+        response.once('end', () => {
+          const resultHeaders = new Headers();
+          for (const [name, value] of Object.entries(response.headers)) {
+            if (value !== undefined)
+              resultHeaders.set(name, Array.isArray(value) ? value.join(', ') : value);
+          }
+          resolve({
+            response: { status: response.statusCode!, headers: resultHeaders },
+            body: Buffer.concat(chunks).toString('utf8'),
+          });
+        });
+      });
+      req.once('error', reject);
+    },
+  );
 }
 
 describe.skipIf(!enabled)('live deployment Nginx behavior', () => {
@@ -163,6 +183,15 @@ describe.skipIf(!enabled)('live deployment Nginx behavior', () => {
     expect(first.body).not.toBe(second.body);
     expect(JSON.parse((await request(0, '/api/admin/users')).body).path).toBe('/special/users');
     expect(JSON.parse((await request(0, '/apiary/users')).body).path).toBe('/apiary/users');
+  });
+
+  test('external routes send the target authority and origin routes preserve the preview Host', async () => {
+    const headers = { Host: 'review.project.preview.localhost', 'X-Forwarded-For': '192.0.2.1' };
+    const external = await request(0, '/api/users', headers);
+    expect(external.response.status).toBe(200);
+    expect(JSON.parse(external.body).host).toBe(`${origin}:8080`);
+    expect(JSON.parse(external.body).forwardedFor).toContain('192.0.2.1');
+    expect(JSON.parse((await request(0, '/users', headers)).body).host).toBe(headers.Host);
   });
 
   test('path cache rules win over file rules and default-origin responses are cached', async () => {

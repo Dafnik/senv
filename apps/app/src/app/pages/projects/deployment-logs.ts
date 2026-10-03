@@ -48,7 +48,7 @@ import { DeploymentsData } from '../../queries/deployments';
             </div>
           } @else if (logs.isError()) {
             <div
-              class="grid h-[65vh] min-h-96 content-center justify-center gap-4 p-6"
+              class="grid h-[75vh] min-h-96 content-center justify-center gap-4 p-6"
             >
               <p role="alert">{{ logs.error().message }}</p>
               <button hlmBtn variant="outline" (click)="logs.refetch()">
@@ -57,7 +57,7 @@ import { DeploymentsData } from '../../queries/deployments';
             </div>
           } @else {
             <pre
-              class="h-[65vh] min-h-96 overflow-auto p-5 font-mono text-xs leading-6"
+              class="h-[75vh] min-h-96 overflow-auto p-5 font-mono text-xs leading-6"
               tabindex="0"
               [attr.aria-label]="
                 logSource() === 'origin' ? 'Origin logs' : 'Proxy logs'

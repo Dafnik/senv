@@ -1,7 +1,7 @@
-import { and, asc, desc, eq, lt, or } from 'drizzle-orm';
+import { and, asc, desc, eq, lt } from 'drizzle-orm';
 import { customAlphabet } from 'nanoid';
 import { deployment, deploymentLog } from '../../../../drizzle/schema';
-import type { DeploymentLogPage, DeploymentSnapshot } from '../../shared/deployments';
+import type { DeploymentLogCursor, DeploymentLogPage } from '../../shared/deployments';
 import { db } from './db';
 
 const id = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 21);
@@ -10,7 +10,7 @@ export function getDeploymentLogs(
   deploymentId: string,
   source: 'proxy' | 'origin',
   limit = 100,
-  cursor?: { createdAt: number; id: string },
+  cursor?: DeploymentLogCursor,
 ): DeploymentLogPage {
   const page = db
     .select()
@@ -19,18 +19,10 @@ export function getDeploymentLogs(
       and(
         eq(deploymentLog.deploymentId, deploymentId),
         eq(deploymentLog.source, source),
-        cursor
-          ? or(
-              lt(deploymentLog.createdAt, new Date(cursor.createdAt)),
-              and(
-                eq(deploymentLog.createdAt, new Date(cursor.createdAt)),
-                lt(deploymentLog.id, cursor.id),
-              ),
-            )
-          : undefined,
+        cursor ? lt(deploymentLog.sequence, cursor.sequence) : undefined,
       ),
     )
-    .orderBy(desc(deploymentLog.createdAt), desc(deploymentLog.id))
+    .orderBy(desc(deploymentLog.sequence))
     .limit(Math.min(limit, 500) + 1)
     .all();
   const hasOlder = page.length > Math.min(limit, 500);
@@ -38,8 +30,7 @@ export function getDeploymentLogs(
   const oldest = rows[rows.length - 1];
   return {
     logs: rows.reverse().map((row) => ({ ...row, source })),
-    nextCursor:
-      hasOlder && oldest ? { createdAt: oldest.createdAt.getTime(), id: oldest.id } : null,
+    nextCursor: hasOlder && oldest ? { sequence: oldest.sequence } : null,
   };
 }
 export function appendDeploymentLog(
@@ -65,10 +56,7 @@ export function appendDeploymentLog(
     row.status === 'cleaned'
   )
     return;
-  const limits = (row.snapshot as DeploymentSnapshot).logs ?? {
-    files: 3,
-    fileSizeBytes: 10 * 1024 * 1024,
-  };
+  const limits = row.snapshot.logs;
   const maxBytes = Math.max(1024, limits.files * limits.fileSizeBytes);
   const encoded = Buffer.from(content, 'utf8');
   let start = Math.max(0, encoded.length - maxBytes);
@@ -82,7 +70,7 @@ export function appendDeploymentLog(
       .select({ id: deploymentLog.id, content: deploymentLog.content })
       .from(deploymentLog)
       .where(and(eq(deploymentLog.deploymentId, deploymentId), eq(deploymentLog.source, source)))
-      .orderBy(asc(deploymentLog.createdAt), asc(deploymentLog.id))
+      .orderBy(asc(deploymentLog.sequence))
       .all();
     let bytes = rows.reduce((total, item) => total + Buffer.byteLength(item.content), 0);
     for (const item of rows) {

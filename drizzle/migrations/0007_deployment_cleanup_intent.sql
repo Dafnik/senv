@@ -1,1 +1,0 @@
-ALTER TABLE `deployment` ADD `cleanupStartedAt` integer;

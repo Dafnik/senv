@@ -1,5 +1,4 @@
 import { mkdtempSync, rmSync } from 'node:fs';
-import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { and, eq } from 'drizzle-orm';
@@ -45,6 +44,8 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  api.registerDeploymentRemovalHandler(async () => {});
+  api.registerPreviewRoutesRefresh(async () => {});
   db.delete(organization).run();
   db.delete(user).run();
   db.insert(user)
@@ -227,6 +228,43 @@ test('authenticated API enforces viewer/developer/admin capabilities and redacts
     port: 80,
   });
   expect(published.status).toBe('queued');
+  const preview = await import('./utils/deployment-preview-status');
+  const previewRequest = vi.spyOn(preview, 'requestDeploymentPreview').mockResolvedValue({
+    url: 'https://preview.example.test/',
+    statusCode: 404,
+    checkedAt: new Date(),
+    responseTimeMs: 10,
+    error: null,
+  });
+  try {
+    expect(
+      await viewer.api.deployments.previewStatus({ projectId, deploymentId: published.id }),
+    ).toMatchObject({ statusCode: 404 });
+    expect(previewRequest).toHaveBeenCalledWith(
+      api.getProjectDeployment(projectId, published.id).previewUrl,
+    );
+    previewRequest.mockClear();
+    db.insert(organization)
+      .values({
+        id: 'other-project',
+        name: 'Other',
+        slug: 'other-project',
+        previewSlug: 'other-project',
+      })
+      .run();
+    await expect(
+      viewer.api.deployments.previewStatus({
+        projectId: 'other-project',
+        deploymentId: published.id,
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(
+      viewer.api.deployments.previewStatus({ projectId, deploymentId: 'missing-deployment' }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(previewRequest).not.toHaveBeenCalled();
+  } finally {
+    previewRequest.mockRestore();
+  }
   await expect(
     viewer.api.deployments.setPinned({ projectId, deploymentId: published.id, pinned: true }),
   ).rejects.toMatchObject({ code: 'FORBIDDEN' });
@@ -343,6 +381,7 @@ test('publication captures immutable settings, redacts saved secrets, and suppor
   api.updateProjectDeploymentSettings(projectId, {
     ...deploymentSettingsSchema.parse({}),
     repository: 'https://example.com/team/changed.git',
+    repositoryProvider: 'gitlab',
     originCpus: '2',
     proxy: {
       routes: [
@@ -362,6 +401,9 @@ test('publication captures immutable settings, redacts saved secrets, and suppor
   expect(publicValue.config.secretNames).toEqual(['API_TOKEN']);
   expect(publicValue.config.limits.origin.cpus).toBe('1');
   expect(publicValue.source.repository).toBe('https://example.com/team/site.git');
+  expect(publicValue.source.repositoryProvider).toBe('github');
+  expect(api.getProjectDeploymentSettings(projectId).repositoryProvider).toBe('gitlab');
+  expect(publicValue.configurationChanges).toContain('Git provider');
   expect(api.getDeploymentRuntimeConfig(first.id)?.secrets).toEqual({
     API_TOKEN: 'never-return-this',
   });
@@ -520,8 +562,7 @@ test('branch selection follows submission order when readiness completes out of 
   expect(restored?.deploymentId).toBe(next.id);
 });
 
-test('branch aliases extend hashed names when a simple branch collides with a normalized alias', async () => {
-  const digest = createHash('sha256').update('feature/login').digest('hex').slice(0, 8);
+test('branch aliases normalize names without a suffix and reject collisions before publication', async () => {
   const artifact = api.registerUploadedArtifact({
     projectId,
     kind: 'static',
@@ -536,21 +577,38 @@ test('branch aliases extend hashed names when a simple branch collides with a no
   });
   const second = await publishStatic({
     artifactId: artifact.artifactId,
-    source: { branch: `feature-login-${digest}` },
+    source: { branch: 'feature/login' },
     secrets: {},
   });
+  await expect(
+    publishStatic({
+      artifactId: artifact.artifactId,
+      source: { branch: 'feature-login' },
+    }),
+  ).rejects.toMatchObject({ code: 'CONFLICT' });
+  await expect(
+    publishStatic({
+      artifactId: artifact.artifactId,
+      source: { branch: 'Feature/Login' },
+    }),
+  ).rejects.toMatchObject({ code: 'CONFLICT' });
   const aliases = db
     .select()
     .from(deploymentBranchAlias)
     .where(eq(deploymentBranchAlias.projectId, projectId))
     .all();
-  expect(aliases.find((item) => item.branch === 'feature/login')?.alias).toBe(
-    `br-feature-login-${digest}`,
-  );
-  const collidedSimple = aliases.find((item) => item.branch === `feature-login-${digest}`)?.alias;
-  expect(collidedSimple).toBeDefined();
-  expect(collidedSimple).not.toBe(`br-feature-login-${digest}`);
+  expect(aliases).toHaveLength(1);
+  expect(aliases[0]?.alias).toBe('br-feature-login');
+  expect(api.listProjectDeployments(projectId)).toHaveLength(2);
   expect(first.id).not.toBe(second.id);
+});
+
+test('normalized branch aliases remain DNS-safe for mixed case, separators, and long names', async () => {
+  const { branchAlias } = await import('./utils/deployment-addresses');
+  expect(branchAlias('Feature/Login__UI', projectId)).toBe('br-feature-login-ui');
+  expect(branchAlias('main', projectId)).toBe('br-main');
+  expect(branchAlias('a'.repeat(100), projectId)).toBe(`br-${'a'.repeat(60)}`);
+  expect(branchAlias('a'.repeat(59) + '/long', projectId)).toBe(`br-${'a'.repeat(59)}`);
 });
 
 test('a stale readiness completion cannot turn a deliberately stopped deployment healthy', async () => {
@@ -1162,4 +1220,114 @@ test('retention settings affect new snapshots without changing existing expiry d
     2 * 86400000,
   );
   expect(newer.configurationOutdated).toBe(false);
+});
+
+test('log ordering, pagination, and eviction follow append order within one millisecond', async () => {
+  const artifact = api.registerUploadedArtifact({
+    projectId,
+    kind: 'static',
+    storageKey: 'a'.repeat(64),
+    sha256: 'a'.repeat(64),
+    size: 1,
+  });
+  const target = await publishStatic({ artifactId: artifact.artifactId });
+  db.update(deployment)
+    .set({
+      snapshot: {
+        ...db.select().from(deployment).where(eq(deployment.id, target.id)).get()!.snapshot,
+        logs: { files: 1, fileSizeBytes: 1024 },
+      },
+    })
+    .where(eq(deployment.id, target.id))
+    .run();
+  vi.useFakeTimers({ toFake: ['Date'] });
+  try {
+    vi.setSystemTime(new Date('2026-10-03T12:00:00Z'));
+    const batches = Array.from(
+      { length: 20 },
+      (_, i) => String(i).padStart(3, '0') + 'x'.repeat(97),
+    );
+    for (const batch of batches) api.appendDeploymentLog(target.id, 'origin', batch);
+    const first = api.getDeploymentLogs(target.id, 'origin', 6);
+    const second = api.getDeploymentLogs(target.id, 'origin', 6, first.nextCursor!);
+    expect([...second.logs, ...first.logs].map((row) => row.content)).toEqual(batches.slice(10));
+    expect(second.nextCursor).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('invalid rewrites and equivalent proxy matchers preserve previous project defaults', () => {
+  const previous = api.getProjectDeploymentSettings(projectId);
+  const route = {
+    path: '/api',
+    target: 'http://example.com',
+    connectTimeoutSeconds: 10,
+    readTimeoutSeconds: 60,
+  };
+  for (const rewrite of ['/../', '//', '/a//b', '/./']) {
+    expect(() =>
+      api.updateProjectDeploymentSettings(projectId, {
+        ...previous,
+        proxy: { ...previous.proxy, routes: [{ ...route, rewrite }] },
+      }),
+    ).toThrow();
+    expect(api.getProjectDeploymentSettings(projectId)).toEqual(previous);
+  }
+  for (const proxy of [
+    { ...previous.proxy, routes: [route, { ...route, path: '/api/' }] },
+    {
+      ...previous.proxy,
+      cacheRules: [
+        { matcher: 'extension', value: 'js', durationSeconds: 60 },
+        { matcher: 'extension', value: '.JS', durationSeconds: 60 },
+      ],
+    },
+    {
+      ...previous.proxy,
+      cacheRules: [
+        { matcher: 'path', value: '/assets', durationSeconds: 60 },
+        { matcher: 'path', value: '/assets/', durationSeconds: 60 },
+      ],
+    },
+  ]) {
+    expect(() => api.updateProjectDeploymentSettings(projectId, { ...previous, proxy })).toThrow();
+    expect(api.getProjectDeploymentSettings(projectId)).toEqual(previous);
+  }
+});
+
+test('all removal entry points require an available runtime before releasing retained data', async () => {
+  const artifact = api.registerUploadedArtifact({
+    projectId,
+    kind: 'static',
+    storageKey: 'b'.repeat(64),
+    sha256: 'b'.repeat(64),
+    size: 1,
+  });
+  const target = await publishStatic({ artifactId: artifact.artifactId });
+  await api.markDeploymentReady(target.id, new Date('2026-09-01T00:00:00Z'));
+  api.registerDeploymentRemovalHandler();
+  await expect(api.deleteDeployment(target.id)).rejects.toMatchObject({
+    code: 'PRECONDITION_FAILED',
+  });
+  await expect(api.cleanupDueDeployments(new Date('2026-10-03T00:00:00Z'))).rejects.toMatchObject({
+    code: 'PRECONDITION_FAILED',
+  });
+  expect(api.getProjectDeployment(projectId, target.id)).toMatchObject({
+    status: 'healthy',
+    artifactId: artifact.artifactId,
+    removalPending: false,
+  });
+  db.update(deployment)
+    .set({ cleanupStartedAt: new Date(), cleanupAction: 'delete' })
+    .where(eq(deployment.id, target.id))
+    .run();
+  await expect(api.resumePendingDeploymentRemovals()).rejects.toMatchObject({
+    code: 'PRECONDITION_FAILED',
+  });
+  expect(api.getProjectDeployment(projectId, target.id)).toMatchObject({
+    status: 'healthy',
+    artifactId: artifact.artifactId,
+    removalPending: true,
+  });
 });

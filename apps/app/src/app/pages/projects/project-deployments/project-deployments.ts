@@ -31,7 +31,7 @@ import { injectQuery } from '@tanstack/angular-query';
 import { injectAuthSessionId } from '../../../auth/auth-client';
 import { DeploymentUpload } from '../../../queries/deployment-upload';
 import { DeploymentsData } from '../../../queries/deployments';
-import { DeploymentView } from '../deployment-view';
+import { DeploymentList } from '../deployment-list';
 import { formatBytes } from '../../../ui/format-bytes';
 
 type PublishModel = {
@@ -49,7 +49,7 @@ type PublishModel = {
   selector: 'app-project-deployments',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    DeploymentView,
+    DeploymentList,
     FormField,
     FormRoot,
     HlmBadgeImports,
@@ -66,20 +66,6 @@ type PublishModel = {
     <div class="grid gap-6">
       @if (!canManage()) {
         <span hlmBadge variant="secondary" class="w-fit">Read only</span>
-      }
-      @if (canManage()) {
-        <div class="flex justify-end">
-          <button
-            hlmBtn
-            type="button"
-            [disabled]="busy()"
-            (click)="publishOpen.set(!publishOpen())"
-            [attr.aria-expanded]="publishOpen()"
-            aria-controls="publish-deployment-card"
-          >
-            {{ publishOpen() ? 'Close publish form' : 'Publish' }}
-          </button>
-        </div>
       }
       @if (publishOpen() && canManage()) {
         <section hlmCard id="publish-deployment-card">
@@ -366,7 +352,7 @@ type PublishModel = {
         </section>
       }
 
-      <app-deployment-view
+      <app-deployment-list
         [projectId]="projectId()"
         [previewSlug]="previewSlug()"
         [canManage]="canManage()"
@@ -379,7 +365,22 @@ type PublishModel = {
         [historyLoading]="history.isPending()"
         [historyError]="history.error()?.message ?? ''"
         (reload)="deployments.refetch()"
-      />
+      >
+        @if (canManage()) {
+          <div deployment-list-actions>
+            <button
+              hlmBtn
+              type="button"
+              [disabled]="busy()"
+              (click)="publishOpen.set(!publishOpen())"
+              [attr.aria-expanded]="publishOpen()"
+              aria-controls="publish-deployment-card"
+            >
+              {{ publishOpen() ? 'Close publish form' : 'Publish' }}
+            </button>
+          </div>
+        }
+      </app-deployment-list>
     </div>
   `,
 })

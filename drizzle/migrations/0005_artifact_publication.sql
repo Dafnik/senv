@@ -1,1 +1,0 @@
-ALTER TABLE `deploymentArtifact` ADD `publishedAt` integer;

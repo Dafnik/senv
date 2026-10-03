@@ -23,9 +23,13 @@ import {
 } from '@angular/forms/signals';
 import {
   repositoryUrlSchema,
+  repositoryProviders,
   deploymentHealthSchema,
   proxyRouteSchema,
   cacheRuleSchema,
+  proxyPathKey,
+  cacheMatcherKey,
+  proxyMatcherConflicts,
   type DeploymentSettings,
 } from '@senv/api/shared/deployments';
 import { toast } from '@spartan-ng/brain/sonner';
@@ -174,7 +178,7 @@ type SettingsModel = Omit<DeploymentSettings, 'originMemoryBytes' | 'proxy'> & {
             <fieldset class="grid gap-4" [disabled]="!canManage() || saving()">
               <legend class="font-medium">Source repository</legend>
               <div class="grid gap-4 sm:grid-cols-2">
-                <div hlmField class="sm:col-span-2">
+                <div hlmField>
                   <label hlmFieldLabel for="project-repository"
                     >Project repository</label
                   >
@@ -198,6 +202,29 @@ type SettingsModel = Omit<DeploymentSettings, 'originMemoryBytes' | 'proxy'> & {
                     }
                   }
                 </div>
+                <div hlmField>
+                  <label hlmFieldLabel for="project-repository-provider"
+                    >Git provider</label
+                  >
+                  <hlm-native-select
+                    selectId="project-repository-provider"
+                    class="w-full"
+                    [formField]="settingsForm.repositoryProvider"
+                  >
+                    @for (
+                      provider of repositoryProviders;
+                      track provider.value
+                    ) {
+                      <option [value]="provider.value">
+                        {{ provider.label }}
+                      </option>
+                    }
+                  </hlm-native-select>
+                  <p hlmFieldDescription>
+                    Used for branch and commit links. Supports hosted and
+                    self-hosted repositories.
+                  </p>
+                </div>
               </div>
             </fieldset>
 
@@ -206,11 +233,7 @@ type SettingsModel = Omit<DeploymentSettings, 'originMemoryBytes' | 'proxy'> & {
               [disabled]="!canManage() || saving()"
             >
               <legend class="font-medium">Static site routing</legend>
-              <div
-                hlmField
-                orientation="horizontal"
-                class="rounded-md border p-4"
-              >
+              <div hlmField orientation="horizontal">
                 <hlm-checkbox
                   inputId="project-spa-fallback"
                   aria-labelledby="project-spa-label"
@@ -697,6 +720,7 @@ type SettingsModel = Omit<DeploymentSettings, 'originMemoryBytes' | 'proxy'> & {
   `,
 })
 export class ProjectDeploymentSettings {
+  readonly repositoryProviders = repositoryProviders;
   readonly projectId = input.required<string>();
   readonly previewSlug = input('');
   readonly canManage = input(false);
@@ -799,13 +823,14 @@ export class ProjectDeploymentSettings {
       required(route.path, { message: 'Enter a route path.' });
       required(route.target, { message: 'Enter an HTTP(S) destination.' });
       validate(route.path, ({ value, valueOf }) => {
-        const routes = valueOf(path.proxy.routes);
         if (!proxyRouteSchema.shape.path.safeParse(value()).success)
           return {
             kind: 'routePath',
             message: 'Use a normalized absolute path.',
           };
-        return routes.filter((item) => item.path === value()).length > 1
+        return proxyMatcherConflicts(valueOf(path.proxy)).routes.has(
+          proxyPathKey(value()),
+        )
           ? {
               kind: 'duplicateRoute',
               message: 'This route path is already configured.',
@@ -863,7 +888,6 @@ export class ProjectDeploymentSettings {
       max(rule.durationSeconds, 604800);
       validate(rule.value, ({ value, valueOf }) => {
         const matcher = valueOf(rule.matcher);
-        const rules = valueOf(path.proxy.cacheRules);
         const valid = cacheRuleSchema.safeParse({
           matcher,
           value: value(),
@@ -877,9 +901,9 @@ export class ProjectDeploymentSettings {
                 ? 'Enter an absolute normalized request path.'
                 : 'Enter a file extension such as .js.',
           };
-        return rules.filter(
-          (item) => item.matcher === matcher && item.value === value(),
-        ).length > 1
+        return proxyMatcherConflicts(valueOf(path.proxy)).cacheRules.has(
+          cacheMatcherKey({ matcher, value: value() }),
+        )
           ? {
               kind: 'duplicateCacheRule',
               message: 'This cache matcher is already configured.',
@@ -953,6 +977,7 @@ export class ProjectDeploymentSettings {
     return {
       spaFallback: false,
       repository: '',
+      repositoryProvider: 'github',
       retentionDays: 7,
       originCpus: '1',
       originMemoryMiB: 512,
@@ -1008,6 +1033,7 @@ export class ProjectDeploymentSettings {
     return {
       spaFallback: model.spaFallback,
       repository: model.repository.trim(),
+      repositoryProvider: model.repositoryProvider,
       retentionDays: model.retentionDays,
       originCpus: model.originCpus.trim(),
       originMemoryBytes: Math.round(model.originMemoryMiB * 1048576),

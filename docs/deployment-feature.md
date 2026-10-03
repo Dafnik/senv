@@ -18,13 +18,13 @@ Accounts, instance administration, projects, memberships, and invitations use Be
 
 The Deployments section at `/projects/:projectSlug/deployments` supports publication, lifecycle actions, tags, configuration, logs, and retained history. The publish form opens from a Publish button. Project settings group source, retention, resources, health checks, proxy routes, caching, and compression. Runtime configuration and registry credentials are managed in project settings. Project name and preview slug share an identity card at the bottom, with discard controls for local changes. Instance deployment defaults have their own admin page at `/admin/deployment-defaults`, linked in the sidebar. Duration fields allow seconds, hours, days, and months; a month means 30 days, and existing validation limits still apply. Proxy routes show a forwarding preview, and cache matcher labels follow the selected rule type. The API stores artifacts and directly reconciles deployment containers through the local Docker Engine. Production Compose runs the app, API, migration service, and Traefik entry point. Its SQLite storage is senv infrastructure, not a user-deployed stateful environment.
 
-Project pages resolve by the editable project slug. Deployment details live at `/projects/:projectSlug/deployments/:deploymentId`, with logs at the nested `/logs` route. Breadcrumbs connect Projects, the project, the deployment, and Logs. Origin and Proxy log tabs preserve the selected source in the URL. List and detail pages offer copy buttons for the preview and detail links, show differences from current settings, and display the actual expiry date or the pin, tag, or current branch that protects a deployment.
+Project pages resolve by the editable project slug. Deployment details live at `/projects/:projectSlug/deployments/:deploymentId`, with logs at the nested `/logs` route. Breadcrumbs connect Projects, the project, the deployment, and Logs. Origin and Proxy log tabs preserve the selected source in the URL. List and detail pages group Open preview with Copy preview URL, show differences from current settings, and display the actual expiry date or the pin, tag, or current branch that protects a deployment.
 
-Project settings and instance defaults are captured when publishing, including the retention period. Updating them affects new deployments; existing deployments keep their configuration and retention policy. The private runtime fingerprint lets freshness checks detect secret value changes without returning values or fingerprints to clients. Legacy snapshots retain their existing expiry and capture their old retention policy before a settings change.
+Project settings and instance defaults are captured when publishing, including the retention period. Updating them affects new deployments; existing deployments keep their configuration and retention policy. The private runtime fingerprint lets freshness checks detect secret value changes without returning values or fingerprints to clients.
 
 The internal organization slug still equals the immutable project ID and is distinct from the readable project slug used in URLs.
 
-Apply the Drizzle migrations before starting the API. Existing project IDs remain unchanged; migrations initialize their separate preview slugs from those IDs. New projects receive editable readable slug suggestions. No database reset is needed.
+Initialize a fresh database with the single initial Drizzle migration before starting the API. This WIP has no upgrade or backfill code; reset existing local databases when the schema changes. New projects receive editable readable slug suggestions.
 
 Code references:
 
@@ -39,7 +39,7 @@ Code references:
 
 ## Project settings and permissions
 
-A project has no repository or one repository. Optional commit and branch metadata refer to that repository when present. senv accepts the publisher's source association as information; it does not verify that an externally built artifact corresponds to a commit. There are no separate application or repository branch namespaces within a project.
+A project has no repository or one repository. Choose GitHub, GitLab, Forgejo, or Gitea in the project repository settings, including self-hosted instances. Optional commit and branch metadata refer to that repository when present. Each deployment captures the repository URL and provider at publication. Deployment details link the repository, branch, and commit to that provider's web interface, preserving the configured host and repository path. senv accepts the publisher's source association as information; it does not verify that an externally built artifact corresponds to a commit. There are no separate application or repository branch namespaces within a project.
 
 | Capability                                                  | Viewer | Developer | Project admin |
 | ----------------------------------------------------------- | ------ | --------- | ------------- |
@@ -136,9 +136,9 @@ The local preview-domain example is `preview.localhost`. The preview slug is rea
 
 Changing the slug retires all old deployment, branch, and tag URLs and senv project, deployment, and log links immediately and allows another project to reuse the old slug. Previously shared links can therefore later point to a different project.
 
-Simple branch names retain readable aliases, such as `br-main`. Names requiring normalization use a readable prefix plus an eight-character hash of the original case-sensitive branch name, extending the suffix if a collision occurs. This keeps `feature/login`, `feature-login`, and `Feature/Login` distinct. Shorten the readable portion when necessary to fit the hostname label; retain each assigned alias across restarts.
+Branch aliases contain only `br-` and the normalized branch name, such as `br-main` or `br-feature-login`. Lowercase the name, replace runs of non-alphanumeric characters with hyphens, and trim leading and trailing hyphens. Shorten the name to fit the 63-character hostname label. If distinct branch names normalize to the same address within a project, reject publication with a conflict rather than adding a suffix or sharing an address. Retain each assigned alias across restarts.
 
-Deployment IDs are six characters without a prefix, using the readable lowercase alphabet `acdefghjkmnpqrtuvwxy34679`. Existing deployment IDs and URLs remain valid. Generate IDs without colliding with retained deployment records, history, or project tags. Deployment tag names are lowercase DNS-safe labels and cannot match a deployment ID. Reserve the `br-` and legacy `dpl-` prefixes within the project hostname namespace.
+Deployment IDs are six characters without a prefix, using the readable lowercase alphabet `acdefghjkmnpqrtuvwxy34679`. Generate IDs without colliding with retained deployment records, history, or project tags. Deployment tag names are lowercase DNS-safe labels and cannot match a deployment ID. Reserve the `br-` prefix within the project hostname namespace.
 
 ### Branch selection
 
@@ -189,7 +189,7 @@ On manual deletion or timed cleanup, remove raw deployment logs and captured dep
 
 ## Implementation choices
 
-- Slug suggestions lowercase the project name, normalize separators to hyphens, trim the label, and add a numeric suffix when necessary. Branch aliases use SHA-256 of the original case-sensitive branch name, initially eight hexadecimal characters, extending by two on a collision. Assigned aliases are stored independently of their current target.
+- Slug suggestions lowercase the project name, normalize separators to hyphens, trim the label, and add a numeric suffix when necessary. Branch aliases use only the normalized branch name after `br-`, without a hash or ID suffix. Assigned aliases are stored independently of their current target.
 - Paths are normalized absolute paths with segment boundaries. A route's rewrite is the replacement prefix; its target URL path can also supply that prefix. Connect and read timeouts default to 10 and 60 seconds. Cache durations are explicit whole seconds, up to seven days. Extension matchers ignore case and accept an optional leading dot. An empty compression allowlist includes extensionless responses.
 - Publication reports queued, starting, healthy, unhealthy, stopped, failed, deleted, or cleaned state. Failed startup records a reason and retains bounded diagnostic logs. Upload errors leave no partially committed website. Non-secret publication drafts are stored per session and project in the browser; unsaved project secret values and file selections must be entered again after refresh.
 - Static website trees are stored by a framed SHA-256 content hash and committed by atomic rename. Metadata and authorization remain project-scoped even when identical bytes share storage. Active deployment references and pending uploads protect those bytes. Unpublished uploads expire after 24 hours; deletion and retention cleanup release published content when its final reference disappears.
@@ -200,7 +200,7 @@ On manual deletion or timed cleanup, remove raw deployment logs and captured dep
 ## Technical constraints
 
 - Localhost HTTPS needs locally trusted certificates or an explicit development HTTP policy. Let's Encrypt does not issue certificates for `localhost`. See [localhost guidance](https://letsencrypt.org/docs/certificates-for-localhost/).
-- A TLS wildcard covers one hostname label. `*.preview.example.com` does not cover `dpl-id.project.preview.example.com`; use per-project wildcard coverage or individual hostname certificates. See [RFC 9525, section 6.3](https://www.rfc-editor.org/rfc/rfc9525.html#section-6.3).
+- A TLS wildcard covers one hostname label. `*.preview.example.com` does not cover `ac3467.project.preview.example.com`; use per-project wildcard coverage or individual hostname certificates. See [RFC 9525, section 6.3](https://www.rfc-editor.org/rfc/rfc9525.html#section-6.3).
 - Traefik's ACME wildcard issuance requires a DNS challenge, which affects operator DNS credentials. See [Traefik ACME documentation](https://doc.traefik.io/traefik/reference/install-configuration/tls/certificate-resolvers/acme/).
 - DNS labels have a maximum of 63 octets. Validate individual generated labels and the complete domain name when configuring the preview base domain. See [RFC 1035, section 2.3.4](https://www.rfc-editor.org/rfc/rfc1035.html#section-2.3.4).
 - Nginx supports upstream cache-control headers and excludes responses with `Set-Cookie` by default. Project cache settings must account for authenticated traffic and isolation across deployments and alias changes. See [Nginx proxy cache documentation](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_cache_valid).

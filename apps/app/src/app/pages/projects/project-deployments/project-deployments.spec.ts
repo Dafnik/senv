@@ -2,10 +2,17 @@ import { provideRouter } from '@angular/router';
 import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideTanStackQuery, QueryClient } from '@tanstack/angular-query';
-import type { PublicDeployment } from '@senv/api/shared/deployments';
+import type {
+  PublicDeployment,
+  DeploymentPreviewStatus as PreviewStatusResult,
+} from '@senv/api/shared/deployments';
 import { afterEach, beforeEach, expect, test, vi } from 'vite-plus/test';
 import { By } from '@angular/platform-browser';
-import { DeploymentView } from '../deployment-view';
+import { DeploymentList } from '../deployment-list';
+import { DeploymentOverview } from '../deployment-overview';
+import { DeploymentPreviewStatus } from '../deployment-preview-status';
+import type { DeploymentActions } from '../deployment-actions';
+import { aliasUrl, retentionInfo } from '../deployment-presentation';
 import { AUTH_CLIENT } from '../../../auth/auth-client';
 import { DeploymentUpload } from '../../../queries/deployment-upload';
 import { DeploymentsData } from '../../../queries/deployments';
@@ -37,6 +44,7 @@ const deployments: Array<PublicDeployment & { previewUrl: string }> = [
     failureReason: null,
     removalPending: false,
     config: {
+      retentionDays: 7,
       port: 80,
       env: { PUBLIC_NAME: 'demo' },
       spaFallback: true,
@@ -60,7 +68,7 @@ const deployments: Array<PublicDeployment & { previewUrl: string }> = [
       secretNames: [],
       hasSecrets: false,
     },
-    branchAlias: 'br-feature-ui-a1b2c3d4',
+    branchAlias: 'br-feature-ui',
     tags: [],
     previewUrl: 'https://dpl-deployment-a.project.preview.example.test',
   },
@@ -80,6 +88,7 @@ const history = [
 const settings = {
   spaFallback: true,
   repository: 'https://github.com/acme/site',
+  repositoryProvider: 'github',
   retentionDays: 7,
   originCpus: '1',
   originMemoryBytes: 536870912,
@@ -106,6 +115,25 @@ const localStorageMock = {
 };
 
 const mock = {
+  previewStatus: vi.fn(
+    (
+      _sessionId: string,
+      _projectId: string,
+      _deploymentId: string,
+      enabled: boolean,
+    ) => ({
+      queryKey: ['preview-status'],
+      enabled,
+      queryFn: async (): Promise<PreviewStatusResult> => ({
+        url: deployments[0].previewUrl,
+        statusCode: 404,
+        checkedAt: new Date(),
+        responseTimeMs: 12,
+        error: null,
+      }),
+      refetchInterval: false,
+    }),
+  ),
   list: vi.fn(() => ({
     queryKey: ['deployments'],
     queryFn: async () => deployments,
@@ -245,9 +273,9 @@ afterEach(() => {
 
 function display(
   fixture: ComponentFixture<ProjectDeployments>,
-): DeploymentView {
-  return fixture.debugElement.query(By.directive(DeploymentView))
-    .componentInstance;
+): DeploymentActions {
+  return fixture.debugElement.query(By.directive(DeploymentList))
+    .componentInstance.actions;
 }
 
 test('viewers can inspect status, preview, configuration, and history without mutation controls', async () => {
@@ -256,15 +284,14 @@ test('viewers can inspect status, preview, configuration, and history without mu
   expect(fixture.nativeElement.textContent).toContain('healthy');
   expect(
     fixture.nativeElement
-      .querySelector('a[target="_blank"]')
+      .querySelector('app-deployment-preview-actions a[target="_blank"]')
       ?.getAttribute('href'),
   ).toBe(deployments[0]!.previewUrl);
-  expect(fixture.nativeElement.textContent).toContain('1 variables');
+  expect(fixture.nativeElement.textContent).toContain('feature/ui');
   expect(fixture.nativeElement.textContent).toContain('deployment-old');
   expect(fixture.nativeElement.textContent).toContain('Ada');
-  expect(fixture.nativeElement.textContent).toContain('user-123');
-  expect(display(fixture).branchUrl(deployments[0]!)).toBe(
-    'https://br-feature-ui-a1b2c3d4.project.preview.example.test',
+  expect(aliasUrl(deployments[0]!, deployments[0]!.branchAlias!)).toBe(
+    'https://br-feature-ui.project.preview.example.test/',
   );
   expect(fixture.nativeElement.textContent.toLowerCase()).toContain(
     'read only',
@@ -563,7 +590,7 @@ test('tag forms reject unsafe names and allow healthy deployments to assign a va
   const fixture = createFixture(true);
   await fixture.whenStable();
   const component = display(fixture);
-  component.tagDrafts.set({ 'deployment-a': 'dpl-release' });
+  component.tagDrafts.set({ 'deployment-a': 'br-release' });
   await component.assignTag(new Event('submit'), deployments[0] as never);
   expect(mock.assignTag).not.toHaveBeenCalled();
 
@@ -605,15 +632,15 @@ test('list links open deployment details and logs using the project slug', async
   ).not.toBeNull();
 });
 
-test('deployment expiry and current configuration are visible in list and details', async () => {
-  const fixture = TestBed.createComponent(DeploymentView);
-  fixture.componentRef.setInput('projectId', 'project-a');
-  fixture.componentRef.setInput('previewSlug', 'project');
-  fixture.componentRef.setInput('detailDeployment', {
+test('deployment details explain expiry without repeating the ID as a title', async () => {
+  const fixture = TestBed.createComponent(DeploymentOverview);
+  fixture.componentRef.setInput('projectSlug', 'project');
+  fixture.componentRef.setInput('deployment', {
     ...deployments[0]!,
     branchAlias: null,
     configurationOutdated: true,
     configurationChanges: ['Health checks'],
+    retentionStartedAt: new Date('2026-10-05T10:00:00Z'),
     retentionDeadlineAt: new Date('2026-10-12T10:00:00Z'),
   });
   await fixture.whenStable();
@@ -623,26 +650,179 @@ test('deployment expiry and current configuration are visible in list and detail
   expect(element.querySelector('#deployment-configuration')).not.toBeNull();
   expect(element.querySelector('#deployment-audit')).not.toBeNull();
   expect(
+    element.querySelector(
+      '#deployment-information app-deployment-preview-status',
+    ),
+  ).toBeNull();
+  expect(
+    element.querySelector('app-deployment-preview-status section[hlmCard] h2')
+      ?.textContent,
+  ).toBe('Public preview');
+  expect(
     element.querySelector('button[aria-label="Copy preview link"]'),
   ).not.toBeNull();
   expect(
     element.querySelector('button[aria-label="Copy deployment details link"]'),
-  ).not.toBeNull();
-  expect(element.textContent).toContain(
-    fixture.componentInstance.dateLabel(new Date('2026-10-12T10:00:00Z')),
+  ).toBeNull();
+  expect(element.querySelector('h1')?.textContent).toContain('feature/ui');
+  expect(element.querySelector('h1')?.textContent).not.toContain(
+    'deployment-a',
   );
-  expect(
-    fixture.componentInstance.expiryLabel({ ...deployments[0]!, pinned: true }),
-  ).toContain('pinned');
-  expect(
-    fixture.componentInstance.expiryLabel({
-      ...deployments[0]!,
-      tags: ['stable'],
-    }),
-  ).toContain('tagged');
+  expect(element.textContent).toContain('Expires');
+  expect(element.textContent).toContain('Oct 12, 2026');
+  expect(element.textContent).toContain('audit history remains available');
+  expect(element.textContent).toContain('assign a tag to prevent expiry');
+  expect(element.textContent).toContain('Retention started');
 });
 
-test('copy buttons copy the absolute detail URL and exact preview URL', async () => {
+test('retention explains every active protection and when expiry starts', () => {
+  const retention = retentionInfo({
+    ...deployments[0]!,
+    pinned: true,
+    tags: ['stable'],
+  });
+  expect(retention.label).toBe('No expiry');
+  expect(retention.context).toContain('pinned');
+  expect(retention.context).toContain('tagged');
+  expect(retention.context).toContain('selected for its branch');
+  expect(retention.description).toContain('when all protection is removed');
+});
+
+test.each([
+  ['github', 'tree', 'commit'],
+  ['gitlab', '-/tree', '-/commit'],
+  ['forgejo', 'src/branch', 'commit'],
+  ['gitea', 'src/branch', 'commit'],
+] as const)(
+  'detail source metadata links to the selected %s provider',
+  async (repositoryProvider, branchPath, commitPath) => {
+    const fixture = TestBed.createComponent(DeploymentOverview);
+    fixture.componentRef.setInput('projectSlug', 'project');
+    fixture.componentRef.setInput('deployment', {
+      ...deployments[0],
+      source: {
+        repository: 'https://git.example.test/team/site.git',
+        repositoryProvider,
+        branch: 'feature/ui',
+        commit: 'abcdef1234567890',
+      },
+    });
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+    const links = [
+      ...element.querySelectorAll<HTMLAnchorElement>('a[target="_blank"]'),
+    ];
+    expect(
+      links.filter(
+        (link) => link.href === 'https://git.example.test/team/site',
+      ),
+    ).toHaveLength(1);
+    expect(
+      links.filter(
+        (link) =>
+          link.href ===
+          `https://git.example.test/team/site/${branchPath}/feature%2Fui`,
+      ),
+    ).toHaveLength(2);
+    expect(
+      links.filter(
+        (link) =>
+          link.href ===
+          `https://git.example.test/team/site/${commitPath}/abcdef1234567890`,
+      ),
+    ).toHaveLength(2);
+    expect(element.querySelector('h1 a')?.textContent).toContain('feature/ui');
+  },
+);
+
+test('list expiry has a labeled date', async () => {
+  const fixture = TestBed.createComponent(DeploymentList);
+  fixture.componentRef.setInput('projectId', 'project-a');
+  fixture.componentRef.setInput('items', [
+    {
+      ...deployments[0]!,
+      branchAlias: null,
+      retentionDeadlineAt: new Date(Date.now() + 2 * 86400000),
+    },
+  ]);
+  await fixture.whenStable();
+  const element = fixture.nativeElement as HTMLElement;
+  expect(element.textContent).toContain('Expires');
+  expect(element.querySelector('time[datetime]')).not.toBeNull();
+});
+
+test('public preview reports HTTP errors separately from container health and can be rechecked', async () => {
+  const fixture = TestBed.createComponent(DeploymentPreviewStatus);
+  fixture.componentRef.setInput('deployment', deployments[0]!);
+  await fixture.whenStable();
+  expect(mock.previewStatus).toHaveBeenCalledWith(
+    'session-a',
+    'project-a',
+    'deployment-a',
+    true,
+  );
+  expect(fixture.nativeElement.textContent).toContain('HTTP 404');
+  expect(fixture.nativeElement.textContent).toContain(
+    'Container health does not confirm public access',
+  );
+  expect(fixture.nativeElement.textContent).toContain('12 ms');
+  const query = vi.spyOn(fixture.componentInstance.status, 'refetch');
+  fixture.nativeElement
+    .querySelector('button[aria-label="Check preview again"]')
+    .click();
+  await fixture.whenStable();
+  expect(query).toHaveBeenCalledOnce();
+});
+
+test.each([
+  { statusCode: 200, error: null, expected: 'HTTP 200' },
+  {
+    statusCode: null,
+    error: 'The preview server refused the connection.',
+    expected: 'Unreachable',
+  },
+])(
+  'public preview displays $expected',
+  async ({ statusCode, error, expected }) => {
+    mock.previewStatus.mockReturnValueOnce({
+      queryKey: ['preview-status'],
+      enabled: true,
+      queryFn: async () => ({
+        url: deployments[0].previewUrl,
+        statusCode,
+        checkedAt: new Date(),
+        responseTimeMs: 12,
+        error,
+      }),
+      refetchInterval: false,
+    });
+    const fixture = TestBed.createComponent(DeploymentPreviewStatus);
+    fixture.componentRef.setInput('deployment', deployments[0]!);
+    await fixture.whenStable();
+    expect(fixture.nativeElement.textContent).toContain(expected);
+    if (error) expect(fixture.nativeElement.textContent).toContain(error);
+  },
+);
+
+test('stopped deployments do not request a public preview check', async () => {
+  const fixture = TestBed.createComponent(DeploymentPreviewStatus);
+  fixture.componentRef.setInput('deployment', {
+    ...deployments[0],
+    desiredState: 'stopped',
+    status: 'stopped',
+  });
+  await fixture.whenStable();
+  expect(mock.previewStatus).toHaveBeenCalledWith(
+    'session-a',
+    'project-a',
+    'deployment-a',
+    false,
+  );
+  expect(fixture.nativeElement.textContent).toContain('Unavailable');
+  expect(fixture.nativeElement.querySelector('button')).toBeNull();
+});
+
+test('preview buttons form one group and copy the exact preview URL', async () => {
   const fixture = createFixture();
   await fixture.whenStable();
   const writeText = vi.fn(async () => undefined);
@@ -653,18 +833,20 @@ test('copy buttons copy the absolute detail URL and exact preview URL', async ()
   });
   try {
     const element = fixture.nativeElement as HTMLElement;
-    element
-      .querySelector<HTMLButtonElement>(
+    expect(
+      element.querySelector(
         'button[aria-label="Copy deployment details link"]',
-      )!
-      .click();
-    await fixture.whenStable();
-    expect(writeText).toHaveBeenLastCalledWith(
-      new URL(
-        '/projects/project/deployments/deployment-a',
-        window.location.origin,
-      ).href,
+      ),
+    ).toBeNull();
+    const group = element.querySelector(
+      '[role="group"][aria-label="Preview actions"]',
+    )!;
+    expect(group.querySelector('a')?.getAttribute('href')).toBe(
+      deployments[0]!.previewUrl,
     );
+    expect(
+      group.querySelector('button[aria-label="Copy preview link"]'),
+    ).not.toBeNull();
     element
       .querySelector<HTMLButtonElement>(
         'button[aria-label="Copy preview link"]',
@@ -676,4 +858,59 @@ test('copy buttons copy the absolute detail URL and exact preview URL', async ()
     if (descriptor) Object.defineProperty(navigator, 'clipboard', descriptor);
     else Reflect.deleteProperty(navigator, 'clipboard');
   }
+});
+
+test('pin controls show the action and an icon in both states', async () => {
+  const fixture = TestBed.createComponent(DeploymentList);
+  fixture.componentRef.setInput('projectId', 'project-a');
+  fixture.componentRef.setInput('canManage', true);
+  fixture.componentRef.setInput('items', [
+    { ...deployments[0]!, pinned: true },
+  ]);
+  await fixture.whenStable();
+  const element = fixture.nativeElement as HTMLElement;
+  const unpin = element.querySelector(
+    'button[aria-label="Unpin deployment deployment-a"]',
+  )!;
+  expect(unpin.textContent?.trim()).toBe('Unpin');
+  expect(unpin.querySelector('ng-icon svg')).not.toBeNull();
+  const unpinIcon = unpin.querySelector('ng-icon')!.innerHTML;
+  fixture.componentRef.setInput('items', [
+    { ...deployments[0]!, pinned: false },
+  ]);
+  await fixture.whenStable();
+  const pin = element.querySelector(
+    'button[aria-label="Pin deployment deployment-a"]',
+  )!;
+  expect(pin.textContent?.trim()).toBe('Pin');
+  expect(pin.querySelector('ng-icon svg')).not.toBeNull();
+  expect(pin.querySelector('ng-icon')!.innerHTML).not.toBe(unpinIcon);
+});
+
+test('tag management opens below the action toolbar', async () => {
+  const fixture = createFixture();
+  await fixture.whenStable();
+  const element = fixture.nativeElement as HTMLElement;
+  const trigger = Array.from(
+    element.querySelectorAll<HTMLButtonElement>('button'),
+  ).find((button) => button.textContent?.includes('Manage tags'))!;
+  trigger.click();
+  await fixture.whenStable();
+  expect(trigger.getAttribute('aria-expanded')).toBe('true');
+  const panel = element.querySelector('#deployment-tags-deployment-a')!;
+  expect(panel.parentElement).toBe(trigger.closest('footer'));
+  expect(panel.contains(trigger)).toBe(false);
+  expect(panel.querySelector('input')).not.toBeNull();
+  expect(element.querySelector('header app-deployment-pin')).not.toBeNull();
+  expect(element.querySelector('footer app-deployment-pin')).toBeNull();
+});
+
+test('a failed tag assignment preserves the draft', async () => {
+  const fixture = createFixture();
+  await fixture.whenStable();
+  mock.assignTag.mockRejectedValueOnce(new Error('Could not assign tag'));
+  const actions = display(fixture);
+  actions.tagDrafts.set({ 'deployment-a': 'stable' });
+  await actions.assignTag(new Event('submit'), deployments[0]!);
+  expect(actions.tagDrafts()['deployment-a']).toBe('stable');
 });

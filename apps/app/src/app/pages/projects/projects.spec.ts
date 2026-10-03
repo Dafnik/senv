@@ -59,6 +59,7 @@ const deploymentDataMock = {
     queryFn: async () => ({
       spaFallback: false,
       repository: '',
+      repositoryProvider: 'github',
       retentionDays: 7,
       originCpus: '1',
       originMemoryBytes: 536870912,

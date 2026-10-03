@@ -76,6 +76,20 @@ const deployment = {
 };
 
 const deploymentData = {
+  previewStatus: vi.fn(
+    (_sessionId: string, projectId: string, id: string, enabled: boolean) => ({
+      queryKey: ['preview-status', projectId, id],
+      enabled,
+      queryFn: async () => ({
+        url: deployment.previewUrl,
+        statusCode: 404,
+        checkedAt: new Date(),
+        responseTimeMs: 12,
+        error: null,
+      }),
+      refetchInterval: false,
+    }),
+  ),
   detail: vi.fn((_sessionId: string, projectId: string, id: string) => ({
     queryKey: ['detail', projectId, id],
     enabled: !!projectId && !!id,
@@ -97,6 +111,7 @@ const deploymentData = {
     queryFn: async () => ({
       spaFallback: false,
       repository: '',
+      repositoryProvider: 'github',
       retentionDays: 7,
       originCpus: '1',
       originMemoryBytes: 536870912,
@@ -236,6 +251,15 @@ test('project section URLs support direct links and the base URL redirects to De
     '/projects/project-preview/members',
     ProjectPage,
   );
+  await vi.waitFor(() => {
+    const header =
+      harness.routeNativeElement?.querySelector('hlm-tabs > header');
+    expect(header?.querySelector('hlm-avatar')).not.toBeNull();
+    expect(header?.querySelector('hlm-tabs-list')).not.toBeNull();
+    expect(header?.querySelector('h1')?.classList.contains('sr-only')).toBe(
+      true,
+    );
+  });
   expect(members.projectSlug()).toBe('project-preview');
   expect(members.section()).toBe('members');
   await vi.waitFor(() => {
@@ -287,6 +311,16 @@ test('project section URLs support direct links and the base URL redirects to De
   expect(historySpy).not.toHaveBeenCalled();
   expect(
     harness.routeNativeElement?.querySelector('#publish-deployment-card'),
+  ).toBeNull();
+  expect(
+    harness.routeNativeElement?.querySelector(
+      'nav[aria-label="Deployment sections"]',
+    ),
+  ).toBeNull();
+  expect(
+    harness.routeNativeElement?.querySelector(
+      'button[aria-label="Copy deployment details link"]',
+    ),
   ).toBeNull();
   expect(harness.routeNativeElement?.textContent).toContain('Health checks');
   expect(harness.routeNativeElement?.textContent).toContain('Ada');

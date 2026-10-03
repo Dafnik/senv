@@ -1,6 +1,11 @@
 import { createHash, createHmac, createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import env from './env';
 
+export type CapturedDeploymentSecrets = {
+  secrets: Record<string, string>;
+  registryAuth?: { serverAddress: string; username: string; password: string };
+};
+
 const secretKey = () => createHash('sha256').update(env.BETTER_AUTH_SECRET).digest();
 export function encrypt(value: unknown) {
   const iv = randomBytes(12);

@@ -1,4 +1,3 @@
-import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { QueryClient } from '@tanstack/angular-query';
 import type {
@@ -9,7 +8,6 @@ import type {
   PublishDeploymentInput,
   ProjectRuntimeUpdate,
 } from '@senv/api/shared/deployments';
-import { environment } from '../../environments/environment';
 import { injectTrpc } from '../trpc/trpc.service';
 
 export const deploymentKeys = {
@@ -17,6 +15,12 @@ export const deploymentKeys = {
     ['deployments', sessionId, projectId] as const,
   detail: (sessionId: string | null, projectId: string, deploymentId: string) =>
     ['deployment', sessionId, projectId, deploymentId] as const,
+  previewStatus: (
+    sessionId: string | null,
+    projectId: string,
+    deploymentId: string,
+  ) =>
+    ['deployment-preview-status', sessionId, projectId, deploymentId] as const,
   history: (sessionId: string | null, projectId: string) =>
     ['deployment-history', sessionId, projectId] as const,
   logs: (
@@ -38,7 +42,6 @@ export const deploymentKeys = {
 @Injectable({ providedIn: 'root' })
 export class DeploymentsData {
   private readonly trpc = injectTrpc();
-  private readonly http = inject(HttpClient);
   private readonly queries = inject(QueryClient);
 
   list(sessionId: string | null, projectId: string, enabled = true) {
@@ -76,6 +79,29 @@ export class DeploymentsData {
           { signal },
         ),
       refetchInterval: 10_000,
+    };
+  }
+
+  previewStatus(
+    sessionId: string | null,
+    projectId: string,
+    deploymentId: string,
+    enabled = true,
+  ) {
+    return {
+      queryKey: deploymentKeys.previewStatus(
+        sessionId,
+        projectId,
+        deploymentId,
+      ),
+      enabled: !!sessionId && !!projectId && !!deploymentId && enabled,
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        this.trpc.client.deployments.previewStatus.query(
+          { projectId, deploymentId },
+          { signal },
+        ),
+      refetchInterval: 30_000,
+      retry: false,
     };
   }
 
@@ -244,22 +270,14 @@ export class DeploymentsData {
         queryKey: ['deployment', sessionId, projectId],
       }),
       this.queries.invalidateQueries({
+        queryKey: ['deployment-preview-status', sessionId, projectId],
+      }),
+      this.queries.invalidateQueries({
         queryKey: ['deployment-logs', sessionId, projectId],
       }),
       this.queries.invalidateQueries({
         queryKey: deploymentKeys.adminDefaults(sessionId),
       }),
     ]);
-  }
-
-  async downloadLog(
-    projectId: string,
-    deploymentId: string,
-    source: 'proxy' | 'origin',
-  ) {
-    return this.http.get(
-      `${environment.apiUrl}/api/deployments/${encodeURIComponent(deploymentId)}/logs`,
-      { params: { projectId, source, limit: '200' }, responseType: 'text' },
-    );
   }
 }
