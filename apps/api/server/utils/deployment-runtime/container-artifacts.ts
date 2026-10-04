@@ -17,8 +17,8 @@ export class DockerContainerArtifacts {
 
   async install(config: RuntimeConfig, containerId: string): Promise<void> {
     if (!config.artifactId) throw new Error('Static deployment has no retained artifact.');
-    const artifact = await this.services()?.getArtifact(config.artifactId);
-    if (!artifact || artifact.kind !== 'static')
+    const artifact = await this.services()?.getArtifact(config.artifactId, config.projectId);
+    if (!artifact || artifact.projectId !== config.projectId || artifact.kind !== 'static')
       throw new Error('Static deployment artifact is unavailable.');
     const artifactPath = join(this.root, 'artifacts', artifact.storageKey);
     if (!(await this.artifacts.exists(artifact.storageKey)))
@@ -39,10 +39,11 @@ export class DockerContainerArtifacts {
 
   async installNginxConfig(config: RuntimeConfig, containerId: string): Promise<void> {
     const artifact = config.artifactId
-      ? await this.services()?.getArtifact(config.artifactId)
+      ? await this.services()?.getArtifact(config.artifactId, config.projectId)
       : null;
     if (
       !artifact ||
+      artifact.projectId !== config.projectId ||
       artifact.kind !== 'static' ||
       !(await this.artifacts.exists(artifact.storageKey))
     )

@@ -117,8 +117,12 @@ export class UserActionDropdown {
   }
 
   async copyUserId() {
-    await navigator.clipboard.writeText(this.row().original.id);
-    toast.success('User ID copied to clipboard');
+    try {
+      await navigator.clipboard.writeText(this.row().original.id);
+      toast.success('User ID copied to clipboard');
+    } catch {
+      toast.error('Could not copy the user ID. Check clipboard permissions.');
+    }
   }
 
   async resendSignup() {

@@ -120,24 +120,7 @@
               <tr hlmTr>
                 @for (cell of row.getAllCells(); track cell.id) {
                   <td hlmTd class="max-w-96 whitespace-normal">
-                    @if (cell.column.id === 'actions') {
-                      @if (
-                        isAdmin() &&
-                        (row.original.event === 'deleted' ||
-                          row.original.event === 'cleaned')
-                      ) {
-                        <button
-                          hlmBtn
-                          size="sm"
-                          variant="destructive"
-                          (click)="
-                            actions().forgetHistory(row.original.deploymentId)
-                          "
-                        >
-                          Forget history
-                        </button>
-                      }
-                    } @else if (cell.column.id === 'details') {
+                    @if (cell.column.id === 'details') {
                       <code class="text-xs break-all">{{
                         detailsLabel(row.original)
                       }}</code>

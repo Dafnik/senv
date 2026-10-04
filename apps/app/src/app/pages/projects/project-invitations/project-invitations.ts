@@ -4,6 +4,7 @@ import { lucideX } from '@ng-icons/lucide';
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   debounced,
   inject,
   input,
@@ -60,6 +61,10 @@ export class ProjectInvitations {
   readonly projectId = input.required<string>();
   private readonly projects = inject(ProjectsData);
   private readonly sessionId = injectAuthSessionId();
+  private readonly scopeIdentity = computed(() => ({
+    projectId: this.projectId(),
+    sessionId: this.sessionId(),
+  }));
   readonly columns = invitationColumns;
   readonly search = linkedSignal(() => {
     this.projectId();
@@ -70,7 +75,12 @@ export class ProjectInvitations {
     this.projectId();
     return [{ id: 'createdAt', desc: true }];
   });
-  readonly busy = signal(false);
+  readonly busy = linkedSignal(() => {
+    this.projectId();
+    this.sessionId();
+    return false;
+  });
+  private readonly operation = signal(0);
   readonly pagination = linkedSignal({
     source: () => [
       this.projectId(),
@@ -121,9 +131,19 @@ export class ProjectInvitations {
       this.sorting.set(isFunction(updater) ? updater(this.sorting()) : updater),
   }));
 
-  async refresh(sessionId = this.sessionId(), projectId = this.projectId()) {
-    await this.projects.invalidateInvitations(sessionId, projectId);
-    if (this.sessionId() !== sessionId || this.projectId() !== projectId)
+  async refresh(
+    sessionId = this.sessionId(),
+    projectId = this.projectId(),
+    invalidate = true,
+    scopeIdentity = this.scopeIdentity(),
+  ) {
+    if (invalidate)
+      await this.projects.invalidateInvitations(sessionId, projectId);
+    if (
+      scopeIdentity !== this.scopeIdentity() ||
+      this.sessionId() !== sessionId ||
+      this.projectId() !== projectId
+    )
       return;
     const lastPage = lastPageIndex(
       this.invitations.data()?.total ?? 0,
@@ -135,21 +155,31 @@ export class ProjectInvitations {
 
   async cancel(invitationId: string) {
     if (this.busy()) return;
-    this.busy.set(true);
     const projectId = this.projectId();
     const sessionId = this.sessionId();
+    const scopeIdentity = this.scopeIdentity();
+    const operation = this.operation() + 1;
+    this.operation.set(operation);
+    const ownsView = () =>
+      operation === this.operation() &&
+      scopeIdentity === this.scopeIdentity() &&
+      this.projectId() === projectId &&
+      this.sessionId() === sessionId;
+    this.busy.set(true);
     try {
       await this.projects.cancelInvitation(projectId, invitationId);
-      await this.refresh(sessionId, projectId);
+      await this.refresh(sessionId, projectId, true, scopeIdentity);
+      if (!ownsView()) return;
       toast.success('Invitation cancelled.');
     } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : 'Could not cancel the invitation.',
-      );
+      if (ownsView())
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : 'Could not cancel the invitation.',
+        );
     } finally {
-      this.busy.set(false);
+      if (ownsView()) this.busy.set(false);
     }
   }
 }

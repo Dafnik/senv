@@ -1,5 +1,4 @@
 import { UsersData } from '../../../queries/users';
-import { NumberInput } from '@angular/cdk/coercion';
 import {
   Component,
   computed,
@@ -7,7 +6,6 @@ import {
   inject,
   input,
   linkedSignal,
-  numberAttribute,
   signal,
 } from '@angular/core';
 import { Router } from '@angular/router';
@@ -41,6 +39,7 @@ import {
   synchronizeUserTableRoute,
 } from './user-table-route-effects';
 import { deleteSelectedUsers } from './delete-selected-users';
+import { normalizeUserPage, normalizeUserPageSize } from './user-pagination';
 
 @Component({
   selector: 'app-user-table',
@@ -76,11 +75,9 @@ export class UserTable {
 
   protected readonly _availablePageSizes = [10, 20, 50, 100];
 
-  readonly page = input<number, NumberInput>(1, {
-    transform: (value) => numberAttribute(value, 1),
-  });
-  readonly size = input<number, NumberInput>(20, {
-    transform: (value) => numberAttribute(value, 20),
+  readonly page = input<number, string>(1, { transform: normalizeUserPage });
+  readonly size = input<number, string>(20, {
+    transform: normalizeUserPageSize,
   });
 
   private readonly pagination = computed<PaginationState>(() => {

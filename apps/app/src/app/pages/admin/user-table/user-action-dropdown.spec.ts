@@ -64,6 +64,7 @@ beforeEach(() => {
 afterEach(() => {
   queryClient.clear();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 function dropdown() {
@@ -149,6 +150,16 @@ test('resends signup for the selected user and reports delivery errors', async (
   resend.mockResolvedValueOnce({ status: true });
   await component.resendSignup();
   expect(resend).toHaveBeenCalledTimes(2);
+});
+
+test('reports clipboard permission failures when copying the user ID', async () => {
+  const writeText = vi.fn().mockRejectedValue(new Error('denied'));
+  vi.stubGlobal('navigator', { clipboard: { writeText } });
+  await dropdown().copyUserId();
+  expect(writeText).toHaveBeenCalledWith('target');
+  expect(toast.error).toHaveBeenCalledWith(
+    'Could not copy the user ID. Check clipboard permissions.',
+  );
 });
 
 test('a resolved refetch with an error hides old identity, clears cached users and blocks project navigation', async () => {

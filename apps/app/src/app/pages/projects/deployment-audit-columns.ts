@@ -54,16 +54,10 @@ const detailColumn = column.accessor((entry) => entry.details, {
   enableSorting: false,
 });
 
-const actionsColumn = column.display({
-  id: 'actions',
-  header: 'Actions',
-  enableSorting: false,
-});
-
-export const deploymentAuditColumns = column.columns([
-  ...baseColumns,
-  deploymentIdColumn,
-  actorColumn,
-  detailColumn,
-  actionsColumn,
-]);
+export const deploymentAuditColumns = (includeDeployment: boolean) =>
+  column.columns([
+    ...baseColumns,
+    ...(includeDeployment ? [deploymentIdColumn] : []),
+    actorColumn,
+    detailColumn,
+  ]);

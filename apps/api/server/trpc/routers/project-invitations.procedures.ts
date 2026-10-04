@@ -1,21 +1,21 @@
-import { randomUUID } from 'node:crypto';
 import { TRPCError } from '@trpc/server';
 import { and, asc, count, desc, eq, gt, sql } from 'drizzle-orm';
 import * as z from 'zod';
-import { invitation, member, organization, user } from '../../../../../drizzle/schema';
+import { invitation, organization, user } from '../../../../../drizzle/schema';
 import { invitationSortFields } from '../../../shared/project-invitations';
 import { projectRoleNames } from '../../../shared/project-permissions';
 import { emailAddressSchema } from '../../../shared/validation';
 import { db } from '../../utils/db';
 import { auth } from '../../utils/auth';
-import { sendProjectInvitation } from '../../utils/email';
-import { invitationExpiresIn } from '../../utils/project-options';
 import { assertProjectAccess } from '../../utils/project-access';
+import {
+  createAndDeliverProjectInvitation,
+  withProjectRecipientLock,
+} from '../../utils/project-invitation-delivery';
 import { authedProcedure } from '../trpc';
 
 const projectInput = z.object({ projectId: z.string().min(1) });
 const roleInput = z.enum(projectRoleNames);
-
 export const projectInvitationProcedures = {
   invite: authedProcedure
     .input(
@@ -25,67 +25,22 @@ export const projectInvitationProcedures = {
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const project = assertProjectAccess(input.projectId, ctx.user, 'admin');
-      if (ctx.user.role !== 'admin')
-        return auth.api.createInvitation({
-          headers: ctx.req.headers,
-          body: { organizationId: input.projectId, email: input.email, role: input.role },
-        });
-      const existing = db
-        .select({ id: member.id })
-        .from(member)
-        .innerJoin(user, eq(user.id, member.userId))
-        .where(and(eq(member.organizationId, input.projectId), eq(user.email, input.email)))
-        .get();
-      if (existing)
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'This account is already a project member.',
-        });
-      const id = randomUUID();
-      const expiresAt = new Date(Date.now() + invitationExpiresIn * 1000);
-      const saved = db.transaction((tx) => {
-        tx.update(invitation)
-          .set({ status: 'canceled' })
-          .where(
-            and(
-              eq(invitation.organizationId, input.projectId),
-              eq(invitation.email, input.email),
-              eq(invitation.status, 'pending'),
-            ),
-          )
-          .run();
-        return tx
-          .insert(invitation)
-          .values({
-            id,
-            organizationId: input.projectId,
-            email: input.email,
-            role: input.role,
-            inviterId: ctx.user.id,
-            expiresAt,
-          })
-          .returning()
-          .get()!;
-      });
-      try {
-        await sendProjectInvitation({
-          invitationId: id,
-          to: input.email,
+      return withProjectRecipientLock(input.projectId, input.email, async () => {
+        const project = assertProjectAccess(input.projectId, ctx.user, 'admin');
+        if (ctx.user.role !== 'admin')
+          return auth.api.createInvitation({
+            headers: ctx.req.headers,
+            body: { organizationId: input.projectId, email: input.email, role: input.role },
+          });
+        return createAndDeliverProjectInvitation({
+          projectId: input.projectId,
+          email: input.email,
           role: input.role,
-          projectName: project.name,
+          inviterId: ctx.user.id,
           inviterName: ctx.user.name,
-          expiresAt,
+          projectName: project.name,
         });
-      } catch (error) {
-        db.delete(invitation).where(eq(invitation.id, id)).run();
-        console.error('Project invitation email delivery failed.', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'The invitation email could not be sent. Please try again.',
-        });
-      }
-      return saved;
+      });
     }),
   cancelInvitation: authedProcedure
     .input(projectInput.extend({ invitationId: z.string().min(1) }))
@@ -102,17 +57,20 @@ export const projectInvitationProcedures = {
         )
         .get();
       if (!saved) throw new TRPCError({ code: 'NOT_FOUND' });
-      if (ctx.user.role !== 'admin')
-        return auth.api.cancelInvitation({
-          headers: ctx.req.headers,
-          body: { invitationId: input.invitationId },
-        });
-      return db
-        .update(invitation)
-        .set({ status: 'canceled' })
-        .where(eq(invitation.id, saved.id))
-        .returning()
-        .get();
+      return withProjectRecipientLock(input.projectId, saved.email, () => {
+        assertProjectAccess(input.projectId, ctx.user, 'admin');
+        return ctx.user.role !== 'admin'
+          ? auth.api.cancelInvitation({
+              headers: ctx.req.headers,
+              body: { invitationId: input.invitationId },
+            })
+          : db
+              .update(invitation)
+              .set({ status: 'canceled' })
+              .where(eq(invitation.id, saved.id))
+              .returning()
+              .get();
+      });
     }),
   invitation: authedProcedure
     .input(z.object({ invitationId: z.string().min(1) }))

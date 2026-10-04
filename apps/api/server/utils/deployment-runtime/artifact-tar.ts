@@ -10,6 +10,7 @@ import { pipeline } from 'node:stream/promises';
 import { extract } from 'tar-stream';
 import type { StaticUploadFile } from './artifact-types';
 import { safeRelativePath } from './artifact-paths';
+import { maxStaticArtifactEntries } from './artifact-limits';
 
 export async function extractTar(
   archive: Buffer,
@@ -28,7 +29,7 @@ export async function extractTar(
             ? createInflate()
             : null;
   // Bound metadata and padding as well as file bodies, including PAX records.
-  const maxTarBytes = maxBytes + 10_000 * 2048 + 1024 * 1024;
+  const maxTarBytes = maxBytes + maxStaticArtifactEntries * 2048 + 1024 * 1024;
   let tarBytes = 0;
   const bounded = new Transform({
     transform(chunk: Buffer, _encoding, callback) {
@@ -49,7 +50,8 @@ export async function extractTar(
     // parser's pipeline reports the error when it destroys its entry stream.
     entry.on('error', () => {});
     void (async () => {
-      if (++entries > 10_000) throw new Error('TAR archive exceeds the 10000-entry limit.');
+      if (++entries > maxStaticArtifactEntries)
+        throw new Error(`TAR archive exceeds the ${maxStaticArtifactEntries}-entry limit.`);
       if (header.type !== 'file' && header.type !== 'directory')
         throw new Error('TAR entries must be regular files or directories; links are not allowed.');
       const normalized = header.name.replace(/^(?:\.\/)+/, '').replace(/\/$/, '');

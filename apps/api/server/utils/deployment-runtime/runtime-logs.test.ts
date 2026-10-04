@@ -47,7 +47,7 @@ test('removing a deployment forgets its saved log cursors', async () => {
     ) as Record<string, number>;
     expect(saved['dpl-runtime-test:origin']).toBeGreaterThan(0);
 
-    await getRemovalHandler()('dpl-runtime-test');
+    await getRemovalHandler()('dpl-runtime-test', 'project');
 
     expect(
       JSON.parse(await (await import('node:fs/promises')).readFile(cursorPath, 'utf8')),

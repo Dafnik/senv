@@ -5,6 +5,7 @@ import type { RuntimeConfig, RuntimeServices } from './contracts';
 import { DockerContainerImages } from './container-images';
 import { DockerContainerArtifacts } from './container-artifacts';
 import { DockerContainerLifecycle, type ContainerInspect } from './container-lifecycle';
+import type { ContainerOwner, ContainerRole } from './container-ownership';
 export { createStaticOriginNginxConfig } from './static-origin-config';
 import { installProxyConfig } from './container-proxy-config';
 
@@ -146,8 +147,14 @@ export class DockerDeploymentContainers {
     });
   }
 
-  async probeHttp(containerNameValue: string, url: string, timeoutSeconds: number): Promise<void> {
-    return this.#lifecycle.probeHttp(containerNameValue, url, timeoutSeconds);
+  async probeHttp(
+    containerNameValue: string,
+    owner: ContainerOwner,
+    role: ContainerRole,
+    url: string,
+    timeoutSeconds: number,
+  ): Promise<void> {
+    return this.#lifecycle.probeHttp(containerNameValue, owner, role, url, timeoutSeconds);
   }
 
   async inspectContainer(name: string): Promise<ContainerInspect | null> {
@@ -160,24 +167,24 @@ export class DockerDeploymentContainers {
 
   assertOwnedContainer(
     container: ContainerInspect,
-    deploymentId: string,
-    role: 'origin' | 'proxy',
+    owner: ContainerOwner,
+    role: ContainerRole,
   ): void {
-    return this.#lifecycle.assertOwned(container, deploymentId, role);
+    return this.#lifecycle.assertOwned(container, owner, role);
   }
 
-  async stop(deploymentId: string): Promise<void> {
-    return this.#lifecycle.stop(deploymentId);
+  async stop(owner: ContainerOwner): Promise<void> {
+    return this.#lifecycle.stop(owner);
   }
 
-  async removeOwned(deploymentId: string, role: 'origin' | 'proxy'): Promise<void> {
-    return this.#lifecycle.removeOwned(deploymentId, role);
+  async removeOwned(owner: ContainerOwner, role: ContainerRole): Promise<void> {
+    return this.#lifecycle.removeOwned(owner, role);
   }
 
   async removeOrphan(
     containerId: string,
     deploymentId: string,
-    role: 'origin' | 'proxy',
+    role: ContainerRole,
   ): Promise<void> {
     return this.#lifecycle.removeOrphan(containerId, deploymentId, role);
   }

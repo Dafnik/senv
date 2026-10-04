@@ -1,5 +1,5 @@
 import { TRPCError } from '@trpc/server';
-import { and, desc, eq, lt } from 'drizzle-orm';
+import { and, desc, eq, lt, or } from 'drizzle-orm';
 import { customAlphabet } from 'nanoid';
 import { deployment, deploymentHistory } from '../../../../drizzle/schema';
 import type { DeploymentActor } from '../../shared/deployments';
@@ -34,7 +34,7 @@ export function event(
 export function listDeploymentHistory(
   projectId: string,
   limit = 100,
-  cursor?: number,
+  cursor?: number | { createdAt: Date; id: string },
   deploymentId?: string,
 ) {
   return db
@@ -44,7 +44,17 @@ export function listDeploymentHistory(
       and(
         eq(deploymentHistory.projectId, projectId),
         deploymentId ? eq(deploymentHistory.deploymentId, deploymentId) : undefined,
-        cursor ? lt(deploymentHistory.createdAt, new Date(cursor)) : undefined,
+        typeof cursor === 'number'
+          ? lt(deploymentHistory.createdAt, new Date(cursor))
+          : cursor
+            ? or(
+                lt(deploymentHistory.createdAt, cursor.createdAt),
+                and(
+                  eq(deploymentHistory.createdAt, cursor.createdAt),
+                  lt(deploymentHistory.id, cursor.id),
+                ),
+              )
+            : undefined,
       ),
     )
     .orderBy(desc(deploymentHistory.createdAt), desc(deploymentHistory.id))

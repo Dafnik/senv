@@ -4,6 +4,7 @@ import { DockerDeploymentContainers } from './containers';
 import { containerName } from './preview-routes';
 import type { RuntimeConfig, RuntimeServices } from './contracts';
 import { safeError } from './runtime-errors';
+import { ContainerOwnershipError } from './container-ownership';
 
 type HealthState = { startedAt: number; readyAt: number | null; failures: number; nextAt: number };
 type LifecycleOptions = {
@@ -60,8 +61,14 @@ export class RuntimeDeploymentLifecycle {
       failures: 0,
       nextAt: Date.now(),
     });
-    await this.containers.removeOwned(config.id, 'origin');
-    await this.containers.removeOwned(config.id, 'proxy');
+    const [existingOrigin, existingProxy] = await Promise.all([
+      this.containers.inspectContainer(originName),
+      this.containers.inspectContainer(proxyName),
+    ]);
+    if (existingOrigin) this.containers.assertOwnedContainer(existingOrigin, config, 'origin');
+    if (existingProxy) this.containers.assertOwnedContainer(existingProxy, config, 'proxy');
+    await this.containers.removeOwned(config, 'origin');
+    await this.containers.removeOwned(config, 'proxy');
     const created: string[] = [];
     try {
       const originImage =
@@ -95,10 +102,10 @@ export class RuntimeDeploymentLifecycle {
       return config;
     } catch (error) {
       await this.logs
-        .captureContainerLogs(config.id, 'origin', created[0], this.appendLog)
+        .captureContainerLogs(config, 'origin', created[0], this.appendLog)
         .catch(() => {});
       await this.logs
-        .captureContainerLogs(config.id, 'proxy', created[1], this.appendLog)
+        .captureContainerLogs(config, 'proxy', created[1], this.appendLog)
         .catch(() => {});
       await Promise.allSettled(created.map((id) => this.containers.remove(id)));
       await this.services()?.markDeploymentFailed(config.id, safeError(error));
@@ -120,13 +127,27 @@ export class RuntimeDeploymentLifecycle {
     if (now < state.nextAt) return;
     state.nextAt = now + config.health.intervalSeconds * 1000;
     try {
+      const origin = await this.containers.inspectContainer(originName);
+      if (!origin) throw new Error(`${originName} does not exist.`);
+      this.containers.assertOwnedContainer(origin, config, 'origin');
+      const proxy = await this.containers.inspectContainer(proxyName);
+      if (!proxy) throw new Error(`${proxyName} does not exist.`);
+      this.containers.assertOwnedContainer(proxy, config, 'proxy');
       await this.containers.probeHttp(
         proxyName,
+        config,
+        'proxy',
         `http://${originName}:${config.port}${config.health.path}`,
         config.health.timeoutSeconds,
       );
       const proxyHealthPath = `http://127.0.0.1/_senv_health/${encodeURIComponent(config.id)}`;
-      await this.containers.probeHttp(proxyName, proxyHealthPath, config.health.timeoutSeconds);
+      await this.containers.probeHttp(
+        proxyName,
+        config,
+        'proxy',
+        proxyHealthPath,
+        config.health.timeoutSeconds,
+      );
       if (!state.readyAt) {
         state.readyAt = now;
         state.failures = 0;
@@ -136,6 +157,7 @@ export class RuntimeDeploymentLifecycle {
         await this.services()?.setDeploymentHealth(config.id, 'healthy', undefined, new Date(now));
       } else state.failures = 0;
     } catch (error) {
+      if (error instanceof ContainerOwnershipError) throw error;
       state.failures++;
       const detail = safeError(error);
       if (!state.readyAt && now - state.startedAt >= config.health.startupDeadlineSeconds * 1000) {
@@ -145,12 +167,12 @@ export class RuntimeDeploymentLifecycle {
           new Date(now),
         );
         await this.logs
-          .captureContainerLogs(config.id, 'origin', originName, this.appendLog)
+          .captureContainerLogs(config, 'origin', originName, this.appendLog)
           .catch(() => {});
         await this.logs
-          .captureContainerLogs(config.id, 'proxy', proxyName, this.appendLog)
+          .captureContainerLogs(config, 'proxy', proxyName, this.appendLog)
           .catch(() => {});
-        await this.containers.stop(config.id);
+        await this.containers.stop(config);
       } else if (
         state.readyAt &&
         state.failures >= config.health.unhealthyThreshold &&

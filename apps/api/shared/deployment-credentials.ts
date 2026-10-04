@@ -29,26 +29,34 @@ export const registryCredentialSecretSchema = z
   )
   .default('');
 
-/** Input fields shared by the API and the project credential form. */
-export const registryCredentialInputSchema = z.object({
-  id: z.string().optional(),
+const registryCredentialFields = {
+  id: z.string().min(1).optional(),
   name: registryCredentialNameSchema,
   registry: registryServerSchema,
   username: registryCredentialUsernameSchema,
   secret: registryCredentialSecretSchema,
-});
+};
+
+/** Updates may retain an existing secret; creates must provide one. */
+export const registryCredentialInputSchema = z
+  .object(registryCredentialFields)
+  .refine(({ id, secret }) => Boolean(id) || secret.length > 0, {
+    path: ['secret'],
+    message: 'Enter the registry access token or password.',
+  });
 
 /** The add-credential form requires a new secret; API updates may retain one. */
-export const newRegistryCredentialFormSchema = registryCredentialInputSchema
-  .omit({ id: true })
-  .extend({
-    secret: z
-      .string()
-      .min(1, 'Enter the registry access token or password.')
-      .max(
-        registryCredentialSecretMaxLength,
-        `Use ${registryCredentialSecretMaxLength} characters or fewer.`,
-      ),
-  });
+export const newRegistryCredentialFormSchema = z.object({
+  name: registryCredentialNameSchema,
+  registry: registryServerSchema,
+  username: registryCredentialUsernameSchema,
+  secret: z
+    .string()
+    .min(1, 'Enter the registry access token or password.')
+    .max(
+      registryCredentialSecretMaxLength,
+      `Use ${registryCredentialSecretMaxLength} characters or fewer.`,
+    ),
+});
 
 export type RegistryCredentialInput = z.infer<typeof registryCredentialInputSchema>;

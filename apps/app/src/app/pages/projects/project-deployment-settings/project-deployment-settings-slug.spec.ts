@@ -59,3 +59,27 @@ test('discarding a slug draft restores the saved address and removes the changed
     storage.get('senv:preview-slug:session-settings:project-settings'),
   ).not.toBe('draft-slug');
 });
+
+test('slug input stays disabled while the server mutation is pending', async () => {
+  let finish!: (value: { previewSlug: string }) => void;
+  projects.updatePreviewSlug.mockReturnValueOnce(
+    new Promise((resolve) => (finish = resolve)),
+  );
+  const fixture = createFixture();
+  await fixture.whenStable();
+  fixture.componentInstance.slugModel.set({ previewSlug: 'next-preview' });
+  await fixture.whenStable();
+  await fixture.componentInstance.saveSlug(new Event('submit'));
+  await vi.waitFor(() =>
+    expect(projects.updatePreviewSlug).toHaveBeenCalledOnce(),
+  );
+  fixture.detectChanges();
+  expect(
+    fixture.nativeElement.querySelector('#project-preview-slug-setting')
+      .disabled,
+  ).toBe(true);
+  finish({ previewSlug: 'next-preview' });
+  await vi.waitFor(() =>
+    expect(fixture.componentInstance.savingSlug()).toBe(false),
+  );
+});

@@ -34,6 +34,9 @@ export class ContainerSourceFields {
   readonly busy = input(false);
   readonly credentials =
     input.required<Signal<RegistryCredentialOption[] | undefined>>();
+  readonly credentialsLoading = input(false);
+  readonly credentialsError = input(false);
+  readonly retryCredentials = output<void>();
   readonly registryCredentialId = input.required<Signal<string>>();
   readonly keepCapturedCredential = input.required<string>();
   readonly capturedCredentialLabel =

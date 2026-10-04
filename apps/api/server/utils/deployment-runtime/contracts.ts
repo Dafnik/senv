@@ -26,7 +26,9 @@ type MaybePromise<T> = T | Promise<T>;
 /** Persistence and lifecycle operations used by the Docker reconciler. */
 export interface RuntimeServices {
   registerPreviewRoutesRefresh(callback: () => Promise<void>): void;
-  registerDeploymentRemovalHandler(callback: (id: string) => Promise<void>): void;
+  registerDeploymentRemovalHandler(
+    callback: (id: string, projectId: string) => Promise<void>,
+  ): void;
   resumePendingDeploymentRemovals(): Promise<number>;
   cleanupDueDeployments(): Promise<number>;
   getPreviewRouteTargets(): PreviewRouteTargets;
@@ -34,7 +36,12 @@ export interface RuntimeServices {
   getDeploymentRuntimeConfig(id: string): RuntimeConfig | null;
   markDeploymentStarting(id: string): MaybePromise<RuntimeConfig | null>;
   markDeploymentReady(id: string, at: Date): Promise<void>;
-  markDeploymentFailed(id: string, reason: string, at?: Date): Promise<void>;
+  markDeploymentFailed(
+    id: string,
+    reason: string,
+    at?: Date,
+    options?: { stopRuntime?: boolean },
+  ): Promise<void>;
   setDeploymentHealth(
     id: string,
     status: 'healthy' | 'unhealthy',
@@ -42,7 +49,10 @@ export interface RuntimeServices {
     at?: Date,
   ): Promise<void>;
   setDeploymentImageDigest(id: string, digest: string): MaybePromise<void>;
-  getArtifact(id: string): MaybePromise<{ kind: DeploymentSnapshot['kind']; storageKey: string }>;
+  getArtifact(
+    id: string,
+    projectId?: string,
+  ): MaybePromise<{ projectId: string; kind: DeploymentSnapshot['kind']; storageKey: string }>;
   getArtifactCleanupState(): { referenced: string[]; pending: string[]; released: string[] };
   forgetArtifactStorageKey(key: string): boolean;
   appendDeploymentLog(id: string, source: 'origin' | 'proxy', content: string): void;

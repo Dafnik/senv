@@ -9,11 +9,7 @@ export function cookiesInterceptor(
 ): Observable<HttpEvent<unknown>> {
   const ssrRequest: Request | null = inject(REQUEST);
   const apiURL = environment.apiUrl;
-  const isOwnAPI =
-    req.url.startsWith(apiURL) &&
-    // skip for better auth urls, handled by better auth client
-    // only use for custom endpoints requested by http client
-    !req.url.startsWith(`${apiURL}/api/auth`);
+  const isOwnAPI = isOwnApiRequest(req.url, apiURL);
 
   if (isOwnAPI) {
     const clonedReq: HttpRequest<unknown> = req.clone({
@@ -32,4 +28,22 @@ export function cookiesInterceptor(
   }
 
   return next(req);
+}
+
+export function isOwnApiRequest(requestUrl: string, apiUrl: string): boolean {
+  try {
+    const api = new URL(apiUrl);
+    const request = new URL(requestUrl, environment.baseUrl);
+    const basePath = api.pathname.replace(/\/$/, '');
+    const authPath = `${basePath}/api/auth`;
+    const isApiPath =
+      request.pathname === basePath ||
+      request.pathname.startsWith(`${basePath}/`);
+    const isAuthPath =
+      request.pathname === authPath ||
+      request.pathname.startsWith(`${authPath}/`);
+    return request.origin === api.origin && isApiPath && !isAuthPath;
+  } catch {
+    return false;
+  }
 }

@@ -12,10 +12,9 @@ import {
 } from '../../../utils/deployment-runtime/artifacts';
 import { deploymentStorageRoot } from '../../../utils/deployment-storage';
 import { withArtifactStorageLock } from '../../../utils/deployment-storage-lock';
+import { maxStaticArtifactEntries } from '../../../utils/deployment-runtime/artifact-limits';
 
 const multipartOverheadLimit = 8 * 1024 * 1024;
-const maxFiles = 10_000;
-
 export default defineEventHandler(async (event) => {
   const session = await auth.api.getSession({ headers: event.req.headers });
   if (!session)
@@ -50,7 +49,7 @@ export default defineEventHandler(async (event) => {
   } catch {
     throw createError({ statusCode: 400, statusMessage: 'Unable to read multipart upload.' });
   }
-  if (!parts?.length || parts.length > maxFiles + 2)
+  if (!parts?.length || parts.length > maxStaticArtifactEntries + 2)
     throw createError({
       statusCode: 400,
       statusMessage: 'Upload contains no files or too many multipart entries.',
@@ -90,10 +89,10 @@ export default defineEventHandler(async (event) => {
       statusCode: 413,
       statusMessage: `Uploaded files exceed the ${maxBytes}-byte limit.`,
     });
-  if (directoryParts.length > maxFiles)
+  if (directoryParts.length > maxStaticArtifactEntries)
     throw createError({
       statusCode: 413,
-      statusMessage: `Directory upload exceeds the ${maxFiles}-file limit.`,
+      statusMessage: `Directory upload exceeds the ${maxStaticArtifactEntries}-file limit.`,
     });
 
   const store = new ArtifactStore({ root: deploymentStorageRoot(), maxBytes });

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, lt } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, lt, lte, sql } from 'drizzle-orm';
 import { customAlphabet } from 'nanoid';
 import { deployment, deploymentLog } from '../../../../drizzle/schema';
 import type { DeploymentLogCursor, DeploymentLogPage } from '../../shared/deployments';
@@ -66,17 +66,52 @@ export function appendDeploymentLog(
     tx.insert(deploymentLog)
       .values({ id: id(), deploymentId, source, content: clipped, createdAt: new Date() })
       .run();
-    const rows = tx
-      .select({ id: deploymentLog.id, content: deploymentLog.content })
+    const retainedBytes = tx
+      .select({
+        bytes: sql<number>`coalesce(sum(length(cast(${deploymentLog.content} as blob))), 0)`,
+      })
       .from(deploymentLog)
       .where(and(eq(deploymentLog.deploymentId, deploymentId), eq(deploymentLog.source, source)))
-      .orderBy(asc(deploymentLog.sequence))
-      .all();
-    let bytes = rows.reduce((total, item) => total + Buffer.byteLength(item.content), 0);
-    for (const item of rows) {
-      if (bytes <= maxBytes) break;
-      tx.delete(deploymentLog).where(eq(deploymentLog.id, item.id)).run();
-      bytes -= Buffer.byteLength(item.content);
+      .get()!.bytes;
+    if (retainedBytes <= maxBytes) return;
+
+    let bytes = retainedBytes;
+    let throughSequence: number | undefined;
+    let afterSequence: number | undefined;
+    while (bytes > maxBytes) {
+      const oldest = tx
+        .select({
+          sequence: deploymentLog.sequence,
+          bytes: sql<number>`length(cast(${deploymentLog.content} as blob))`,
+        })
+        .from(deploymentLog)
+        .where(
+          and(
+            eq(deploymentLog.deploymentId, deploymentId),
+            eq(deploymentLog.source, source),
+            afterSequence === undefined ? undefined : gt(deploymentLog.sequence, afterSequence),
+          ),
+        )
+        .orderBy(asc(deploymentLog.sequence))
+        .limit(512)
+        .all();
+      if (!oldest.length) break;
+      for (const row of oldest) {
+        throughSequence = row.sequence;
+        bytes -= row.bytes;
+        if (bytes <= maxBytes) break;
+      }
+      afterSequence = oldest[oldest.length - 1]!.sequence;
     }
+    if (throughSequence !== undefined)
+      tx.delete(deploymentLog)
+        .where(
+          and(
+            eq(deploymentLog.deploymentId, deploymentId),
+            eq(deploymentLog.source, source),
+            lte(deploymentLog.sequence, throughSequence),
+          ),
+        )
+        .run();
   });
 }

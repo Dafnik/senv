@@ -5,6 +5,7 @@ import {
   computed,
   inject,
   input,
+  linkedSignal,
   signal,
 } from '@angular/core';
 import { form, FormRoot, submit } from '@angular/forms/signals';
@@ -33,6 +34,7 @@ import { SettingsDraftController } from './settings-draft-controller';
 import { PreviewSlugDraft } from './preview-slug-draft';
 import { SettingsEditor } from './settings-editor';
 import { saveDeploymentSettings, savePreviewSlug } from './save-settings';
+import { createSettingsScopeError } from './scoped-settings-error';
 import {
   configureDeploymentSettingsForm,
   configurePreviewSlugForm,
@@ -65,6 +67,10 @@ export class ProjectDeploymentSettings {
   readonly canManage = input(false);
   readonly isAdmin = input(false);
   private readonly sessionId = injectAuthSessionId();
+  private readonly scopeIdentity = computed(() => ({
+    projectId: this.projectId(),
+    sessionId: this.sessionId(),
+  }));
   private readonly data = inject(DeploymentsData);
   private readonly projects = inject(ProjectsData);
   private readonly router = inject(Router);
@@ -76,16 +82,29 @@ export class ProjectDeploymentSettings {
     return settings ? settingsToModel(settings) : undefined;
   });
   readonly model = signal<SettingsModel>(createEmptySettingsModel());
-  readonly saving = signal(false);
+  readonly saving = linkedSignal(() => {
+    this.projectId();
+    this.sessionId();
+    return false;
+  });
+  private readonly settingsOperation = signal(0);
   readonly settingsForm = form(
     this.model,
     configureDeploymentSettingsForm(this.canManage, this.saving),
   );
   readonly slugModel = signal({ previewSlug: '' });
-  readonly slugForm = form(this.slugModel, configurePreviewSlugForm());
-  readonly savingSlug = signal(false);
-  readonly formError = signal('');
-  readonly slugError = signal('');
+  readonly savingSlug = linkedSignal(() => {
+    this.projectId();
+    this.sessionId();
+    return false;
+  });
+  readonly slugForm = form(
+    this.slugModel,
+    configurePreviewSlugForm(this.savingSlug),
+  );
+  private readonly slugOperation = signal(0);
+  readonly formError = createSettingsScopeError(this.scopeIdentity);
+  readonly slugError = createSettingsScopeError(this.scopeIdentity);
   private readonly editor = new SettingsEditor(this.model);
   private readonly draftController: SettingsDraftController;
   private readonly slugDraft: PreviewSlugDraft;
@@ -136,11 +155,14 @@ export class ProjectDeploymentSettings {
         sessionId: this.sessionId,
         currentProjectId: this.projectId,
         currentSessionId: this.sessionId,
+        operation: this.settingsOperation,
+        scopeIdentity: this.scopeIdentity,
         model: this.model,
         data: this.data,
         saving: this.saving,
         formError: this.formError,
-        clearDraft: (projectId) => this.draftController.clear(projectId),
+        clearDraft: (sessionId, projectId, snapshot) =>
+          this.draftController.clear(sessionId, projectId, snapshot),
       });
     });
   }
@@ -158,12 +180,15 @@ export class ProjectDeploymentSettings {
         sessionId: this.sessionId,
         currentProjectId: this.projectId,
         currentSessionId: this.sessionId,
+        operation: this.slugOperation,
+        scopeIdentity: this.scopeIdentity,
         model: this.slugModel,
         projects: this.projects,
         router: this.router,
         saving: this.savingSlug,
         error: this.slugError,
-        clearDraft: () => this.slugDraft.clear(),
+        clearDraft: (sessionId, projectId, snapshot) =>
+          this.slugDraft.clear(sessionId, projectId, snapshot),
       });
     });
   }

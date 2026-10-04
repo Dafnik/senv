@@ -2,6 +2,7 @@ import { crc32, inflateRaw } from 'node:zlib';
 import { promisify } from 'node:util';
 import type { StaticUploadFile } from './artifact-types';
 import { safeRelativePath } from './artifact-paths';
+import { maxStaticArtifactEntries } from './artifact-limits';
 
 const ZIP_EOCD = 0x06054b50;
 const ZIP_CENTRAL = 0x02014b50;
@@ -14,7 +15,8 @@ export async function extractZip(
 ): Promise<StaticUploadFile[]> {
   const eocd = findEocd(zip);
   const entryCount = zip.readUInt16LE(eocd + 10);
-  if (entryCount > 10_000) throw new Error('ZIP archive exceeds the 10000-entry limit.');
+  if (entryCount > maxStaticArtifactEntries)
+    throw new Error(`ZIP archive exceeds the ${maxStaticArtifactEntries}-entry limit.`);
   const centralSize = zip.readUInt32LE(eocd + 12);
   const centralOffset = zip.readUInt32LE(eocd + 16);
   if (entryCount === 0xffff || centralSize === 0xffffffff || centralOffset === 0xffffffff)

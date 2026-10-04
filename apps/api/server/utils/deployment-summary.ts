@@ -31,6 +31,7 @@ function currentConfiguration(projectId: string) {
 function configurationChanges(
   row: typeof deployment.$inferSelect,
   current: ReturnType<typeof currentConfiguration>,
+  currentRuntimeFingerprint: string,
 ): string[] {
   const snapshot = row.snapshot;
   const changed: string[] = [];
@@ -59,30 +60,42 @@ function configurationChanges(
     fileSizeBytes: current.defaults.logFileSizeBytes,
   });
   compare('Environment variables', snapshot.env, current.runtime.env);
-  if (snapshot.runtimeFingerprint !== runtimeFingerprint({ ...current.runtime, env: snapshot.env }))
-    changed.push('Runtime secrets');
+  if (snapshot.runtimeFingerprint !== currentRuntimeFingerprint) changed.push('Runtime secrets');
   return changed;
 }
 
 function publicDeployment(
   row: typeof deployment.$inferSelect,
   current = currentConfiguration(row.projectId),
+  relations?: { branchAlias: string | null; tags: string[] },
+  currentRuntimeFingerprint = runtimeFingerprint({ ...current.runtime, env: row.snapshot.env }),
 ): PublicDeployment {
-  const changes = configurationChanges(row, current);
+  const changes = configurationChanges(row, current, currentRuntimeFingerprint);
   const snapshot = row.snapshot;
   const source = row.source;
   const snapshotSecrets = snapshot.secretNames;
-  const branch = db
-    .select()
-    .from(deploymentBranchAlias)
-    .where(eq(deploymentBranchAlias.deploymentId, row.id))
-    .get();
-  const tags = db
-    .select({ name: deploymentTag.name })
-    .from(deploymentTag)
-    .where(eq(deploymentTag.deploymentId, row.id))
-    .all()
-    .map((tag) => tag.name);
+  const branchAlias = relations
+    ? relations.branchAlias
+    : (db
+        .select({ alias: deploymentBranchAlias.alias })
+        .from(deploymentBranchAlias)
+        .where(
+          and(
+            eq(deploymentBranchAlias.deploymentId, row.id),
+            eq(deploymentBranchAlias.projectId, row.projectId),
+          ),
+        )
+        .get()?.alias ?? null);
+  const tags =
+    relations?.tags ??
+    db
+      .select({ name: deploymentTag.name })
+      .from(deploymentTag)
+      .where(
+        and(eq(deploymentTag.deploymentId, row.id), eq(deploymentTag.projectId, row.projectId)),
+      )
+      .all()
+      .map((tag) => tag.name);
   return {
     id: row.id,
     previewUrl: `${process.env['PREVIEW_TLS'] === 'false' ? 'http' : 'https'}://${row.id}.${current.slug}.${process.env['PREVIEW_BASE_DOMAIN'] ?? 'preview.localhost'}`,
@@ -116,19 +129,62 @@ function publicDeployment(
       secretNames: snapshotSecrets,
       hasSecrets: snapshotSecrets.length > 0,
     },
-    branchAlias: branch?.alias ?? null,
+    branchAlias,
     tags,
   };
 }
 export function listProjectDeployments(projectId: string) {
   const current = currentConfiguration(projectId);
-  return db
+  const rows = db
     .select()
     .from(deployment)
     .where(eq(deployment.projectId, projectId))
     .orderBy(desc(deployment.submissionOrder))
-    .all()
-    .map((row) => publicDeployment(row, current));
+    .all();
+  if (!rows.length) return [];
+  const aliases = db
+    .select({
+      deploymentId: deploymentBranchAlias.deploymentId,
+      alias: deploymentBranchAlias.alias,
+    })
+    .from(deploymentBranchAlias)
+    .innerJoin(deployment, eq(deploymentBranchAlias.deploymentId, deployment.id))
+    .where(and(eq(deploymentBranchAlias.projectId, projectId), eq(deployment.projectId, projectId)))
+    .all();
+  const aliasByDeployment = new Map<string | null, string>();
+  for (const entry of aliases)
+    if (!aliasByDeployment.has(entry.deploymentId))
+      aliasByDeployment.set(entry.deploymentId, entry.alias);
+  const tags = db
+    .select({ deploymentId: deploymentTag.deploymentId, name: deploymentTag.name })
+    .from(deploymentTag)
+    .innerJoin(deployment, eq(deploymentTag.deploymentId, deployment.id))
+    .where(and(eq(deploymentTag.projectId, projectId), eq(deployment.projectId, projectId)))
+    .all();
+  const tagsByDeployment = new Map<string, string[]>();
+  for (const tag of tags) {
+    const names = tagsByDeployment.get(tag.deploymentId) ?? [];
+    names.push(tag.name);
+    tagsByDeployment.set(tag.deploymentId, names);
+  }
+  const fingerprints = new Map<string, string>();
+  return rows.map((row) => {
+    const environment = canonicalJson(row.snapshot.env);
+    let fingerprint = fingerprints.get(environment);
+    if (!fingerprint) {
+      fingerprint = runtimeFingerprint({ ...current.runtime, env: row.snapshot.env });
+      fingerprints.set(environment, fingerprint);
+    }
+    return publicDeployment(
+      row,
+      current,
+      {
+        branchAlias: aliasByDeployment.get(row.id) ?? null,
+        tags: tagsByDeployment.get(row.id) ?? [],
+      },
+      fingerprint,
+    );
+  });
 }
 export function getProjectDeployment(projectId: string, deploymentId: string) {
   const row = db

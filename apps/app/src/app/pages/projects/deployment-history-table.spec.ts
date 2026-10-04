@@ -62,7 +62,13 @@ test('audit table sends scoped pages and sorting to the server', async () => {
   );
   expect(fixture.nativeElement.textContent).toContain('Ada Admin');
   expect(fixture.nativeElement.textContent).toContain('retention');
-  expect(fixture.nativeElement.textContent).toContain('deployment-123456');
+  expect(fixture.nativeElement.textContent).not.toContain('deployment-123456');
+  expect(
+    Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('thead th'),
+      (header) => header.textContent?.trim(),
+    ),
+  ).toEqual(['Time', 'Event', 'Actor', 'Details']);
 });
 
 test('search and event/actor filters reset the page and remain available for empty results', async () => {

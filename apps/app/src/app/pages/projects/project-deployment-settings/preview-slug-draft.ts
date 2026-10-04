@@ -1,4 +1,10 @@
 import { effect, Signal, WritableSignal } from '@angular/core';
+import {
+  readStoredValue,
+  removeStoredValue,
+  removeStoredValueIfMatches,
+  writeStoredValue,
+} from '../../../tools/safe-storage';
 
 export class PreviewSlugDraft {
   private loadedKey = '';
@@ -14,41 +20,33 @@ export class PreviewSlugDraft {
   }
 
   discard(resetForm: () => void) {
-    if (typeof localStorage !== 'undefined')
-      localStorage.removeItem(this.key());
+    removeStoredValue(this.key());
     this.model.set({ previewSlug: this.currentSlug() });
     resetForm();
   }
 
-  clear() {
-    if (typeof localStorage !== 'undefined')
-      localStorage.removeItem(this.key());
+  clear(sessionId: string | null, projectId: string, snapshot: string) {
+    const key = this.key(sessionId, projectId);
+    removeStoredValueIfMatches(key, snapshot);
   }
 
   private restore() {
     const key = this.key();
     if (this.loadedKey === key) return;
     this.loadedKey = key;
-    let previewSlug = this.currentSlug();
-    if (typeof localStorage !== 'undefined') {
-      try {
-        previewSlug = localStorage.getItem(key) || previewSlug;
-      } catch {
-        // The route slug remains a usable fallback when storage is unavailable.
-      }
-    }
+    const previewSlug = readStoredValue(key) || this.currentSlug();
     this.model.set({ previewSlug });
   }
 
   private persist() {
     const key = this.key();
-    if (this.loadedKey !== key || typeof localStorage === 'undefined') return;
+    if (this.loadedKey !== key) return;
     const slug = this.model().previewSlug;
-    if (slug === this.currentSlug()) localStorage.removeItem(key);
-    else localStorage.setItem(key, slug);
+    if (slug === this.currentSlug()) removeStoredValue(key);
+    else writeStoredValue(key, slug);
   }
 
-  private key() {
-    return `senv:preview-slug:${this.sessionId()}:${this.projectId()}`;
+  private key(sessionId = this.sessionId(), projectId = this.projectId()) {
+    return `senv:preview-slug:${sessionId}:${projectId}`;
   }
 }

@@ -1,19 +1,15 @@
 import { TRPCError } from '@trpc/server';
-import { asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 import { deployment, deploymentSecret } from '../../../../drizzle/schema';
 import { db } from './db';
 import { decrypt, type CapturedDeploymentSecrets } from './deployment-secrets';
 import type { RuntimeConfig } from './deployment-runtime/contracts';
 
-export function getDeploymentRuntimeConfig(deploymentId: string): RuntimeConfig | null {
-  const row = db.select().from(deployment).where(eq(deployment.id, deploymentId)).get();
-  if (!row || row.deletedAt || row.cleanupStartedAt) return null;
+function runtimeConfig(
+  row: typeof deployment.$inferSelect,
+  encrypted: typeof deploymentSecret.$inferSelect | undefined,
+): RuntimeConfig {
   const snapshot = row.snapshot;
-  const encrypted = db
-    .select()
-    .from(deploymentSecret)
-    .where(eq(deploymentSecret.deploymentId, deploymentId))
-    .get();
   const { secrets, registryAuth } = encrypted
     ? decrypt<CapturedDeploymentSecrets>(encrypted.ciphertext)
     : { secrets: {} };
@@ -37,15 +33,33 @@ export function getDeploymentRuntimeConfig(deploymentId: string): RuntimeConfig 
     submittedAt: row.submittedAt,
   };
 }
+
+export function getDeploymentRuntimeConfig(deploymentId: string): RuntimeConfig | null {
+  const row = db.select().from(deployment).where(eq(deployment.id, deploymentId)).get();
+  if (!row || row.deletedAt || row.cleanupStartedAt) return null;
+  const encrypted = db
+    .select()
+    .from(deploymentSecret)
+    .where(eq(deploymentSecret.deploymentId, deploymentId))
+    .get();
+  return runtimeConfig(row, encrypted);
+}
 export function listDeploymentRuntimeConfigs(): RuntimeConfig[] {
-  return db
-    .select({ id: deployment.id })
+  const rows = db
+    .select()
     .from(deployment)
-    .where(isNull(deployment.deletedAt))
+    .where(and(isNull(deployment.deletedAt), isNull(deployment.cleanupStartedAt)))
     .orderBy(asc(deployment.submissionOrder))
-    .all()
-    .map((row) => getDeploymentRuntimeConfig(row.id))
-    .filter((config): config is RuntimeConfig => config !== null);
+    .all();
+  if (!rows.length) return [];
+  const secrets = db
+    .select({ secret: deploymentSecret })
+    .from(deploymentSecret)
+    .innerJoin(deployment, eq(deploymentSecret.deploymentId, deployment.id))
+    .where(and(isNull(deployment.deletedAt), isNull(deployment.cleanupStartedAt)))
+    .all();
+  const secretsByDeployment = new Map(secrets.map(({ secret }) => [secret.deploymentId, secret]));
+  return rows.map((row) => runtimeConfig(row, secretsByDeployment.get(row.id)));
 }
 
 export function setDeploymentImageDigest(deploymentId: string, digest: string) {

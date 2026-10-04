@@ -18,6 +18,7 @@ export function configurePublicationForm(
   path: SchemaPathTree<PublishDraft>,
   busy: Signal<boolean>,
 ) {
+  disabled(path, () => busy());
   disabled(path.image, () => busy());
   metadata(
     path.image,

@@ -43,18 +43,22 @@ export function runtimeFixture(overrides: Partial<RuntimeConfig> = {}) {
       ...overrides,
     };
     const engine = new FakeDocker();
-    let removalHandler: ((id: string) => Promise<void>) | undefined;
+    let removalHandler: ((id: string, projectId: string) => Promise<void>) | undefined;
     const artifact = {
       id: 'artifact',
+      projectId: config.projectId,
       kind: 'static' as const,
       storageKey: '0'.repeat(64),
       sha256: '0'.repeat(64),
       size: 5,
     };
+    let lastArtifactProjectId: string | undefined;
     const services = {
       registerPreviewRoutesRefresh: () => {},
       resumePendingDeploymentRemovals: async () => 0,
-      registerDeploymentRemovalHandler: (callback: (id: string) => Promise<void>) => {
+      registerDeploymentRemovalHandler: (
+        callback: (id: string, projectId: string) => Promise<void>,
+      ) => {
         removalHandler = callback;
       },
       getPreviewRouteTargets: () => ({
@@ -78,13 +82,24 @@ export function runtimeFixture(overrides: Partial<RuntimeConfig> = {}) {
       markDeploymentReady: async () => {
         if (config.desiredState === 'running') config.status = 'healthy';
       },
-      markDeploymentFailed: async () => {
-        if (config.desiredState === 'running') config.status = 'failed';
+      markDeploymentFailed: async (
+        _id: string,
+        _reason: string,
+        _at?: Date,
+        options?: { stopRuntime?: boolean },
+      ) => {
+        if (config.desiredState === 'running') {
+          config.status = 'failed';
+          if (options?.stopRuntime) config.desiredState = 'stopped';
+        }
       },
       setDeploymentHealth: async (_id: string, status: 'healthy' | 'unhealthy') => {
         config.status = status;
       },
-      getArtifact: async () => artifact,
+      getArtifact: async (_id: string, projectId?: string) => {
+        lastArtifactProjectId = projectId;
+        return artifact;
+      },
       setDeploymentImageDigest: async () => {},
       getArtifactCleanupState: () => ({
         referenced: [artifact.storageKey],
@@ -118,6 +133,8 @@ export function runtimeFixture(overrides: Partial<RuntimeConfig> = {}) {
       config,
       services,
       logRows,
+      artifact,
+      lastArtifactProjectId: () => lastArtifactProjectId,
       root,
       getRemovalHandler: () => removalHandler!,
       containers: () => [

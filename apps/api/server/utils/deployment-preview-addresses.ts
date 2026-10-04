@@ -29,7 +29,9 @@ export function getPreviewRouteTargets() {
       ),
     )
     .all();
-  const available = new Set(availableDeployments.map((target) => target.deploymentId));
+  const available = new Map(
+    availableDeployments.map((target) => [target.deploymentId, target.projectId]),
+  );
   return {
     baseDomain: process.env['PREVIEW_BASE_DOMAIN'] ?? 'preview.localhost',
     deployments: availableDeployments.map((target) => ({
@@ -44,7 +46,9 @@ export function getPreviewRouteTargets() {
       })
       .from(deploymentBranchAlias)
       .all()
-      .filter((target) => target.deploymentId && available.has(target.deploymentId))
+      .filter(
+        (target) => target.deploymentId && available.get(target.deploymentId) === target.projectId,
+      )
       .map((target) => ({
         branchAlias: target.branchAlias,
         projectSlug: projectSlugs.get(target.projectId)!,
@@ -54,7 +58,7 @@ export function getPreviewRouteTargets() {
       .select()
       .from(deploymentTag)
       .all()
-      .filter((target) => available.has(target.deploymentId))
+      .filter((target) => available.get(target.deploymentId) === target.projectId)
       .map((target) => ({
         tag: target.name,
         projectSlug: projectSlugs.get(target.projectId)!,

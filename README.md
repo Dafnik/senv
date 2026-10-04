@@ -56,11 +56,13 @@ their signup email instead of password recovery.
 Every account and sign-in requires a valid email address. Internal user IDs remain
 generated IDs; email addresses are the login identifiers.
 
-Project pages open on **Deployments** at `/projects/:projectId/deployments`, where
+Project pages open on **Deployments** at `/projects/:projectSlug/deployments`, where
 project members can inspect deployments and developers or admins can publish and
-manage them. **Members** at `/projects/:projectId/members` contains the searchable,
-sortable member table and, for project admins, the invite form and invitation table.
-**Settings** at `/projects/:projectId/settings` contains project deployment settings;
+manage them. Project slugs are editable route identifiers; immutable project IDs
+remain the internal identifiers used by API records. **Members** at
+`/projects/:projectSlug/members` contains the searchable, sortable member table and,
+for project admins, the invite form and invitation table. **Settings** at
+`/projects/:projectSlug/settings` contains project deployment settings;
 developers and project admins can edit deployment defaults, while project admins
 control the preview slug and retention/resource defaults. Instance admins can
 manage instance upload, proxy, and log limits. Unsaved project-name drafts survive
@@ -141,15 +143,18 @@ Set the authentication URLs and preview address in `.env`. A production instance
 
 ```dotenv
 SENV_INSTANCE_ID=main
+API_PORT=3000
+APP_PORT=4200
 PREVIEW_BASE_DOMAIN=preview.example.com
 PREVIEW_ENTRYPOINTS=websecure
 PREVIEW_TLS=true
 PREVIEW_TLS_RESOLVER=letsencrypt
 PREVIEW_HTTP_PORT=80
 PREVIEW_HTTPS_PORT=443
+PREVIEW_TRAEFIK_API_PORT=8080
 ```
 
-The ID must be a lowercase DNS-safe label no longer than 31 characters and unique for every senv instance sharing the Docker host. Compose uses its project name if `SENV_INSTANCE_ID` is unset; set the variable explicitly when installations share a host or when changing the Compose project name. The preview domain must resolve to Traefik. Configure the `letsencrypt` resolver on `preview-proxy` for your DNS provider, and supply DNS credentials through the host's secret environment. A wildcard certificate for `*.preview.example.com` does not cover `ac3467.project.preview.example.com`; configure per-project wildcard coverage or certificates that include the project label. Traefik wildcard issuance uses a DNS challenge.
+The ID must be a lowercase DNS-safe label no longer than 31 characters and unique for every senv instance sharing the Docker host. Compose uses its project name if `SENV_INSTANCE_ID` is unset; set the variable explicitly when installations share a host or when changing the Compose project name. `API_PORT` and `APP_PORT` publish the API and frontend on host ports 3000 and 4200 by default; their container ports stay 3000 and 4200. When running multiple instances on one host, assign each a distinct Compose project name, senv instance ID, and host port for the API, frontend, HTTP/HTTPS preview entry points, and loopback Traefik API. The preview domain must resolve to Traefik. Configure the `letsencrypt` resolver on `preview-proxy` for your DNS provider, and supply DNS credentials through the host's secret environment. A wildcard certificate for `*.preview.example.com` does not cover `ac3467.project.preview.example.com`; configure per-project wildcard coverage or certificates that include the project label. Traefik wildcard issuance uses a DNS challenge.
 
 The API mounts `/var/run/docker.sock`, which grants it control over containers on the Docker host. Keep this socket restricted to the trusted senv operator. The API creates an instance-labelled private network and only removes containers carrying its own instance labels. Static deployment origins mount the shared artifact volume read-only. Uploaded bytes and expanded website bytes both use the instance upload limit; Static uploads accept ZIP and TAR, including TAR compressed with gzip, zlib/deflate, raw deflate, Brotli, or Zstandard. ZIP supports stored and deflate entries and rejects ZIP64. Archive extraction rejects traversal paths, links, duplicate names, unsupported entries or compression, and expansion over the limit. Image tags are resolved to repository digests before they are stored in a deployment snapshot. Logs from both origin and proxy are retained within the deployment's captured rotation allowance, including across API restarts.
 

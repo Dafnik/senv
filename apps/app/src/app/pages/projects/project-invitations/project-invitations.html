@@ -7,7 +7,10 @@
     manage members and project settings.
   </p>
 </header>
-<app-invite-form [projectId]="projectId()" (sent)="refresh()" />
+<app-invite-form
+  [projectId]="projectId()"
+  (sent)="refresh($event.sessionId, $event.projectId, false)"
+/>
 <div class="flex flex-wrap items-center justify-between gap-3">
   <app-search-input
     [query]="search()"

@@ -1,5 +1,5 @@
 import { TRPCError } from '@trpc/server';
-import { eq, isNotNull } from 'drizzle-orm';
+import { and, eq, isNotNull } from 'drizzle-orm';
 import { customAlphabet } from 'nanoid';
 import { deployment, deploymentArtifact } from '../../../../drizzle/schema';
 import { db } from './db';
@@ -26,11 +26,15 @@ export function registerUploadedArtifact(input: {
     .run();
   return { artifactId, size: input.size, sha256: input.sha256 };
 }
-export function getArtifact(artifactId: string) {
+export function getArtifact(artifactId: string, projectId?: string) {
   const artifact = db
     .select()
     .from(deploymentArtifact)
-    .where(eq(deploymentArtifact.id, artifactId))
+    .where(
+      projectId
+        ? and(eq(deploymentArtifact.id, artifactId), eq(deploymentArtifact.projectId, projectId))
+        : eq(deploymentArtifact.id, artifactId),
+    )
     .get();
   if (!artifact) throw new TRPCError({ code: 'NOT_FOUND', message: 'Artifact not found.' });
   return artifact;

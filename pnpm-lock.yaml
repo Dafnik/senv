@@ -255,6 +255,9 @@ importers:
       '@angular/forms':
         specifier: 22.1.5
         version: 22.1.5(@angular/common@22.1.5(@angular/core@22.1.5(@angular/compiler@22.1.5)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.1.5(@angular/compiler@22.1.5)(rxjs@7.8.2))(@angular/platform-browser@22.1.5(@angular/common@22.1.5(@angular/core@22.1.5(@angular/compiler@22.1.5)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.1.5(@angular/compiler@22.1.5)(rxjs@7.8.2)))(rxjs@7.8.2)
+      '@angular/router':
+        specifier: 22.1.5
+        version: 22.1.5(@angular/common@22.1.5(@angular/core@22.1.5(@angular/compiler@22.1.5)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.1.5(@angular/compiler@22.1.5)(rxjs@7.8.2))(@angular/platform-browser@22.1.5(@angular/common@22.1.5(@angular/core@22.1.5(@angular/compiler@22.1.5)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.1.5(@angular/compiler@22.1.5)(rxjs@7.8.2)))(rxjs@7.8.2)
       '@ng-icons/core':
         specifier: 36.0.0
         version: 36.0.0(@angular-devkit/schematics@22.1.7(chokidar@5.0.0))(@angular/common@22.1.5(@angular/core@22.1.5(@angular/compiler@22.1.5)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.1.5(@angular/compiler@22.1.5)(rxjs@7.8.2))(@schematics/angular@22.1.7(chokidar@5.0.0))(rxjs@7.8.2)
@@ -270,6 +273,9 @@ importers:
       clsx:
         specifier: 2.1.1
         version: 2.1.1
+      rxjs:
+        specifier: 7.8.2
+        version: 7.8.2
       tailwind-merge:
         specifier: 3.6.0
         version: 3.6.0

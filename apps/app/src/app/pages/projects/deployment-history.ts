@@ -31,7 +31,6 @@ import { injectAuthSessionId } from '../../auth/auth-client';
 import { DeploymentsData } from '../../queries/deployments';
 import { lastPageIndex } from '../../tools/table/pagination';
 import { TablePaginaton } from '../../ui/table/pagination';
-import type { DeploymentActions } from './deployment-actions';
 import { DeploymentHistoryEmptyState } from './deployment-history-empty-state';
 import {
   deploymentAuditColumns,
@@ -60,11 +59,11 @@ export class DeploymentHistory {
   readonly projectId = input.required<string>();
   readonly deploymentId = input<string>();
   readonly title = input('Deployment history');
-  readonly isAdmin = input(false);
-  readonly actions = input.required<DeploymentActions>();
   private readonly data = inject(DeploymentsData);
   private readonly sessionId = injectAuthSessionId();
-  readonly columns = deploymentAuditColumns;
+  readonly columns = computed(() =>
+    deploymentAuditColumns(!this.deploymentId()),
+  );
   readonly eventSelectId = computed(() => this.selectId('event'));
   readonly actorSelectId = computed(() => this.selectId('actor'));
   readonly search = linkedSignal(() => {
@@ -139,7 +138,7 @@ export class DeploymentHistory {
   readonly table = injectTable(() => ({
     key: 'deployment-audit',
     features: deploymentAuditTableFeatures,
-    columns: this.columns,
+    columns: this.columns(),
     data: this.audit.isError() ? [] : (this.audit.data()?.entries ?? []),
     rowCount: this.audit.data()?.total ?? 0,
     getRowId: (row) => row.id,

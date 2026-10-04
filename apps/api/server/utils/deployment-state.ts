@@ -69,7 +69,12 @@ export async function markDeploymentReady(deploymentId: string, at = new Date())
   await refreshPreviewRoutes();
 }
 
-export async function markDeploymentFailed(deploymentId: string, reason: string, at = new Date()) {
+export async function markDeploymentFailed(
+  deploymentId: string,
+  reason: string,
+  at = new Date(),
+  options: { stopRuntime?: boolean } = {},
+) {
   const safeReason = reason.slice(0, 4000);
   db.transaction((tx) => {
     const row = tx.select().from(deployment).where(eq(deployment.id, deploymentId)).get();
@@ -78,11 +83,15 @@ export async function markDeploymentFailed(deploymentId: string, reason: string,
       row.deletedAt ||
       row.cleanupStartedAt ||
       row.desiredState !== 'running' ||
-      !['queued', 'starting'].includes(row.status)
+      (!['queued', 'starting'].includes(row.status) && !options.stopRuntime)
     )
       return;
     tx.update(deployment)
-      .set({ status: 'failed', failureReason: safeReason })
+      .set({
+        status: 'failed',
+        failureReason: safeReason,
+        ...(options.stopRuntime ? { desiredState: 'stopped' as const } : {}),
+      })
       .where(eq(deployment.id, deploymentId))
       .run();
     event(tx, row.projectId, row.id, 'failed', { reason: safeReason }, at);

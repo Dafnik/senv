@@ -14,6 +14,7 @@ export class FakeDocker extends DockerEngine {
   readonly streamPaths: string[] = [];
   networkReady = false;
   unavailable = false;
+  failStop = false;
   probeStatuses: number[] = [];
   redirectProbe = false;
   createGate?: { entered: Promise<void>; release: () => void };
@@ -62,6 +63,7 @@ export class FakeDocker extends DockerEngine {
       const container = this.containerFromPath(path);
       container.running = true;
     } else if (path.startsWith('/containers/') && path.includes('/stop')) {
+      if (this.failStop) throw new Error('Docker stop failed.');
       this.containerFromPath(path).running = false;
     } else if (path.startsWith('/containers/') && method === 'DELETE') {
       const container = this.containerFromPath(path);

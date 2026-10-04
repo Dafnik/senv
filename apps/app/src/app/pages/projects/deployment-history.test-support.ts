@@ -64,12 +64,10 @@ export function setupDeploymentHistoryTests() {
   });
 }
 
-export function createHistory(deploymentId?: string, isAdmin = false) {
+export function createHistory(deploymentId?: string) {
   const fixture = TestBed.createComponent(DeploymentHistory);
   fixture.componentRef.setInput('projectId', 'project-id');
   fixture.componentRef.setInput('deploymentId', deploymentId);
-  fixture.componentRef.setInput('isAdmin', isAdmin);
-  fixture.componentRef.setInput('actions', { forgetHistory: vi.fn() });
   return fixture;
 }
 

@@ -81,7 +81,7 @@ test('deletion waits for an in-flight start and prevents its containers from sur
   try {
     const starting = runtime.start();
     await gate.waitForEntry;
-    const removing = getRemovalHandler()('dpl-runtime-test');
+    const removing = getRemovalHandler()('dpl-runtime-test', 'project');
     gate.release();
     await Promise.all([starting, removing]);
     expect(containers()).toHaveLength(0);

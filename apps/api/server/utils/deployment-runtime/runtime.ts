@@ -8,6 +8,10 @@ import { DockerDeploymentContainers } from './containers';
 import { RuntimeDeploymentLifecycle } from './runtime-lifecycle';
 import { RuntimeCleanup } from './runtime-cleanup';
 import { RuntimeDeploymentCoordinator } from './runtime-deployment-coordinator';
+import {
+  recoverPendingDeploymentRemovals,
+  retryDeploymentRemovals,
+} from './runtime-removal-maintenance';
 import { deploymentInstanceId } from './identity';
 import type { RuntimeOptions } from './runtime-options';
 import { deploymentUploadLimit } from './upload-limits';
@@ -95,6 +99,7 @@ export class DeploymentRuntime {
       services: () => this.#services,
       removing: this.#removing,
       instanceId: this.instanceId,
+      refreshRoutes: () => this.refreshPreviewRoutes(),
     });
     this.routes = new PreviewRoutePublisher({
       configFile:
@@ -123,18 +128,10 @@ export class DeploymentRuntime {
     await this.artifacts.initialize();
     this.#services ??= await import('../deployments');
     this.#services.registerPreviewRoutesRefresh(() => this.refreshPreviewRoutes());
-    this.#services.registerDeploymentRemovalHandler((id) =>
-      this.#coordinator.removeDeploymentResources(id),
+    this.#services.registerDeploymentRemovalHandler((id, projectId) =>
+      this.#coordinator.removeDeploymentResources(id, projectId),
     );
-    await this.#services
-      .resumePendingDeploymentRemovals()
-      .catch((error) =>
-        console.error(
-          '[deployment-runtime] pending removal recovery failed; the service preserved the records for retry',
-          error,
-        ),
-      );
-    await this.#logCollector.loadCursors();
+    await recoverPendingDeploymentRemovals(this.#services, this.#logCollector);
     this.#timer = setInterval(
       () =>
         void this.reconcile().catch((error) =>
@@ -183,7 +180,7 @@ export class DeploymentRuntime {
     try {
       // A host outage is retryable infrastructure failure, not a failed publication.
       await this.routes.ensureNetwork();
-      await this.#services.cleanupDueDeployments();
+      await retryDeploymentRemovals(this.#services);
       const configs = this.#services.listDeploymentRuntimeConfigs();
       await this.#coordinator.reconcile(configs);
       await this.#cleanup.removeOrphanContainers(new Set(configs.map((config) => config.id)));

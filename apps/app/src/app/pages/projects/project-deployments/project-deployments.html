@@ -60,11 +60,14 @@
               [publishForm]="publishForm"
               [busy]="busy()"
               [credentials]="credentials.data"
+              [credentialsLoading]="credentials.isPending()"
+              [credentialsError]="credentials.isError()"
               [registryCredentialId]="registryCredentialSelection"
               [keepCapturedCredential]="keepCapturedCredential"
               [capturedCredentialLabel]="capturedCredentialLabel"
               (imageInput)="updateImage($event)"
               (credentialSelection)="updateRegistryCredential($event)"
+              (retryCredentials)="credentials.refetch()"
             />
           }
           <app-deployment-source-details-fields

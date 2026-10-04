@@ -1,9 +1,11 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   effect,
   inject,
   input,
+  linkedSignal,
   signal,
 } from '@angular/core';
 import { form, FormField, FormRoot, submit } from '@angular/forms/signals';
@@ -40,11 +42,20 @@ export class ProjectRegistryCredentials {
   readonly projectId = input.required<string>();
   readonly canManage = input(false);
   private readonly sessionId = injectAuthSessionId();
+  private readonly scopeIdentity = computed(() => ({
+    projectId: this.projectId(),
+    sessionId: this.sessionId(),
+  }));
   private readonly data = inject(DeploymentsData);
   readonly credentials = injectQuery(() =>
     this.data.credentials(this.sessionId(), this.projectId(), this.canManage()),
   );
-  readonly credentialBusy = signal(false);
+  readonly credentialBusy = linkedSignal(() => {
+    this.projectId();
+    this.sessionId();
+    return false;
+  });
+  private readonly operation = signal(0);
   readonly credentialModel = signal<RegistryCredentialDraft>({
     name: '',
     registry: '',
@@ -73,17 +84,25 @@ export class ProjectRegistryCredentials {
     event.preventDefault();
     if (!this.canManage() || this.credentialBusy()) return;
     void submit(this.credentialForm, async () => {
-      this.credentialBusy.set(true);
       const projectId = this.projectId();
       const sessionId = this.sessionId();
+      const scopeIdentity = this.scopeIdentity();
+      const operation = this.operation() + 1;
+      this.operation.set(operation);
+      const ownsView = () =>
+        operation === this.operation() &&
+        scopeIdentity === this.scopeIdentity() &&
+        projectId === this.projectId() &&
+        sessionId === this.sessionId();
+      this.credentialBusy.set(true);
       try {
         const value = toRegistryCredentialInput(this.credentialModel());
         await this.data.saveRegistryCredential({
           projectId,
           ...value,
         });
-        if (projectId !== this.projectId() || sessionId !== this.sessionId())
-          return;
+        await this.data.invalidate(sessionId, projectId);
+        if (!ownsView()) return;
         this.credentialModel.set({
           name: '',
           registry: '',
@@ -91,37 +110,47 @@ export class ProjectRegistryCredentials {
           secret: '',
         });
         this.credentialForm().reset();
-        await this.data.invalidate(sessionId, projectId);
         toast.success('Registry credential saved.');
       } catch (error) {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : 'Could not save the credential.',
-        );
+        if (ownsView())
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : 'Could not save the credential.',
+          );
       } finally {
-        this.credentialBusy.set(false);
+        if (ownsView()) this.credentialBusy.set(false);
       }
     });
   }
   async deleteCredential(credentialId: string, name: string) {
     if (!window.confirm(`Remove registry credential “${name}”?`)) return;
     if (!this.canManage() || this.credentialBusy()) return;
-    this.credentialBusy.set(true);
     const projectId = this.projectId();
     const sessionId = this.sessionId();
+    const scopeIdentity = this.scopeIdentity();
+    const operation = this.operation() + 1;
+    this.operation.set(operation);
+    const ownsView = () =>
+      operation === this.operation() &&
+      scopeIdentity === this.scopeIdentity() &&
+      projectId === this.projectId() &&
+      sessionId === this.sessionId();
+    this.credentialBusy.set(true);
     try {
       await this.data.deleteRegistryCredential(projectId, credentialId);
       await this.data.invalidate(sessionId, projectId);
+      if (!ownsView()) return;
       toast.success('Registry credential removed.');
     } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : 'Could not remove the credential.',
-      );
+      if (ownsView())
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : 'Could not remove the credential.',
+        );
     } finally {
-      this.credentialBusy.set(false);
+      if (ownsView()) this.credentialBusy.set(false);
     }
   }
 }

@@ -1,5 +1,9 @@
 import { effect, Signal, signal, WritableSignal } from '@angular/core';
 import {
+  readStoredValue,
+  writeStoredValue,
+} from '../../../../tools/safe-storage';
+import {
   emptyPublishDraft,
   restorePublishDraft,
   type PublishDraft,
@@ -30,14 +34,12 @@ export class PublicationDraftStorage {
       this.loadedKey.set(key);
       return;
     }
-    if (typeof localStorage !== 'undefined')
-      localStorage.setItem(key, JSON.stringify(this.options.model()));
+    writeStoredValue(key, JSON.stringify(this.options.model()));
   }
 
   private load(key: string): PublishDraft {
-    if (typeof localStorage === 'undefined') return emptyPublishDraft();
     try {
-      const stored: unknown = JSON.parse(localStorage.getItem(key) ?? 'null');
+      const stored: unknown = JSON.parse(readStoredValue(key) ?? 'null');
       return restorePublishDraft(stored, emptyPublishDraft());
     } catch {
       return emptyPublishDraft();

@@ -1,62 +1,22 @@
 import { TRPCError } from '@trpc/server';
 import { and, asc, eq, isNotNull, isNull, lte } from 'drizzle-orm';
-import {
-  deployment,
-  deploymentSecret,
-  deploymentLog,
-  deploymentTag,
-  deploymentBranchAlias,
-} from '../../../../drizzle/schema';
+import { deployment } from '../../../../drizzle/schema';
 import type { DeploymentActor } from '../../shared/deployments';
 import { db } from './db';
-import { event } from './deployment-history';
 import { isProtected } from './deployment-retention';
 import { refreshPreviewRoutes, serializeRouteMutation } from './deployment-routing';
+import {
+  finishDeploymentRemoval,
+  type DeploymentRemovalAction,
+} from './deployment-removal-finalize';
 
-type DeploymentRemovalAction = 'delete' | 'clean';
-let deploymentRemovalHandler: ((deploymentId: string) => Promise<void>) | undefined;
+let deploymentRemovalHandler:
+  | ((deploymentId: string, projectId: string) => Promise<void>)
+  | undefined;
 export function registerDeploymentRemovalHandler(
-  callback?: (deploymentId: string) => Promise<void>,
+  callback?: (deploymentId: string, projectId: string) => Promise<void>,
 ) {
   deploymentRemovalHandler = callback;
-}
-
-function finishDeploymentRemoval(deploymentId: string, action: DeploymentRemovalAction, at: Date) {
-  return db.transaction((tx) => {
-    const row = tx.select().from(deployment).where(eq(deployment.id, deploymentId)).get();
-    if (!row || !row.cleanupStartedAt || (action === 'clean' && isProtected(tx, deploymentId)))
-      return false;
-    tx.delete(deploymentSecret).where(eq(deploymentSecret.deploymentId, deploymentId)).run();
-    tx.delete(deploymentLog).where(eq(deploymentLog.deploymentId, deploymentId)).run();
-    tx.delete(deploymentTag).where(eq(deploymentTag.deploymentId, deploymentId)).run();
-    tx.update(deploymentBranchAlias)
-      .set({ deploymentId: null })
-      .where(eq(deploymentBranchAlias.deploymentId, deploymentId))
-      .run();
-    tx.update(deployment)
-      .set({
-        status: action === 'delete' ? 'deleted' : 'cleaned',
-        desiredState: 'stopped',
-        artifactId: null,
-        retentionDeadlineAt: null,
-        cleanupStartedAt: null,
-        cleanupAction: null,
-        cleanupActor: null,
-        deletedAt: at,
-      })
-      .where(eq(deployment.id, deploymentId))
-      .run();
-    event(
-      tx,
-      row.projectId,
-      deploymentId,
-      action === 'delete' ? 'deleted' : 'cleaned',
-      {},
-      at,
-      action === 'delete' ? (row.cleanupActor ?? undefined) : undefined,
-    );
-    return true;
-  });
 }
 
 function clearRemovalIntent(deploymentId: string) {
@@ -79,7 +39,8 @@ async function completeRemoval(
       code: 'PRECONDITION_FAILED',
       message: 'Deployment runtime removal is not available yet.',
     });
-  if (!row.cleanupStartedAt)
+  const beganIntent = !row.cleanupStartedAt;
+  if (beganIntent)
     db.update(deployment)
       .set({
         cleanupStartedAt: at,
@@ -90,22 +51,32 @@ async function completeRemoval(
       .run();
   try {
     await refreshPreviewRoutes();
-    await removeResources(row.id);
   } catch (error) {
-    clearRemovalIntent(row.id);
-    try {
-      await refreshPreviewRoutes();
-    } catch (restoreError) {
-      throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message:
-          'Runtime removal failed and the deployment was preserved, but its previous preview route could not be confirmed.',
-        cause: restoreError,
+    if (beganIntent) {
+      clearRemovalIntent(row.id);
+      await refreshPreviewRoutes().catch((restoreError) => {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message:
+            'Route retirement failed and the deployment was preserved, but its previous preview route could not be confirmed.',
+          cause: restoreError,
+        });
       });
     }
     throw new TRPCError({
       code: 'INTERNAL_SERVER_ERROR',
-      message: 'Runtime removal failed; secrets, artifacts, and history were preserved.',
+      message:
+        'Preview route retirement failed; deployment removal remains pending when previously started.',
+      cause: error,
+    });
+  }
+  try {
+    await removeResources(row.id, row.projectId);
+  } catch (error) {
+    throw new TRPCError({
+      code: 'INTERNAL_SERVER_ERROR',
+      message:
+        'Runtime removal failed; removal intent and deployment records were preserved for retry.',
       cause: error,
     });
   }
@@ -144,25 +115,32 @@ export async function cleanupDueDeployments(now = new Date()) {
     )
     .all();
   let cleaned = 0;
+  let firstError: unknown;
   for (const candidate of due) {
-    const didClean = await serializeRouteMutation(async () => {
-      const row = db
-        .select()
-        .from(deployment)
-        .where(
-          and(
-            eq(deployment.id, candidate.id),
-            isNull(deployment.deletedAt),
-            isNotNull(deployment.retentionDeadlineAt),
-            lte(deployment.retentionDeadlineAt, now),
-          ),
-        )
-        .get();
-      if (!row || row.cleanupStartedAt || isProtected(db, row.id)) return false;
-      return completeRemoval(row, 'clean', now);
-    });
-    if (didClean) cleaned++;
+    try {
+      const didClean = await serializeRouteMutation(async () => {
+        const row = db
+          .select()
+          .from(deployment)
+          .where(
+            and(
+              eq(deployment.id, candidate.id),
+              isNull(deployment.deletedAt),
+              isNotNull(deployment.retentionDeadlineAt),
+              lte(deployment.retentionDeadlineAt, now),
+            ),
+          )
+          .get();
+        if (!row || row.cleanupStartedAt || isProtected(db, row.id)) return false;
+        return completeRemoval(row, 'clean', now);
+      });
+      if (didClean) cleaned++;
+    } catch (error) {
+      firstError ??= error;
+      console.error(`[deployment-removal] cleanup failed for deployment ${candidate.id}`, error);
+    }
   }
+  if (firstError) throw firstError;
   return cleaned;
 }
 

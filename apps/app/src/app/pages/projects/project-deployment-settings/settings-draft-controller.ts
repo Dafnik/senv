@@ -1,6 +1,15 @@
 import { effect, Signal, WritableSignal } from '@angular/core';
-import type { SettingsModel } from './project-deployment-settings.model';
+import {
+  settingsFromModel,
+  type SettingsModel,
+} from './project-deployment-settings.model';
 import { restoreSettingsModel } from './project-deployment-settings.form';
+import {
+  readStoredValue,
+  removeStoredValue,
+  removeStoredValueIfMatches,
+  writeStoredValue,
+} from '../../../tools/safe-storage';
 
 export type SettingsDraftControllerOptions = {
   projectId: Signal<string>;
@@ -21,13 +30,15 @@ export class SettingsDraftController {
   discard() {
     const serverModel = this.options.serverModel();
     if (!serverModel) return;
-    localStorage.removeItem(this.key());
+    const key = this.key(this.options.sessionId(), this.options.projectId());
+    removeStoredValue(key);
     this.options.model.set(serverModel);
     this.options.resetForm();
   }
 
-  clear(projectId: string) {
-    localStorage.removeItem(this.key(projectId));
+  clear(sessionId: string | null, projectId: string, snapshot: string) {
+    const key = this.key(sessionId, projectId);
+    removeStoredValueIfMatches(key, snapshot);
   }
 
   private loadWhenReady() {
@@ -40,25 +51,30 @@ export class SettingsDraftController {
 
   private persistChanges() {
     const projectId = this.options.projectId();
-    const key = this.key(projectId);
+    const sessionId = this.options.sessionId();
+    const key = this.key(sessionId, projectId);
+    const model = this.options.model();
+    const serverModel = this.options.serverModel();
+    if (this.loadedProject !== `${sessionId}:${projectId}`) return;
     if (
-      this.loadedProject !== `${this.options.sessionId()}:${projectId}` ||
-      typeof localStorage === 'undefined'
-    )
+      serverModel &&
+      JSON.stringify(settingsFromModel(model)) ===
+        JSON.stringify(settingsFromModel(serverModel))
+    ) {
+      removeStoredValue(key);
       return;
-    localStorage.setItem(key, JSON.stringify(this.options.model()));
+    }
+    writeStoredValue(key, JSON.stringify(model));
   }
 
-  private key(projectId = this.options.projectId()) {
-    return `senv:deployment-settings:${this.options.sessionId()}:${projectId}`;
+  private key(sessionId: string | null, projectId: string) {
+    return `senv:deployment-settings:${sessionId}:${projectId}`;
   }
 
   private loadDraft(projectKey: string) {
-    if (typeof localStorage === 'undefined') return null;
     try {
       const stored: unknown = JSON.parse(
-        localStorage.getItem(`senv:deployment-settings:${projectKey}`) ??
-          'null',
+        readStoredValue(`senv:deployment-settings:${projectKey}`) ?? 'null',
       );
       return restoreSettingsModel(stored, this.options.serverModel()!);
     } catch {

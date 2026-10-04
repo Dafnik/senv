@@ -5,7 +5,7 @@ test('viewers cannot forget retained history', async () => {
     events: ['deleted'],
     actors: [],
   });
-  const fixture = createHistory(undefined, false);
+  const fixture = createHistory();
   await vi.waitFor(() =>
     expect(fixture.componentInstance.audit.data()?.entries).toHaveLength(1),
   );

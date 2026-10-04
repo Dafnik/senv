@@ -66,11 +66,7 @@ import { DeploymentHistory } from './deployment-history';
           </div>
         }
       </section>
-      <app-deployment-history
-        [projectId]="projectId()"
-        [actions]="actions"
-        [isAdmin]="isAdmin()"
-      />
+      <app-deployment-history [projectId]="projectId()" />
     </div>
   `,
 })

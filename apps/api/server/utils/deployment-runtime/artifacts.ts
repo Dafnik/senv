@@ -15,6 +15,7 @@ import { staticArchiveExtensions } from '../../../shared/deployments';
 import type { ArtifactStoreOptions, StaticUploadFile, StoredArtifact } from './artifact-types';
 import { extractTar, extractZip } from './artifact-archives';
 import { safeRelativePath } from './artifact-paths';
+import { maxStaticArtifactEntries } from './artifact-limits';
 export type { ArtifactStoreOptions, StaticUploadFile, StoredArtifact } from './artifact-types';
 export { safeRelativePath, stripSelectedDirectoryRoot } from './artifact-paths';
 export { withArtifactStorageLock } from '../deployment-storage-lock';
@@ -31,7 +32,8 @@ export class ArtifactStore {
   }
 
   async ingestFiles(files: StaticUploadFile[]): Promise<StoredArtifact> {
-    if (files.length > 10_000) throw new Error('Website exceeds the 10000-file limit.');
+    if (files.length > maxStaticArtifactEntries)
+      throw new Error(`Website exceeds the ${maxStaticArtifactEntries}-file limit.`);
     if (!files.length) throw new Error('At least one website file is required.');
     const temp = await mkdtemp(join(this.options.root, 'tmp/upload-'));
     try {

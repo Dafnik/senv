@@ -58,8 +58,11 @@ export function configureDeploymentSettingsForm(
   };
 }
 
-export function configurePreviewSlugForm(): SchemaFn<{ previewSlug: string }> {
+export function configurePreviewSlugForm(
+  saving: Signal<boolean>,
+): SchemaFn<{ previewSlug: string }> {
   return (path) => {
+    disabled(path, () => saving());
     metadata(path.previewSlug, REQUIRED, () => true);
     metadata(path.previewSlug, MAX_LENGTH, () => 63);
     metadata(

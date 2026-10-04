@@ -13,10 +13,9 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
-    container_name: api
     restart: unless-stopped
     ports:
-      - 3000:3000
+      - '${API_PORT:-3000}:3000'
     depends_on:
       db-migrate:
         condition: service_completed_successfully
@@ -46,10 +45,9 @@ services:
     build:
       context: .
       dockerfile: apps/app/Dockerfile
-    container_name: app
     restart: always
     ports:
-      - 4200:4200
+      - '${APP_PORT:-4200}:4200'
     depends_on:
       - api
     environment:

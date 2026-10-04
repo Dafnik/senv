@@ -14,6 +14,8 @@ type SaveContext = {
   sessionId: Signal<string | null>;
   currentProjectId: Signal<string>;
   currentSessionId: Signal<string | null>;
+  operation: WritableSignal<number>;
+  scopeIdentity: Signal<object>;
 };
 
 export async function saveDeploymentSettings(
@@ -22,27 +24,40 @@ export async function saveDeploymentSettings(
     data: DeploymentsData;
     saving: WritableSignal<boolean>;
     formError: WritableSignal<string>;
-    clearDraft: (projectId: string) => void;
+    clearDraft: (
+      sessionId: string | null,
+      projectId: string,
+      snapshot: string,
+    ) => void;
   },
 ) {
-  options.saving.set(true);
   const projectId = options.projectId();
   const sessionId = options.sessionId();
+  const scopeIdentity = options.scopeIdentity();
+  const draftSnapshot = JSON.stringify(options.model());
+  const operation = options.operation() + 1;
+  options.operation.set(operation);
+  const ownsView = () =>
+    operation === options.operation() &&
+    options.scopeIdentity() === scopeIdentity &&
+    isCurrent(options, projectId, sessionId);
+  options.saving.set(true);
   try {
     const settings = settingsFromModel(options.model());
     await options.data.updateSettings(projectId, settings);
-    if (!isCurrent(options, projectId, sessionId)) return false;
+    options.clearDraft(sessionId, projectId, draftSnapshot);
     await options.data.invalidate(sessionId, projectId);
+    if (!ownsView()) return false;
     options.model.set(settingsToModel(settings));
-    options.clearDraft(projectId);
     options.formError.set('');
     toast.success('Project deployment defaults saved.');
     return true;
   } catch (error) {
-    options.formError.set(message(error, 'Settings could not be saved.'));
+    if (ownsView())
+      options.formError.set(message(error, 'Settings could not be saved.'));
     return false;
   } finally {
-    options.saving.set(false);
+    if (ownsView()) options.saving.set(false);
   }
 }
 
@@ -53,34 +68,48 @@ export async function savePreviewSlug(
     router: Router;
     saving: WritableSignal<boolean>;
     error: WritableSignal<string>;
-    clearDraft: () => void;
+    clearDraft: (
+      sessionId: string | null,
+      projectId: string,
+      snapshot: string,
+    ) => void;
   },
 ) {
-  options.saving.set(true);
   const projectId = options.projectId();
   const sessionId = options.sessionId();
+  const scopeIdentity = options.scopeIdentity();
+  const draftSnapshot = options.model().previewSlug;
+  const operation = options.operation() + 1;
+  options.operation.set(operation);
+  const ownsView = () =>
+    operation === options.operation() &&
+    options.scopeIdentity() === scopeIdentity &&
+    isCurrent(options, projectId, sessionId);
+  options.saving.set(true);
   try {
     const changed = await options.projects.updatePreviewSlug(
       projectId,
       options.model().previewSlug.trim(),
     );
-    if (!isCurrent(options, projectId, sessionId)) return false;
-    options.clearDraft();
+    options.clearDraft(sessionId, projectId, draftSnapshot);
+    await options.projects.invalidate(sessionId, projectId);
+    if (!ownsView()) return false;
     await options.router.navigate(
       ['/projects', changed.previewSlug, 'settings'],
       { replaceUrl: true },
     );
-    await options.projects.invalidate(sessionId, projectId);
+    if (!ownsView()) return false;
     options.error.set('');
     toast.success(
       'Project slug changed. Old preview and senv links stopped working immediately.',
     );
     return true;
   } catch (error) {
-    options.error.set(message(error, 'The preview slug could not be saved.'));
+    if (ownsView())
+      options.error.set(message(error, 'The preview slug could not be saved.'));
     return false;
   } finally {
-    options.saving.set(false);
+    if (ownsView()) options.saving.set(false);
   }
 }
 

@@ -4,11 +4,13 @@ import { join } from 'node:path';
 import { collectDockerLogs } from './docker-logs';
 import { containerName } from './preview-routes';
 import type { DockerEngine } from '../docker-engine';
+import type { RuntimeConfig } from './contracts';
+import { assertContainerOwned } from './container-ownership';
 
 type LogSource = 'origin' | 'proxy';
 type AppendLog = (deploymentId: string, source: LogSource, content: string) => void;
 
-type LogContainer = { Id: string };
+type LogContainer = { Id: string; Config?: { Labels?: Record<string, string> } };
 
 /** Collects Docker output and resumes timestamp cursors across API restarts. */
 export class RuntimeLogCollector {
@@ -40,12 +42,19 @@ export class RuntimeLogCollector {
     await this.#saveCursors();
   }
 
-  async collectDeployment(deploymentId: string, append: AppendLog): Promise<void> {
+  async collectDeployment(config: RuntimeConfig, append: AppendLog): Promise<void> {
+    const { id: deploymentId, projectId } = config;
     for (const source of ['origin', 'proxy'] as const) {
       const container = await this.#inspectContainer(
         containerName(this.options.instanceId, deploymentId, source),
       );
       if (!container) continue;
+      assertContainerOwned(
+        container,
+        this.options.instanceId,
+        { id: deploymentId, projectId },
+        source,
+      );
       const key = `${deploymentId}:${source}`;
       const since = this.#logSince.get(key);
       const query = since === undefined ? 'tail=all' : `since=${Math.max(0, since)}`;
@@ -88,20 +97,28 @@ export class RuntimeLogCollector {
   }
 
   async captureContainerLogs(
-    deploymentId: string,
+    config: RuntimeConfig,
     source: LogSource,
     containerId: string | undefined,
     append: AppendLog,
   ): Promise<void> {
     if (!containerId) return;
+    const inspected = await this.#inspectContainer(containerId);
+    if (!inspected) return;
+    assertContainerOwned(
+      inspected,
+      this.options.instanceId,
+      { id: config.id, projectId: config.projectId },
+      source,
+    );
     const response = await this.options.engine
       .stream(
         'GET',
-        `/containers/${encodeURIComponent(containerId)}/logs?stdout=1&stderr=1&timestamps=1&tail=all`,
+        `/containers/${encodeURIComponent(inspected.Id)}/logs?stdout=1&stderr=1&timestamps=1&tail=all`,
       )
       .catch(() => null);
     if (!response) return;
-    await collectDockerLogs(response, (content) => append(deploymentId, source, content));
+    await collectDockerLogs(response, (content) => append(config.id, source, content));
   }
 
   async #inspectContainer(name: string): Promise<LogContainer | null> {

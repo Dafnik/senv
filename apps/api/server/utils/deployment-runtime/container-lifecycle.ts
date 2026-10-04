@@ -1,6 +1,11 @@
 import { DockerEngine } from '../docker-engine';
 import { containerName } from './preview-routes';
 import { dockerStreamText } from './docker-logs';
+import {
+  assertContainerOwned,
+  type ContainerOwner,
+  type ContainerRole,
+} from './container-ownership';
 
 export type ContainerInspect = {
   Id: string;
@@ -16,8 +21,16 @@ export class DockerContainerLifecycle {
     private readonly instanceId: string,
   ) {}
 
-  async probeHttp(name: string, url: string, timeoutSeconds: number): Promise<void> {
+  async probeHttp(
+    name: string,
+    owner: ContainerOwner,
+    role: ContainerRole,
+    url: string,
+    timeoutSeconds: number,
+  ): Promise<void> {
     const container = await this.inspectContainer(name);
+    if (container) this.assertOwned(container, owner, role);
+    else throw new Error(`${name} does not exist.`);
     if (!container?.State.Running) throw new Error(`${name} is not running.`);
     const exec = await this.engine.request<{ Id: string }>(
       'POST',
@@ -73,39 +86,29 @@ export class DockerContainerLifecycle {
     }
   }
 
-  assertOwned(container: ContainerInspect, deploymentId: string, role: 'origin' | 'proxy'): void {
-    const labels = container.Config?.Labels;
-    if (
-      labels?.['senv.managed'] !== 'true' ||
-      labels['senv.instance'] !== this.instanceId ||
-      labels['senv.deployment'] !== deploymentId ||
-      labels['senv.role'] !== role
-    )
-      throw new Error(
-        `Refusing to manage container ${container.Id} because its ownership labels do not match this deployment.`,
-      );
+  assertOwned(container: ContainerInspect, owner: ContainerOwner, role: ContainerRole): void {
+    assertContainerOwned(container, this.instanceId, owner, role);
   }
 
-  async stop(deploymentId: string): Promise<void> {
+  async stop(owner: ContainerOwner): Promise<void> {
     await Promise.all(
       (['origin', 'proxy'] as const).map(async (role) => {
-        const name = containerName(this.instanceId, deploymentId, role);
+        const name = containerName(this.instanceId, owner.id, role);
         const container = await this.inspectContainer(name);
-        if (container) this.assertOwned(container, deploymentId, role);
+        if (container) this.assertOwned(container, owner, role);
         if (container?.State.Running)
-          await this.engine
-            .request('POST', `/containers/${encodeURIComponent(container.Id)}/stop?t=5`)
-            .catch(() => {});
+          await this.engine.request(
+            'POST',
+            `/containers/${encodeURIComponent(container.Id)}/stop?t=5`,
+          );
       }),
     );
   }
 
-  async removeOwned(deploymentId: string, role: 'origin' | 'proxy'): Promise<void> {
-    const container = await this.inspectContainer(
-      containerName(this.instanceId, deploymentId, role),
-    );
+  async removeOwned(owner: ContainerOwner, role: ContainerRole): Promise<void> {
+    const container = await this.inspectContainer(containerName(this.instanceId, owner.id, role));
     if (!container) return;
-    this.assertOwned(container, deploymentId, role);
+    this.assertOwned(container, owner, role);
     await this.engine.request(
       'DELETE',
       `/containers/${encodeURIComponent(container.Id)}?force=true&v=false`,
@@ -115,11 +118,22 @@ export class DockerContainerLifecycle {
   async removeOrphan(
     containerId: string,
     deploymentId: string,
-    role: 'origin' | 'proxy',
+    role: ContainerRole,
   ): Promise<void> {
     const inspected = await this.inspectId(containerId);
     if (!inspected) return;
-    this.assertOwned(inspected, deploymentId, role);
+    if (!inspected.Config?.Labels?.['senv.project'])
+      throw new Error(
+        `Refusing to manage orphan ${containerId} without a project ownership label.`,
+      );
+    this.assertOwned(
+      inspected,
+      {
+        id: deploymentId,
+        projectId: inspected.Config.Labels['senv.project'],
+      },
+      role,
+    );
     await this.engine
       .request('DELETE', `/containers/${encodeURIComponent(containerId)}?force=true&v=false`)
       .catch(() => {});

@@ -2,6 +2,7 @@ import { provideRouter } from '@angular/router';
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideTanStackQuery, QueryClient } from '@tanstack/angular-query';
+import type { DeploymentSettings } from '@senv/api/shared/deployments';
 import { afterEach, beforeEach, vi } from 'vite-plus/test';
 import { AUTH_CLIENT } from '../../../auth/auth-client';
 import { DeploymentsData } from '../../../queries/deployments';
@@ -63,7 +64,9 @@ export const data = {
     queryFn: async () => adminDefaults,
   })),
   invalidate: vi.fn(async () => undefined),
-  updateSettings: vi.fn(async () => undefined),
+  updateSettings: vi.fn(
+    async (_projectId: string, _settings: DeploymentSettings) => undefined,
+  ),
   updateAdminDefaults: vi.fn(async () => undefined),
 };
 export const projects = {

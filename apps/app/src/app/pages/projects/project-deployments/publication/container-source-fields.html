@@ -18,6 +18,24 @@
       }
     }
   </div>
+  @if (credentialsLoading()) {
+    <p class="text-muted-foreground text-sm" role="status">
+      Loading registry credentials…
+    </p>
+  } @else if (credentialsError()) {
+    <div class="grid gap-2 sm:col-span-2">
+      <p class="text-destructive text-sm" role="alert">
+        Could not load registry credentials.
+      </p>
+      <button
+        type="button"
+        class="text-sm underline"
+        (click)="retryCredentials.emit()"
+      >
+        Try again
+      </button>
+    </div>
+  }
   @if (
     credentials()()?.length ||
     registryCredentialId()() === keepCapturedCredential()

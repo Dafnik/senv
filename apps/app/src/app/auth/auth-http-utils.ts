@@ -4,13 +4,10 @@ export function headersFromFetch(
   fetchHeaders?: Headers | HeadersInit,
 ): Record<string, string> {
   if (!fetchHeaders) return {};
-  if (fetchHeaders instanceof Headers) {
-    const out: Record<string, string> = {};
-    fetchHeaders.forEach((value, key) => (out[key] = value));
-    return out;
-  }
-  if (Array.isArray(fetchHeaders)) return Object.fromEntries(fetchHeaders);
-  return fetchHeaders;
+  const normalized = new Headers(fetchHeaders);
+  const out: Record<string, string> = {};
+  normalized.forEach((value, key) => (out[key] = value));
+  return out;
 }
 
 export function processAuthResponse(
@@ -25,21 +22,21 @@ export function processAuthResponse(
       { status: 503, headers: { 'Content-Type': 'application/json' } },
     );
   }
-  const allHeaders = response.headers
-    .keys()
-    .map((key) => [
-      key,
-      response.headers.getAll(key),
-    ]) as unknown as HeadersInit;
-  const hasError = 'error' in response && !!response.error;
-  const hasBody = 'body' in response && !!response.body;
+  const headers = new Headers();
+  for (const key of response.headers.keys()) {
+    for (const value of response.headers.getAll(key) ?? []) {
+      headers.append(key, value);
+    }
+  }
+  const hasError = 'error' in response && response.error != null;
+  const hasBody = 'body' in response && response.body != null;
   const body = hasBody
     ? JSON.stringify(response.body)
     : hasError
       ? JSON.stringify(response.error)
       : null;
   return new Response(body, {
-    headers: new Headers(allHeaders),
+    headers,
     status: response.status,
     statusText: response.statusText,
   });

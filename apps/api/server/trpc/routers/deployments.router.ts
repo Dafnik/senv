@@ -97,7 +97,12 @@ export const deploymentsRouter = router({
     .input(
       projectIdInput.extend({
         limit: z.number().int().min(1).max(200).default(100),
-        cursor: z.number().int().nonnegative().optional(),
+        cursor: z
+          .union([
+            z.number().int().nonnegative(),
+            z.object({ createdAt: z.date(), id: z.string().min(1) }),
+          ])
+          .optional(),
       }),
     )
     .query(({ ctx, input }) => {

@@ -1,9 +1,12 @@
 import { expect, test } from 'vite-plus/test';
 import { TestBed } from '@angular/core/testing';
 import { AdminDeploymentDefaults } from '../../admin/admin-deployment-defaults/admin-deployment-defaults';
+import type { DeploymentSettings } from '@senv/api/shared/deployments';
 import {
   createFixture,
   data,
+  settings,
+  storage,
   setupSettingsTests,
 } from './project-deployment-settings.spec-setup';
 
@@ -130,6 +133,47 @@ test('the selected Git provider is saved with repository settings', async () => 
     'project-settings',
     expect.objectContaining({ repositoryProvider: 'gitlab' }),
   );
+});
+
+test('a successful save clears the browser draft and does not persist the saved model again', async () => {
+  let saved: Omit<typeof settings, 'repositoryProvider'> & {
+    repositoryProvider: DeploymentSettings['repositoryProvider'];
+  } = settings as Omit<typeof settings, 'repositoryProvider'> & {
+    repositoryProvider: DeploymentSettings['repositoryProvider'];
+  };
+  data.settings.mockImplementation(() => ({
+    queryKey: ['settings'],
+    queryFn: async () => saved,
+  }));
+  data.updateSettings.mockImplementation(async (_projectId, next) => {
+    saved = { ...saved, ...next } as typeof saved;
+  });
+  const fixture = createFixture();
+  await fixture.whenStable();
+  const key = 'senv:deployment-settings:session-settings:project-settings';
+  fixture.componentInstance.model.update((value) => ({
+    ...value,
+    repository: 'https://github.com/acme/updated',
+  }));
+  fixture.detectChanges();
+  await fixture.whenStable();
+  expect(storage.has(key)).toBe(true);
+
+  await fixture.componentInstance.saveSettings(new Event('submit'));
+  await fixture.whenStable();
+  await fixture.componentInstance.settings.refetch();
+  await fixture.whenStable();
+  expect(storage.has(key)).toBe(false);
+  expect(fixture.componentInstance.model().repository).toBe(
+    'https://github.com/acme/updated',
+  );
+  fixture.componentInstance.model.update((value) => ({
+    ...value,
+    repository: 'https://github.com/acme/another-edit',
+  }));
+  fixture.detectChanges();
+  await fixture.whenStable();
+  expect(storage.has(key)).toBe(true);
 });
 
 test('instance administrators can save instance upload, proxy, and log defaults', async () => {

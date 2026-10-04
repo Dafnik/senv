@@ -99,12 +99,10 @@ export class DeploymentQueries {
         pageParam: DeploymentLogCursor | undefined;
         signal: AbortSignal;
       }) =>
-        this.trpc.client.deployments.logs
-          .query(
-            { projectId, deploymentId, source, limit: 100, cursor: pageParam },
-            { signal },
-          )
-          .then((page) => page as unknown as DeploymentLogPage),
+        this.trpc.client.deployments.logs.query(
+          { projectId, deploymentId, source, limit: 100, cursor: pageParam },
+          { signal },
+        ),
       getNextPageParam: (page: DeploymentLogPage) =>
         page.nextCursor ?? undefined,
     };

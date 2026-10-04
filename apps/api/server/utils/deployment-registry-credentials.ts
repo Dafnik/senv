@@ -1,4 +1,5 @@
 import { and, eq } from 'drizzle-orm';
+import { TRPCError } from '@trpc/server';
 import { customAlphabet } from 'nanoid';
 import { deploymentRegistryCredential } from '../../../../drizzle/schema';
 import { db } from './db';
@@ -27,6 +28,11 @@ export function saveRegistryCredential(input: {
   username: string;
   secret: string;
 }) {
+  if (!input.id && !input.secret)
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: 'Enter the registry access token or password.',
+    });
   const saved = input.id
     ? db
         .select()
@@ -39,6 +45,8 @@ export function saveRegistryCredential(input: {
         )
         .get()
     : undefined;
+  if (input.id && !saved)
+    throw new TRPCError({ code: 'NOT_FOUND', message: 'Registry credential not found.' });
   if (saved)
     db.update(deploymentRegistryCredential)
       .set({

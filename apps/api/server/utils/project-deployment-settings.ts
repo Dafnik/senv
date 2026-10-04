@@ -95,18 +95,22 @@ export function updateProjectDeploymentSettings(projectId: string, settings: unk
   return valid;
 }
 export function getInstanceDeploymentDefaults() {
-  const saved = db.select().from(deploymentInstanceDefaults).get();
+  const saved = db
+    .select()
+    .from(deploymentInstanceDefaults)
+    .where(eq(deploymentInstanceDefaults.id, 1))
+    .get();
   if (!saved) return defaultInstance;
   return instanceDeploymentDefaultsSchema.parse(saved);
 }
 export function updateInstanceDeploymentDefaults(input: unknown) {
   const valid = instanceDeploymentDefaultsSchema.parse(input);
-  const existing = db.select().from(deploymentInstanceDefaults).get();
-  if (existing)
-    db.update(deploymentInstanceDefaults)
-      .set({ ...valid, updatedAt: new Date() })
-      .where(eq(deploymentInstanceDefaults.id, existing.id))
-      .run();
-  else db.insert(deploymentInstanceDefaults).values(valid).run();
+  db.insert(deploymentInstanceDefaults)
+    .values({ id: 1, ...valid })
+    .onConflictDoUpdate({
+      target: deploymentInstanceDefaults.id,
+      set: { ...valid, updatedAt: new Date() },
+    })
+    .run();
   return valid;
 }
