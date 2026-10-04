@@ -28,6 +28,17 @@ export const deploymentKeys = {
     projectId: string,
     deploymentId: string,
   ) => ['deployment-resources', sessionId, projectId, deploymentId] as const,
+  resourceHistory: (
+    sessionId: string | null,
+    projectId: string,
+    deploymentId: string,
+  ) =>
+    [
+      'deployment-resource-history',
+      sessionId,
+      projectId,
+      deploymentId,
+    ] as const,
   logsPrefix: (sessionId: string | null, projectId: string) =>
     ['deployment-logs', sessionId, projectId] as const,
   audit: (sessionId: string | null, input: DeploymentAuditQuery) =>

@@ -1,5 +1,5 @@
 import { defineHandler } from 'nitro';
-import { getEmailNotifications } from '../utils/email-notifications';
+import { getEmailNotifications } from '../features/notifications/services/email-notifications';
 
 export function notificationsResponse() {
   if (process.env['NODE_ENV'] !== 'development') {

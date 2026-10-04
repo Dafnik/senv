@@ -1,4 +1,5 @@
 import { Injectable } from '@angular/core';
+import { RESOURCE_SAMPLE_INTERVAL_MS } from '@senv/api/shared/deployment-resources';
 import type {
   DeploymentLogPage,
   DeploymentLogCursor,
@@ -123,6 +124,30 @@ export class DeploymentQueries {
           { signal },
         ),
       refetchInterval: enabled ? 2_000 : (false as const),
+      refetchIntervalInBackground: false,
+      retry: false,
+    };
+  }
+
+  resourceHistory(
+    sessionId: string | null,
+    projectId: string,
+    deploymentId: string,
+    enabled = true,
+  ) {
+    return {
+      queryKey: deploymentKeys.resourceHistory(
+        sessionId,
+        projectId,
+        deploymentId,
+      ),
+      enabled: !!sessionId && !!projectId && !!deploymentId && enabled,
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        this.trpc.client.deployments.resourceHistory.query(
+          { projectId, deploymentId },
+          { signal },
+        ),
+      refetchInterval: enabled ? RESOURCE_SAMPLE_INTERVAL_MS : (false as const),
       refetchIntervalInBackground: false,
       retry: false,
     };

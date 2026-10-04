@@ -179,6 +179,19 @@ export const deploymentData = {
       nextCursor: { createdAt: number; id: string } | null;
     }) => page.nextCursor ?? undefined,
   }),
+  resourceHistory: vi.fn(
+    (_sessionId: string, projectId: string, id: string) => ({
+      queryKey: ['resource-history', projectId, id],
+      enabled: !!projectId && !!id,
+      queryFn: async () => ({
+        from: new Date('2026-10-04T08:40:00Z'),
+        to: new Date('2026-10-04T09:00:00Z'),
+        intervalMs: 30_000,
+        points: [],
+      }),
+      refetchInterval: false,
+    }),
+  ),
   resources: vi.fn((_sessionId: string, projectId: string, id: string) => ({
     queryKey: ['resources', projectId, id],
     enabled: !!projectId && !!id,

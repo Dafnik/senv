@@ -1,6 +1,6 @@
 import { initTRPC, TRPCError } from '@trpc/server';
 import superjson from 'superjson';
-import { auth } from '../utils/auth';
+import { auth } from '../features/auth/auth';
 import type { Context } from './context';
 
 /**

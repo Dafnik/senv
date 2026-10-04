@@ -13,7 +13,12 @@ test('resource queries scope by session and deployment, stop in the background, 
       {
         provide: TrpcService,
         useValue: {
-          client: { deployments: { resources: { query: request } } },
+          client: {
+            deployments: {
+              resources: { query: request },
+              resourceHistory: { query: request },
+            },
+          },
         },
       },
     ],
@@ -35,6 +40,27 @@ test('resource queries scope by session and deployment, stop in the background, 
     data.resources('session-a', 'project-a', 'deployment-a', false).enabled,
   ).toBe(false);
 
+  const history = data.resourceHistory(
+    'session-a',
+    'project-a',
+    'deployment-a',
+  );
+  expect(history.queryKey).toEqual([
+    'deployment-resource-history',
+    'session-a',
+    'project-a',
+    'deployment-a',
+  ]);
+  expect(history.refetchInterval).toBe(30_000);
+  expect(history.refetchIntervalInBackground).toBe(false);
+  expect(data.resourceHistory(null, 'project-a', 'deployment-a').enabled).toBe(
+    false,
+  );
+  expect(
+    data.resourceHistory('session-a', 'project-a', 'deployment-a', false)
+      .enabled,
+  ).toBe(false);
+  await queryClient.fetchQuery(history);
   await queryClient.fetchQuery(options);
   expect(request).toHaveBeenCalledWith(
     { projectId: 'project-a', deploymentId: 'deployment-a' },

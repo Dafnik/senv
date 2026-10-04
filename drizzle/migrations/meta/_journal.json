@@ -8,6 +8,13 @@
       "when": 1791045805341,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1791145212614,
+      "tag": "0001_deployment_resource_samples",
+      "breakpoints": true
     }
   ]
 }

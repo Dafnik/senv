@@ -2,7 +2,7 @@
   <header hlmCardHeader>
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <h1 id="resource-title" hlmCardTitle>Origin resources</h1>
+        <h2 id="resource-title" hlmCardTitle>Origin resources</h2>
         <p hlmCardDescription>
           Live CPU and memory use for this deployment’s origin container.
         </p>
@@ -88,3 +88,17 @@
     }
   </div>
 </section>
+
+<div class="grid min-w-0 gap-6 xl:grid-cols-2">
+  @for (metric of metrics; track metric) {
+    <app-deployment-resource-chart
+      [metric]="metric"
+      [history]="resourceHistory.data()"
+      [pending]="resourceHistory.isPending()"
+      [error]="
+        resourceHistory.isError() ? resourceHistory.error().message : null
+      "
+      (retry)="resourceHistory.refetch()"
+    />
+  }
+</div>

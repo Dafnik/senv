@@ -34,6 +34,7 @@ import { projectNameSchema } from '../../../tools/form-validation';
 import { ProjectInvitations } from '../project-invitations/project-invitations';
 import { isProjectSection, type ProjectSection } from '../project-sections';
 import { ProjectMembers } from '../project-members/project-members';
+import { DeploymentHistory } from '../deployment-history';
 import { ProjectDeployments } from '../project-deployments/project-deployments';
 import { ProjectDeploymentSettings } from '../project-deployment-settings/project-deployment-settings';
 
@@ -56,6 +57,7 @@ import { ProjectDeploymentSettings } from '../project-deployment-settings/projec
     ProjectInvitations,
     ProjectMembers,
     ProjectDeployments,
+    DeploymentHistory,
     ProjectDeploymentSettings,
   ],
   templateUrl: './project-page.page.html',

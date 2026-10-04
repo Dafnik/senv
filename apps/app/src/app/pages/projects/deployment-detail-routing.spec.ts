@@ -8,6 +8,9 @@ import {
 import { DeploymentDetail } from './deployment-detail';
 import { deploymentData } from './project-routing.fixture';
 
+import { mockVirtualScrollLayout } from './virtual-scroll.test-support';
+
+mockVirtualScrollLayout();
 setupProjectRoutingTests();
 test('deployment resources and logs have direct routes, breadcrumbs, and navigation', async () => {
   const harness = await createProjectHarness();
@@ -81,6 +84,15 @@ test('deployment resources and logs have direct routes, breadcrumbs, and navigat
     DeploymentDetail,
   );
   expect(resources.view()).toBe('resources');
+  expect(
+    harness.routeNativeElement?.querySelector(
+      'app-deployment-header #deployment-information',
+    ),
+  ).not.toBeNull();
+  expect(
+    harness.routeNativeElement?.querySelector('app-deployment-header')
+      ?.className,
+  ).not.toContain('sticky');
   await vi.waitFor(() => {
     harness.detectChanges();
     expect(harness.routeNativeElement?.textContent).toContain('43.4%');
@@ -106,12 +118,22 @@ test('deployment resources and logs have direct routes, breadcrumbs, and navigat
     DeploymentDetail,
   );
   expect(logs.view()).toBe('logs');
+  expect(
+    harness.routeNativeElement?.querySelector(
+      'app-deployment-header #deployment-information',
+    ),
+  ).not.toBeNull();
+  expect(
+    harness.routeNativeElement?.querySelector('app-deployment-header')
+      ?.className,
+  ).not.toContain('sticky');
   expect(logs.source()).toBe('proxy');
   await vi.waitFor(() => {
     harness.detectChanges();
     expect(
-      harness.routeNativeElement?.querySelector('pre[aria-label="Proxy logs"]')
-        ?.textContent,
+      harness.routeNativeElement?.querySelector(
+        'cdk-virtual-scroll-viewport[aria-label="Proxy logs"]',
+      )?.textContent,
     ).toContain('latest proxy output');
   });
   expect(
@@ -123,14 +145,14 @@ test('deployment resources and logs have direct routes, breadcrumbs, and navigat
     harness.routeNativeElement?.querySelector('[aria-current="page"]')
       ?.textContent,
   ).toBe('Logs');
-  const older = [
-    ...harness.routeNativeElement!.querySelectorAll('button'),
-  ].find((button) => button.textContent?.includes('Load older logs'))!;
-  older.click();
+  expect(harness.routeNativeElement?.textContent).not.toContain(
+    'Load older logs',
+  );
   await vi.waitFor(() => {
     harness.detectChanges();
     const text =
-      harness.routeNativeElement?.querySelector('pre')?.textContent ?? '';
+      harness.routeNativeElement?.querySelector('cdk-virtual-scroll-viewport')
+        ?.textContent ?? '';
     expect(text).toContain('older proxy output');
     expect(text.indexOf('older')).toBeLessThan(text.indexOf('latest'));
   });
@@ -146,8 +168,9 @@ test('deployment resources and logs have direct routes, breadcrumbs, and navigat
       '/projects/project-preview/deployments/acf379/logs?source=origin',
     );
     expect(
-      harness.routeNativeElement?.querySelector('pre[aria-label="Origin logs"]')
-        ?.textContent,
+      harness.routeNativeElement?.querySelector(
+        'cdk-virtual-scroll-viewport[aria-label="Origin logs"]',
+      )?.textContent,
     ).toContain('latest origin output');
   });
 });

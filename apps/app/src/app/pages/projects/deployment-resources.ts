@@ -12,16 +12,24 @@ import { HlmSpinnerImports } from '@spartan-ng/helm/spinner';
 import { injectQuery } from '@tanstack/angular-query';
 import { injectAuthSessionId } from '../../auth/auth-client';
 import { DeploymentsData } from '../../queries/deployments';
+import { DeploymentResourceChart } from './deployment-resource-chart/deployment-resource-chart';
 import { formatBytes } from '../../ui/format-bytes';
 
 @Component({
   selector: 'app-deployment-resources',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DecimalPipe, HlmButtonImports, HlmCardImports, HlmSpinnerImports],
+  imports: [
+    DeploymentResourceChart,
+    DecimalPipe,
+    HlmButtonImports,
+    HlmCardImports,
+    HlmSpinnerImports,
+  ],
   host: { class: 'grid min-w-0 gap-6' },
   templateUrl: './deployment-resources.html',
 })
 export class DeploymentResources {
+  readonly metrics = ['cpu', 'memory'] as const;
   readonly projectId = input.required<string>();
   readonly deploymentId = input.required<string>();
   private readonly data = inject(DeploymentsData);
@@ -29,6 +37,15 @@ export class DeploymentResources {
   private readonly browser = isPlatformBrowser(inject(PLATFORM_ID));
   readonly resources = injectQuery(() =>
     this.data.resources(
+      this.sessionId(),
+      this.projectId(),
+      this.deploymentId(),
+      this.browser,
+    ),
+  );
+
+  readonly resourceHistory = injectQuery(() =>
+    this.data.resourceHistory(
       this.sessionId(),
       this.projectId(),
       this.deploymentId(),

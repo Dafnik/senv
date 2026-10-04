@@ -1,3 +1,4 @@
+import type { DeploymentResourceHistory } from '@senv/api/shared/deployment-resources';
 import { signal, type WritableSignal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideTanStackQuery, QueryClient } from '@tanstack/angular-query';
@@ -22,11 +23,25 @@ type ResourceSample =
     };
 
 let sample: WritableSignal<ResourceSample>;
+let history: DeploymentResourceHistory;
+let failHistory = false;
 let failRefresh = false;
 let holdSample = false;
 let pendingSample: ((value: ResourceSample) => void) | undefined;
 
 beforeEach(() => {
+  failHistory = false;
+  history = {
+    from: new Date('2026-10-04T08:40:00Z'),
+    to: new Date('2026-10-04T09:00:00Z'),
+    intervalMs: 30_000,
+    points: Array.from({ length: 40 }, (_, index) => ({
+      sampledAt: new Date(Date.parse('2026-10-04T08:40:30Z') + index * 30_000),
+      cpuPercent: index === 15 ? null : 20 + index,
+      memoryUsedBytes: index === 15 ? null : (100 + index) * 1024 * 1024,
+      memoryLimitBytes: 536_870_912,
+    })),
+  };
   failRefresh = false;
   holdSample = false;
   pendingSample = undefined;
@@ -53,6 +68,14 @@ beforeEach(() => {
       {
         provide: DeploymentsData,
         useValue: {
+          resourceHistory: () => ({
+            queryKey: ['resource-history', 'session', 'project', 'deployment'],
+            queryFn: () =>
+              failHistory
+                ? Promise.reject(new Error('History request failed'))
+                : Promise.resolve(history),
+            refetchInterval: false,
+          }),
           resources: () => ({
             queryKey: ['resources', 'session', 'project', 'deployment'],
             enabled: true,
@@ -109,7 +132,9 @@ test('explains unavailable stats without displaying zero usage', async () => {
   expect(fixture.nativeElement.textContent).toContain(
     'origin container is stopped',
   );
-  expect(fixture.nativeElement.textContent).not.toContain('0%');
+  expect(
+    fixture.nativeElement.querySelector('section').textContent,
+  ).not.toContain('0%');
 });
 
 test('prior samples are hidden when a refresh fails', async () => {
@@ -147,4 +172,65 @@ test('shows a loading state while the first sample is pending', async () => {
   pendingSample?.(sample());
   await fixture.whenStable();
   fixture.destroy();
+});
+
+test('renders separate CPU and memory charts beneath current resources, including past samples when stopped', async () => {
+  sample.set({
+    status: 'unavailable',
+    sampledAt: new Date(),
+    reason: 'container-stopped',
+  });
+  const fixture = TestBed.createComponent(DeploymentResources);
+  fixture.componentRef.setInput('projectId', 'project');
+  fixture.componentRef.setInput('deploymentId', 'deployment');
+  await fixture.whenStable();
+  fixture.detectChanges();
+  const charts = fixture.nativeElement.querySelectorAll('tanstack-chart svg');
+  expect(charts).toHaveLength(2);
+  expect(charts[0].getAttribute('aria-label')).toBe(
+    'CPU usage over the last 20 minutes',
+  );
+  expect(charts[1].getAttribute('aria-label')).toBe(
+    'Memory usage over the last 20 minutes',
+  );
+  expect(fixture.nativeElement.textContent).toContain('Last 20 minutes');
+  expect(fixture.nativeElement.textContent).toContain(
+    'Gaps indicate unavailable samples',
+  );
+});
+
+test('shows empty history without plotting missing samples as zero', async () => {
+  history.points = history.points.map((point) => ({
+    ...point,
+    cpuPercent: null,
+    memoryUsedBytes: null,
+  }));
+  const fixture = TestBed.createComponent(DeploymentResources);
+  fixture.componentRef.setInput('projectId', 'project');
+  fixture.componentRef.setInput('deploymentId', 'deployment');
+  await fixture.whenStable();
+  fixture.detectChanges();
+  expect(fixture.nativeElement.querySelector('tanstack-chart')).toBeNull();
+  expect(fixture.nativeElement.textContent).toContain('No CPU samples yet');
+  expect(fixture.nativeElement.textContent).toContain('No Memory samples yet');
+});
+
+test('shows a retry action for history errors while retaining live usage', async () => {
+  failHistory = true;
+  const fixture = TestBed.createComponent(DeploymentResources);
+  fixture.componentRef.setInput('projectId', 'project');
+  fixture.componentRef.setInput('deploymentId', 'deployment');
+  await fixture.whenStable();
+  fixture.detectChanges();
+  expect(fixture.nativeElement.textContent).toContain('History request failed');
+  expect(fixture.nativeElement.textContent).toContain('43.4%');
+  failHistory = false;
+  fixture.nativeElement
+    .querySelector('app-deployment-resource-chart button')
+    .click();
+  await fixture.whenStable();
+  fixture.detectChanges();
+  expect(fixture.nativeElement.querySelectorAll('tanstack-chart')).toHaveLength(
+    2,
+  );
 });

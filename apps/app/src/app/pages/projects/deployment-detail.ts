@@ -13,6 +13,8 @@ import { injectAuthSessionId, injectAuthUser } from '../../auth/auth-client';
 import { ProjectsData } from '../../queries/projects';
 import { DeploymentsData } from '../../queries/deployments';
 import { Breadcrumbs, type BreadcrumbItem } from '../../ui/breadcrumbs';
+import { DeploymentHeader } from './deployment-header/deployment-header';
+import { injectDeploymentActions } from './deployment-actions';
 import { DeploymentLogs } from './deployment-logs';
 import { DeploymentOverview } from './deployment-overview';
 import { DeploymentResources } from './deployment-resources';
@@ -25,6 +27,7 @@ import { DeploymentResources } from './deployment-resources';
     HlmButtonImports,
     HlmSpinnerImports,
     Breadcrumbs,
+    DeploymentHeader,
     DeploymentLogs,
     DeploymentResources,
     DeploymentOverview,
@@ -49,6 +52,15 @@ import { DeploymentResources } from './deployment-resources';
           >Back to deployments</a
         >
       } @else if (detail.data(); as deployment) {
+        @if (view() === 'logs' || view() === 'resources') {
+          <app-deployment-header
+            [deployment]="deployment"
+            [projectSlug]="projectSlug()"
+            [canManage]="canManage()"
+            [isAdmin]="isAdmin()"
+            [actions]="actions"
+          />
+        }
         @if (view() === 'logs') {
           <app-deployment-logs
             [projectId]="deployment.projectId"
@@ -90,6 +102,9 @@ export class DeploymentDetail {
       this.project.data()?.id ?? '',
       this.deploymentId(),
     ),
+  );
+  readonly actions = injectDeploymentActions(
+    computed(() => this.project.data()?.id ?? ''),
   );
   private readonly role = computed(
     () =>

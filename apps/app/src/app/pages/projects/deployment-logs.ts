@@ -6,6 +6,8 @@ import {
   inject,
   input,
 } from '@angular/core';
+import { DeploymentLogList } from './deployment-log-list/deployment-log-list';
+import { deploymentLogLines } from './deployment-log-lines';
 import { Router } from '@angular/router';
 import { HlmButtonImports } from '@spartan-ng/helm/button';
 import { HlmSpinnerImports } from '@spartan-ng/helm/spinner';
@@ -19,6 +21,7 @@ import { DeploymentsData } from '../../queries/deployments';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     NgTemplateOutlet,
+    DeploymentLogList,
     HlmTabsImports,
     HlmButtonImports,
     HlmSpinnerImports,
@@ -30,10 +33,14 @@ import { DeploymentsData } from '../../queries/deployments';
         <button hlmTabsTrigger="proxy">Proxy</button>
       </hlm-tabs-list>
       <div hlmTabsContent="origin">
-        <ng-container [ngTemplateOutlet]="viewer" />
+        <ng-template hlmTabsContentLazy>
+          <ng-container [ngTemplateOutlet]="viewer" />
+        </ng-template>
       </div>
       <div hlmTabsContent="proxy">
-        <ng-container [ngTemplateOutlet]="viewer" />
+        <ng-template hlmTabsContentLazy>
+          <ng-container [ngTemplateOutlet]="viewer" />
+        </ng-template>
       </div>
     </hlm-tabs>
     <ng-template #viewer>
@@ -46,7 +53,7 @@ import { DeploymentsData } from '../../queries/deployments';
             <div class="flex h-[65vh] min-h-96 items-center justify-center">
               <hlm-spinner aria-label="Loading logs" />
             </div>
-          } @else if (logs.isError()) {
+          } @else if (logs.isError() && !logs.data()) {
             <div
               class="grid h-[75vh] min-h-96 content-center justify-center gap-4 p-6"
             >
@@ -56,35 +63,31 @@ import { DeploymentsData } from '../../queries/deployments';
               </button>
             </div>
           } @else {
-            <pre
-              class="h-[75vh] min-h-96 overflow-auto p-5 font-mono text-xs leading-6"
-              tabindex="0"
-              [attr.aria-label]="
-                logSource() === 'origin' ? 'Origin logs' : 'Proxy logs'
-              "
-              >{{ logText() || 'No logs recorded yet.' }}</pre>
+            @if (logLines().length) {
+              <app-deployment-log-list
+                [lines]="logLines()"
+                [scope]="projectId() + ':' + deploymentId() + ':' + logSource()"
+                [label]="
+                  logSource() === 'origin' ? 'Origin logs' : 'Proxy logs'
+                "
+                [hasOlder]="logs.hasNextPage()"
+                [loadingOlder]="logs.isFetchingNextPage()"
+                [loadError]="
+                  logs.isFetchNextPageError()
+                    ? (logs.error()?.message ?? 'Could not load older logs.')
+                    : null
+                "
+                (olderNeeded)="loadOlderLogs()"
+              />
+            } @else {
+              <p
+                class="flex h-[65vh] min-h-96 items-center justify-center p-5 text-sm"
+              >
+                No logs recorded yet.
+              </p>
+            }
           }
         </div>
-        @if (logs.hasNextPage()) {
-          <button
-            hlmBtn
-            type="button"
-            variant="outline"
-            class="w-fit"
-            [disabled]="logs.isFetchingNextPage()"
-            (click)="loadOlderLogs()"
-          >
-            @if (logs.isFetchingNextPage()) {
-              <hlm-spinner />
-            }
-            Load older logs
-          </button>
-        }
-        @if (logs.isFetchNextPageError()) {
-          <p role="alert">
-            {{ logs.error()?.message || 'Could not load older logs.' }}
-          </p>
-        }
       </div>
     </ng-template>
   `,
@@ -107,15 +110,8 @@ export class DeploymentLogs {
       this.logSource(),
     ),
   );
-  readonly logText = computed(() =>
-    [...(this.logs.data()?.pages ?? [])]
-      .reverse()
-      .flatMap((page) => page.logs)
-      .map((row) => {
-        const date = new Date(row.createdAt);
-        return `${Number.isNaN(date.getTime()) ? '' : `[${date.toLocaleString()}] `}${row.content}`;
-      })
-      .join('\n'),
+  readonly logLines = computed(() =>
+    deploymentLogLines(this.logs.data()?.pages ?? []),
   );
   setLogSource(source: string) {
     if (source !== 'origin' && source !== 'proxy') return;

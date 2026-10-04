@@ -13,7 +13,7 @@
       (tabActivated)="selectSection($event)"
       class="gap-6"
     >
-      <header class="flex items-center gap-4">
+      <header class="flex flex-wrap items-center gap-4">
         <h1 class="sr-only">{{ current.name }}</h1>
         <hlm-avatar size="lg" aria-hidden="true"
           ><span hlmAvatarFallback>{{
@@ -22,6 +22,7 @@
         >
         <hlm-tabs-list aria-label="Project sections">
           <button hlmTabsTrigger="deployments">Deployments</button>
+          <button hlmTabsTrigger="history">History</button>
           <button hlmTabsTrigger="members">Members</button>
           <button hlmTabsTrigger="settings">Settings</button>
         </hlm-tabs-list>
@@ -34,6 +35,11 @@
           [isAdmin]="isAdmin()"
           [redeployId]="redeploy()"
         />
+      </div>
+      <div hlmTabsContent="history">
+        <ng-template hlmTabsContentLazy>
+          <app-deployment-history [projectId]="projectId()" />
+        </ng-template>
       </div>
       <div hlmTabsContent="members">
         <ng-template hlmTabsContentLazy>

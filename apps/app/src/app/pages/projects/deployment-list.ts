@@ -10,7 +10,6 @@ import { HlmEmptyImports } from '@spartan-ng/helm/empty';
 import { HlmSpinnerImports } from '@spartan-ng/helm/spinner';
 import { injectDeploymentActions } from './deployment-actions';
 import { DeploymentListItem } from './deployment-list-item';
-import { DeploymentHistory } from './deployment-history';
 @Component({
   selector: 'app-deployment-list',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -19,7 +18,6 @@ import { DeploymentHistory } from './deployment-history';
     HlmEmptyImports,
     HlmSpinnerImports,
     DeploymentListItem,
-    DeploymentHistory,
   ],
   template: `
     <div class="grid gap-6">
@@ -66,7 +64,6 @@ import { DeploymentHistory } from './deployment-history';
           </div>
         }
       </section>
-      <app-deployment-history [projectId]="projectId()" />
     </div>
   `,
 })

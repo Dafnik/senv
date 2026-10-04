@@ -1,18 +1,16 @@
 import { createError, defineEventHandler, getHeader, readMultipartFormData } from 'nitro/h3';
-import { auth } from '../../../utils/auth';
-import {
-  assertCanPublishProject,
-  getInstanceDeploymentDefaults,
-  registerUploadedArtifact,
-} from '../../../utils/deployments';
+import { auth } from '../../../features/auth/auth';
+import { assertCanPublishProject } from '../../../features/projects/services/access';
+import { getInstanceDeploymentDefaults } from '../../../features/admin/services/deployment-defaults';
+import { registerUploadedArtifact } from '../../../features/deployments/index';
 import {
   ArtifactStore,
   stripSelectedDirectoryRoot,
   type StaticUploadFile,
-} from '../../../utils/deployment-runtime/artifacts';
-import { deploymentStorageRoot } from '../../../utils/deployment-storage';
-import { withArtifactStorageLock } from '../../../utils/deployment-storage-lock';
-import { maxStaticArtifactEntries } from '../../../utils/deployment-runtime/artifact-limits';
+} from '../../../features/deployments/runtime/artifacts';
+import { deploymentStorageRoot } from '../../../features/deployments/storage/storage';
+import { withArtifactStorageLock } from '../../../features/deployments/storage/storage-lock';
+import { maxStaticArtifactEntries } from '../../../features/deployments/runtime/artifact-limits';
 
 const multipartOverheadLimit = 8 * 1024 * 1024;
 export default defineEventHandler(async (event) => {

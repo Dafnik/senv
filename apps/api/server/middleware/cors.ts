@@ -1,4 +1,4 @@
-import env from '#server/utils/env.ts';
+import env from '#server/infrastructure/env.ts';
 import { defineMiddleware } from 'nitro';
 import { handleCors } from 'nitro/h3';
 

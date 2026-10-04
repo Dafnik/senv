@@ -50,7 +50,8 @@
         "./libs/ui/native-select/src/index.ts"
       ],
       "@spartan-ng/helm/breadcrumb": ["./libs/ui/breadcrumb/src/index.ts"],
-      "@spartan-ng/helm/button-group": ["./libs/ui/button-group/src/index.ts"]
+      "@spartan-ng/helm/button-group": ["./libs/ui/button-group/src/index.ts"],
+      "@spartan-ng/helm/chart": ["./libs/ui/chart/src/index.ts"]
     }
   },
   "angularCompilerOptions": {

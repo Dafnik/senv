@@ -18,6 +18,7 @@ export class DeploymentsData {
   readonly audit = this.queries.audit.bind(this.queries);
   readonly previewStatus = this.queries.previewStatus.bind(this.queries);
   readonly logs = this.queries.logs.bind(this.queries);
+  readonly resourceHistory = this.queries.resourceHistory.bind(this.queries);
   readonly resources = this.queries.resources.bind(this.queries);
   readonly settings = this.queries.settings.bind(this.queries);
   readonly runtime = this.queries.runtime.bind(this.queries);

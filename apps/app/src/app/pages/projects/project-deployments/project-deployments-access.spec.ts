@@ -8,7 +8,7 @@ import { deployments } from './project-deployments.spec-data';
 import { mock } from './project-deployments.spec-mocks';
 setupProjectDeploymentTests();
 
-test('viewers can inspect status, preview, configuration, and history without mutation controls', async () => {
+test('viewers can inspect deployment status and preview without mutation controls', async () => {
   const fixture = createFixture(false);
   await fixture.whenStable();
   expect(fixture.nativeElement.textContent).toContain('healthy');
@@ -18,8 +18,7 @@ test('viewers can inspect status, preview, configuration, and history without mu
       ?.getAttribute('href'),
   ).toBe(deployments[0]!.previewUrl);
   expect(fixture.nativeElement.textContent).toContain('feature/ui');
-  expect(fixture.nativeElement.textContent).toContain('deployment-old');
-  expect(fixture.nativeElement.textContent).toContain('Ada');
+  expect(fixture.nativeElement.querySelector('#deployment-audit')).toBeNull();
   expect(aliasUrl(deployments[0]!, deployments[0]!.branchAlias!)).toBe(
     'https://br-feature-ui.project.preview.example.test/',
   );

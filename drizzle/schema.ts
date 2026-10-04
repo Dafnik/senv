@@ -5,3 +5,4 @@ export * from './schema-projects';
 export * from './schema-deployments';
 export * from './schema-deployment-relations';
 export * from './schema-access';
+export * from './schema-deployment-resources';

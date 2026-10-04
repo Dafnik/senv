@@ -1,7 +1,7 @@
 import { authedProcedure, router } from '../trpc';
-import { adminRouter } from './admin.router';
-import { projectsRouter } from './projects.router';
-import { deploymentsRouter } from './deployments.router';
+import { adminRouter } from '../../features/admin/admin.router';
+import { projectsRouter } from '../../features/projects/projects.router';
+import { deploymentsRouter } from '../../features/deployments/deployments.router';
 
 export const appRouter = router({
   admin: adminRouter,

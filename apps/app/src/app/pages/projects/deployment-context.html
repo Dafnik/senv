@@ -1,15 +1,4 @@
 @let item = deployment();
-<app-deployment-preview-status [deployment]="item" />
-@if (
-  item.failureReason || item.status === 'failed' || item.status === 'unhealthy'
-) {
-  <p
-    role="alert"
-    class="text-destructive border-destructive/20 bg-destructive/5 rounded-md border p-4 text-sm"
-  >
-    {{ item.failureReason || 'The deployment did not pass its health check.' }}
-  </p>
-}
 <section hlmCard>
   <div hlmCardHeader><h2 hlmCardTitle>Source</h2></div>
   <dl hlmCardContent class="grid gap-4 text-sm">
@@ -117,3 +106,15 @@
     />
   </div>
 </section>
+
+<app-deployment-preview-status [deployment]="item" />
+@if (
+  item.failureReason || item.status === 'failed' || item.status === 'unhealthy'
+  ) {
+  <p
+    role="alert"
+    class="text-destructive border-destructive/20 bg-destructive/5 rounded-md border p-4 text-sm"
+  >
+    {{ item.failureReason || 'The deployment did not pass its health check.' }}
+  </p>
+}
