@@ -3,9 +3,9 @@ import { APIError, createAuthEndpoint, formCsrfMiddleware } from 'better-auth/ap
 import { eq, sql } from 'drizzle-orm';
 import * as z from 'zod';
 import {
-  accountNameMaxLength,
-  passwordMaxLength,
-  passwordMinLength,
+  accountNameSchema,
+  accountPasswordSchema,
+  emailAddressSchema,
 } from '../../shared/validation';
 import { account, user } from '../../../../drizzle/schema';
 import { db } from './db';
@@ -27,9 +27,9 @@ export const instanceSetup = {
         method: 'POST',
         use: [formCsrfMiddleware],
         body: z.object({
-          name: z.string().trim().min(1).max(accountNameMaxLength),
-          email: z.string().trim().toLowerCase().pipe(z.email()),
-          password: z.string().min(passwordMinLength).max(passwordMaxLength),
+          name: accountNameSchema,
+          email: emailAddressSchema,
+          password: accountPasswordSchema,
         }),
       },
       async (ctx) => {

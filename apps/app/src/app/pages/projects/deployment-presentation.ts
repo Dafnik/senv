@@ -6,6 +6,21 @@ export function dateLabel(value: Date | string | null) {
 export function isTerminal(deployment: PublicDeployment) {
   return deployment.status === 'deleted' || deployment.status === 'cleaned';
 }
+export function canReuseDeployment(
+  deployment: Pick<
+    PublicDeployment,
+    'kind' | 'artifactId' | 'imageDigest' | 'status' | 'removalPending'
+  >,
+) {
+  return (
+    !deployment.removalPending &&
+    deployment.status !== 'deleted' &&
+    deployment.status !== 'cleaned' &&
+    (deployment.kind === 'static'
+      ? !!deployment.artifactId
+      : !!deployment.imageDigest)
+  );
+}
 export function canMutateDeployment(deployment: PublicDeployment) {
   return !isTerminal(deployment) && !deployment.removalPending;
 }

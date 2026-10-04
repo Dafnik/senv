@@ -1,0 +1,80 @@
+<section hlmCard id="project-identity" class="scroll-mt-6">
+  <div hlmCardHeader>
+    <h2 hlmCardTitle>Project identity</h2>
+    <p hlmCardDescription>
+      Changing this slug immediately stops all old deployment preview links and
+      senv project, deployment, and log links from working. Shared links must
+      use the new slug.
+    </p>
+  </div>
+  <div hlmCardContent class="grid gap-6">
+    <ng-content />
+    @if (isAdmin()) {
+      <form
+        class="grid gap-3 sm:max-w-xl"
+        [formRoot]="slugForm()"
+        (submit)="saveSlug.emit($event)"
+      >
+        <div hlmField>
+          <label hlmFieldLabel for="project-preview-slug-setting"
+            >Project preview slug</label
+          >
+          <input
+            hlmInput
+            id="project-preview-slug-setting"
+            autocomplete="off"
+            spellcheck="false"
+            [formField]="slugForm().previewSlug"
+          />
+          <p hlmFieldDescription>
+            Lowercase letters, digits, and internal hyphens. The project keeps
+            its identity when this changes.
+          </p>
+          @if (slugForm().previewSlug().touched()) {
+            @for (error of slugForm().previewSlug().errors(); track error) {
+              <hlm-field-error>{{ error.message }}</hlm-field-error>
+            }
+          }
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button
+            hlmBtn
+            type="submit"
+            [disabled]="
+              savingSlug() ||
+              slugForm()().invalid() ||
+              slugModel()().previewSlug === previewSlug()
+            "
+          >
+            @if (savingSlug()) {
+              <hlm-spinner />
+            }
+            Save preview slug</button
+          ><button
+            hlmBtn
+            type="button"
+            variant="outline"
+            [disabled]="
+              savingSlug() || slugModel()().previewSlug === previewSlug()
+            "
+            (click)="discardSlug.emit()"
+          >
+            Discard slug change</button
+          ><span class="text-muted-foreground text-xs"
+            >Slug draft is saved in this browser.</span
+          >
+        </div>
+        @if (slugError()) {
+          <p role="alert" class="text-destructive text-sm">
+            {{ slugError() }}
+          </p>
+        }
+      </form>
+    } @else {
+      <dl>
+        <dt class="text-muted-foreground text-sm">Project preview slug</dt>
+        <dd class="font-mono">{{ previewSlug() }}</dd>
+      </dl>
+    }
+  </div>
+</section>

@@ -3,11 +3,12 @@ import { and, eq } from 'drizzle-orm';
 import { member, organization, user } from '../../../../drizzle/schema';
 import { db } from './db';
 
+export type ProjectPermission = 'read' | 'manage' | 'admin';
+
 export function assertProjectAccess(
   projectId: string,
   actor: { id: string; role?: string | null },
-  manage = false,
-  adminOnly = false,
+  permission: ProjectPermission = 'read',
 ) {
   const project = db.select().from(organization).where(eq(organization.id, projectId)).get();
   if (!project) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found.' });
@@ -19,8 +20,8 @@ export function assertProjectAccess(
     .get();
   if (
     !membership ||
-    (adminOnly && membership.role !== 'admin') ||
-    (manage && membership.role === 'viewer')
+    (permission === 'admin' && membership.role !== 'admin') ||
+    (permission === 'manage' && membership.role === 'viewer')
   ) {
     throw new TRPCError({ code: 'FORBIDDEN' });
   }
@@ -33,5 +34,5 @@ export function assertCanPublishProject(userId: string, projectId: string) {
     .where(eq(user.id, userId))
     .get();
   if (!actor) throw new TRPCError({ code: 'UNAUTHORIZED' });
-  return assertProjectAccess(projectId, actor, true);
+  return assertProjectAccess(projectId, actor, 'manage');
 }

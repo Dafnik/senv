@@ -28,25 +28,32 @@ export class DeploymentUpload {
     const body = new FormData();
     body.set('projectId', projectId);
     body.set('kind', 'static');
-    const entries = Array.from(files).map((file) => ({
-      file,
-      path: (file as File & { webkitRelativePath?: string }).webkitRelativePath,
-    }));
-    if (entries.some(({ path }) => !path)) {
+    if (files.length === 0) throw new Error('The selected directory is empty.');
+
+    const entries: Array<{ file: File; path: string }> = [];
+    for (const file of Array.from(files)) {
+      const path = (file as File & { webkitRelativePath?: string })
+        .webkitRelativePath;
+      if (!path) {
+        throw new Error('Choose a directory so file paths are preserved.');
+      }
+      entries.push({ file, path });
+    }
+
+    const root = entries[0]?.path.split('/')[0];
+    if (!root) {
       throw new Error('Choose a directory so file paths are preserved.');
     }
-    const root = entries[0]!.path!.split('/')[0]!;
     for (const { file, path } of entries) {
-      if (!path!.startsWith(`${root}/`)) {
+      if (!path.startsWith(`${root}/`)) {
         throw new Error(
           'The selected directory contains inconsistent file paths.',
         );
       }
-      const relativePath = path!.slice(root.length + 1);
+      const relativePath = path.slice(root.length + 1);
       if (!relativePath) continue;
       body.append('files', file, relativePath);
     }
-    if (!files.length) throw new Error('The selected directory is empty.');
     return this.send(body);
   }
 

@@ -1,0 +1,51 @@
+<fieldset class="grid gap-4 border-t pt-4">
+  <legend class="text-sm font-medium">Source and retention</legend>
+  <div class="grid gap-4 sm:grid-cols-2">
+    <p class="text-muted-foreground text-sm sm:col-span-2">
+      Repository:
+      {{
+        projectSettings()()?.repository || 'No project repository configured'
+      }}
+    </p>
+    <div hlmField>
+      <label hlmFieldLabel for="source-commit">Commit</label>
+      <input
+        hlmInput
+        id="source-commit"
+        autocomplete="off"
+        [formField]="publishForm().commit"
+      />
+    </div>
+    <div hlmField>
+      <label hlmFieldLabel for="source-branch">Branch</label>
+      <input
+        hlmInput
+        id="source-branch"
+        autocomplete="off"
+        [formField]="publishForm().branch"
+      />
+      <p hlmFieldDescription>
+        A healthy publication becomes the selected deployment for this branch.
+      </p>
+    </div>
+    <div
+      hlmField
+      orientation="horizontal"
+      class="rounded-md border p-4 sm:col-span-2"
+    >
+      <hlm-checkbox
+        inputId="deployment-pinned"
+        aria-labelledby="publish-pinned-label"
+        [formField]="publishForm().pinned"
+      />
+      <div hlmFieldContent>
+        <label hlmFieldLabel id="publish-pinned-label" for="deployment-pinned"
+          >Pin deployment</label
+        >
+        <p hlmFieldDescription>
+          Keep this preview until you unpin or delete it.
+        </p>
+      </div>
+    </div>
+  </div>
+</fieldset>

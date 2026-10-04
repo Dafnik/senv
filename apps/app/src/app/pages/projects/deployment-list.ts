@@ -4,10 +4,7 @@ import {
   input,
   output,
 } from '@angular/core';
-import type {
-  PublicDeployment,
-  DeploymentAuditEntry,
-} from '@senv/api/shared/deployments';
+import type { PublicDeployment } from '@senv/api/shared/deployments';
 import { HlmButtonImports } from '@spartan-ng/helm/button';
 import { HlmEmptyImports } from '@spartan-ng/helm/empty';
 import { HlmSpinnerImports } from '@spartan-ng/helm/spinner';
@@ -70,11 +67,9 @@ import { DeploymentHistory } from './deployment-history';
         }
       </section>
       <app-deployment-history
-        [entries]="history()"
+        [projectId]="projectId()"
         [actions]="actions"
         [isAdmin]="isAdmin()"
-        [loading]="historyLoading()"
-        [error]="historyError()"
       />
     </div>
   `,
@@ -85,12 +80,9 @@ export class DeploymentList {
   readonly canManage = input(false);
   readonly isAdmin = input(false);
   readonly items = input<PublicDeployment[]>([]);
-  readonly history = input<DeploymentAuditEntry[]>([]);
   readonly loading = input(false);
   readonly refreshing = input(false);
   readonly error = input('');
-  readonly historyLoading = input(false);
-  readonly historyError = input('');
   readonly reload = output<void>();
   readonly actions = injectDeploymentActions(this.projectId);
 }

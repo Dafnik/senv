@@ -1,0 +1,108 @@
+@let item = deployment();
+<div class="grid gap-6">
+  <section
+    id="deployment-information"
+    aria-label="Deployment information"
+    class="bg-card relative rounded-xl border lg:sticky lg:top-2 lg:z-20 lg:shadow-sm"
+  >
+    <header class="grid gap-4 p-5 sm:grid-cols-[minmax(0,1fr)_auto] md:p-6">
+      <div class="grid min-w-0 gap-2 pr-20 sm:pr-0">
+        <div
+          class="text-muted-foreground flex flex-wrap items-center gap-2 text-xs"
+        >
+          <ng-icon
+            [name]="item.kind === 'container' ? 'lucideBox' : 'lucideGlobe'"
+          />{{ item.kind === 'container' ? 'Container' : 'Static site' }}
+          @if (item.removalPending) {
+            <span hlmBadge variant="secondary" role="status"
+              >Removal pending</span
+            >
+          } @else {
+            <span hlmBadge [variant]="statusVariant(item.status)">{{
+              item.status
+            }}</span>
+          }
+        </div>
+        <h1 class="text-xl font-semibold tracking-tight break-words">
+          @if (sourceLinks().branch; as branchUrl) {
+            <a
+              [href]="branchUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="underline-offset-4 hover:underline"
+              >{{ item.source.branch }}</a
+            >
+          } @else {
+            {{ item.source.branch || 'Manual deployment' }}
+          }
+        </h1>
+        <p class="text-muted-foreground text-xs">
+          @if (item.source.commit) {
+            @if (sourceLinks().commit; as commitUrl) {
+              <a
+                [href]="commitUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="mr-3 font-mono underline-offset-4 hover:underline"
+                [title]="item.source.commit"
+                >{{ item.source.commit.slice(0, 12) }}</a
+              >
+            } @else {
+              <span class="mr-3 font-mono" [title]="item.source.commit">{{
+                item.source.commit.slice(0, 12)
+              }}</span>
+            }
+          }
+          Published {{ dateLabel(item.submittedAt) }}
+        </p>
+      </div>
+      <div>
+        <div class="inline-flex items-center gap-3">
+          @if (canManage() && canMutate(item)) {
+            <app-deployment-pin [deployment]="item" [actions]="actions" />
+          }
+          <app-deployment-preview-actions [deployment]="item" />
+        </div>
+      </div>
+    </header>
+    <div
+      class="bg-muted/30 flex flex-wrap items-center gap-1 rounded-b-xl border-t px-5 py-2 md:px-6"
+    >
+      <a hlmBtn size="sm" variant="ghost" [routerLink]="logsLink()"
+        >View logs</a
+      >
+      <a hlmBtn size="sm" variant="ghost" [routerLink]="resourcesLink()"
+        >Resource usage</a
+      >
+      <app-deployment-lifecycle-actions
+        [deployment]="item"
+        [actions]="actions"
+        [canManage]="canManage()"
+        [isAdmin]="isAdmin()"
+      />
+    </div>
+  </section>
+  <div class="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+    <div class="grid items-start gap-6">
+      <app-deployment-configuration
+        [deployment]="item"
+        [projectSlug]="projectSlug()"
+        [canManage]="canManage()"
+      />
+      <app-deployment-history
+        [projectId]="item.projectId"
+        [deploymentId]="item.id"
+        title="Audit log"
+        [actions]="actions"
+        [isAdmin]="isAdmin()"
+      />
+    </div>
+    <aside aria-label="Deployment context">
+      <app-deployment-context
+        [deployment]="item"
+        [actions]="actions"
+        [canManage]="canManage()"
+      />
+    </aside>
+  </div>
+</div>

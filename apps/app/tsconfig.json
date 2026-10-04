@@ -3,6 +3,9 @@
   "compilerOptions": {
     "jsx": "react-jsx",
     "strict": true,
+    "lib": ["ES2022", "DOM"],
+    // API router type inference traverses server source; those implementation files are not app output.
+    "importHelpers": false,
     "noImplicitOverride": true,
     "noPropertyAccessFromIndexSignature": true,
     "noImplicitReturns": true,

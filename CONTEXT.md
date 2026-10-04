@@ -52,7 +52,7 @@ A publication of fixed application content within a project, with its own identi
 _Avoid_: Project
 
 **Deployment ID**:
-A permanent, six-character readable lowercase identifier without a prefix, used in a deployment's preview address. Existing deployments retain their earlier identifiers and addresses.
+A permanent, 12-character readable lowercase identifier without a prefix, using the alphabet `abcdefghjkmnopqrstuvwxy2345679`, used in a deployment's preview address. Existing deployments retain their earlier identifiers and addresses.
 _Avoid_: Project ID, deployment tag
 
 **Static deployment**:

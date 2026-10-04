@@ -1,0 +1,53 @@
+<fieldset class="grid gap-4 border-t pt-5" [disabled]="!isAdmin() || saving()">
+  <legend class="font-medium">Retention</legend>
+  <div class="grid gap-4 sm:grid-cols-2">
+    <div hlmField>
+      <label hlmFieldLabel for="retention-days">Retention period in days</label>
+      <input
+        hlmInput
+        id="retention-days"
+        type="number"
+        [formField]="settingsForm().retentionDays"
+      />
+      @if (settingsForm().retentionDays().touched()) {
+        @for (error of settingsForm().retentionDays().errors(); track error) {
+          <hlm-field-error>{{ error.message }}</hlm-field-error>
+        }
+      }
+    </div>
+  </div>
+  <p class="text-muted-foreground text-sm">
+    Unpinned deployments without a tag or current branch expire after this
+    period.
+  </p>
+</fieldset>
+
+<fieldset class="grid gap-4 border-t pt-5" [disabled]="!isAdmin() || saving()">
+  <legend class="font-medium">Resources</legend>
+  <p class="text-muted-foreground text-sm">
+    CPU and memory limits for each new origin container. Managed by project
+    admins.
+  </p>
+  <div class="grid gap-4 sm:grid-cols-2">
+    <div hlmField>
+      <label hlmFieldLabel for="origin-cpus"
+        >Origin CPU cores per deployment</label
+      >
+      <input
+        hlmInput
+        id="origin-cpus"
+        inputmode="decimal"
+        [formField]="settingsForm().originCpus"
+      />
+    </div>
+    <div hlmField>
+      <label hlmFieldLabel for="origin-memory">Origin memory in MiB</label>
+      <input
+        hlmInput
+        id="origin-memory"
+        type="number"
+        [formField]="settingsForm().originMemoryMiB"
+      />
+    </div>
+  </div>
+</fieldset>

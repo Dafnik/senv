@@ -182,6 +182,9 @@ importers:
       tslib:
         specifier: 2.8.1
         version: 2.8.1
+      zod:
+        specifier: 4.5.4
+        version: 4.5.4
     devDependencies:
       '@angular-devkit/core':
         specifier: 22.1.7

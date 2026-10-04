@@ -8,7 +8,7 @@ import {
 import { and, eq, like } from 'drizzle-orm';
 import * as z from 'zod';
 import { account, session, user, verification } from '../../../../drizzle/schema';
-import { passwordMinLength, passwordMaxLength } from '../../shared/validation';
+import { accountPasswordSchema, emailAddressSchema } from '../../shared/validation';
 import { db } from './db';
 import { sendPasswordReset } from './email';
 import env from './env';
@@ -93,7 +93,7 @@ export const accountPassword = {
       {
         method: 'POST',
         use: [formCsrfMiddleware],
-        body: z.object({ email: z.string().trim().toLowerCase().pipe(z.email()) }),
+        body: z.object({ email: emailAddressSchema }),
       },
       async (ctx) => {
         const recipient = db.select().from(user).where(eq(user.email, ctx.body.email)).get();
@@ -148,7 +148,7 @@ export const accountPassword = {
         use: [formCsrfMiddleware],
         body: z.object({
           token: z.string().min(1).max(128),
-          password: z.string().min(passwordMinLength).max(passwordMaxLength),
+          password: accountPasswordSchema,
         }),
       },
       async (ctx) => {

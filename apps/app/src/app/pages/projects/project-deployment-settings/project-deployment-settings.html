@@ -1,0 +1,155 @@
+<div class="grid gap-6">
+  <nav
+    aria-label="Settings sections"
+    class="text-muted-foreground flex flex-wrap gap-x-6 gap-y-2 border-b pb-4 text-sm font-medium"
+  >
+    <a
+      [routerLink]="[]"
+      fragment="deployment-settings"
+      queryParamsHandling="preserve"
+      class="hover:text-foreground"
+      >Deployment settings</a
+    >
+    <a
+      [routerLink]="[]"
+      fragment="runtime-settings"
+      queryParamsHandling="preserve"
+      class="hover:text-foreground"
+      >Runtime configuration</a
+    >
+    <a
+      [routerLink]="[]"
+      fragment="registry-settings"
+      queryParamsHandling="preserve"
+      class="hover:text-foreground"
+      >Registry credentials</a
+    >
+    <a
+      [routerLink]="[]"
+      fragment="project-identity"
+      queryParamsHandling="preserve"
+      class="hover:text-foreground"
+      >Project identity</a
+    >
+  </nav>
+  <section hlmCard id="deployment-settings" class="scroll-mt-6">
+    <div hlmCardHeader>
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div class="grid gap-1">
+          <h2 hlmCardTitle>Deployment settings</h2>
+          <p hlmCardDescription>
+            Project settings changes only affect new deployments. Existing
+            deployments keep their captured configuration.
+          </p>
+        </div>
+        <span hlmBadge variant="outline">{{
+          canManage() ? 'Developer access' : 'Read only'
+        }}</span>
+      </div>
+    </div>
+    @if (settings.isPending()) {
+      <div hlmCardContent>
+        <hlm-spinner aria-label="Loading deployment settings" />
+      </div>
+    } @else if (settings.isError()) {
+      <div hlmCardContent class="grid gap-3">
+        <p role="alert">{{ settings.error().message }}</p>
+        <button hlmBtn variant="outline" (click)="settings.refetch()">
+          Try again
+        </button>
+      </div>
+    } @else {
+      <form
+        hlmCardContent
+        class="grid gap-6"
+        [formRoot]="settingsForm"
+        (submit)="saveSettings($event)"
+      >
+        <app-deployment-settings-source-fields
+          [settingsForm]="settingsForm"
+          [canManage]="canManage()"
+          [saving]="saving()"
+        />
+        <app-deployment-settings-limits-fields
+          [settingsForm]="settingsForm"
+          [isAdmin]="isAdmin()"
+          [saving]="saving()"
+        />
+        <app-deployment-settings-health-fields
+          [settingsForm]="settingsForm"
+          [canManage]="canManage()"
+          [saving]="saving()"
+        />
+        <app-deployment-settings-routes-fields
+          [settingsForm]="settingsForm"
+          [routePreview]="routePreview"
+          [canManage]="canManage()"
+          [saving]="saving()"
+          (addRoute)="addRoute()"
+          (removeRoute)="removeRoute($event)"
+        />
+        <app-deployment-settings-cache-fields
+          [settingsForm]="settingsForm"
+          [model]="model"
+          [canManage]="canManage()"
+          [saving]="saving()"
+          (addCacheRule)="addCacheRule()"
+          (removeCacheRule)="removeCacheRule($event)"
+          (compressionEndingsInput)="setCompressionEndings($event)"
+        />
+
+        @if (formError()) {
+          <p role="alert" class="text-destructive text-sm">
+            {{ formError() }}
+          </p>
+        }
+        @if (canManage()) {
+          <div class="flex flex-wrap items-center gap-3 border-t pt-4">
+            <button
+              hlmBtn
+              type="submit"
+              [disabled]="saving() || settingsForm().invalid()"
+            >
+              @if (saving()) {
+                <hlm-spinner />
+              }
+              Save project defaults
+            </button>
+            <button
+              hlmBtn
+              type="button"
+              variant="ghost"
+              [disabled]="saving()"
+              (click)="discardDraft()"
+            >
+              Discard draft
+            </button>
+            <span class="text-muted-foreground text-xs"
+              >Unsaved settings are saved in this browser.</span
+            >
+          </div>
+        }
+      </form>
+    }
+  </section>
+
+  <app-project-runtime-settings
+    [projectId]="projectId()"
+    [canManage]="canManage()"
+  />
+  <app-project-registry-credentials
+    [projectId]="projectId()"
+    [canManage]="canManage()"
+  />
+  <app-project-identity-settings
+    [isAdmin]="isAdmin()"
+    [previewSlug]="previewSlug()"
+    [slugForm]="slugForm"
+    [slugModel]="slugModel"
+    [savingSlug]="savingSlug()"
+    [slugError]="slugError()"
+    (saveSlug)="saveSlug($event)"
+    (discardSlug)="discardSlugDraft()"
+    ><ng-content
+  /></app-project-identity-settings>
+</div>

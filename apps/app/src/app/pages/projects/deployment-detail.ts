@@ -15,6 +15,7 @@ import { DeploymentsData } from '../../queries/deployments';
 import { Breadcrumbs, type BreadcrumbItem } from '../../ui/breadcrumbs';
 import { DeploymentLogs } from './deployment-logs';
 import { DeploymentOverview } from './deployment-overview';
+import { DeploymentResources } from './deployment-resources';
 
 @Component({
   selector: 'app-deployment-detail',
@@ -25,6 +26,7 @@ import { DeploymentOverview } from './deployment-overview';
     HlmSpinnerImports,
     Breadcrumbs,
     DeploymentLogs,
+    DeploymentResources,
     DeploymentOverview,
   ],
   template: `
@@ -53,13 +55,17 @@ import { DeploymentOverview } from './deployment-overview';
             [deploymentId]="deployment.id"
             [source]="source()"
           />
+        } @else if (view() === 'resources') {
+          <app-deployment-resources
+            [projectId]="deployment.projectId"
+            [deploymentId]="deployment.id"
+          />
         } @else {
           <app-deployment-overview
             [projectSlug]="projectSlug()"
             [canManage]="canManage()"
             [isAdmin]="isAdmin()"
             [deployment]="deployment"
-            [history]="deployment.history"
           />
         }
       }
@@ -111,8 +117,12 @@ export class DeploymentDetail {
     },
     {
       label: this.deploymentId(),
-      ...(this.view() === 'logs' ? { link: this.detailLink() } : {}),
+      ...(this.view() !== 'overview' ? { link: this.detailLink() } : {}),
     },
-    ...(this.view() === 'logs' ? [{ label: 'Logs' }] : []),
+    ...(this.view() === 'logs'
+      ? [{ label: 'Logs' }]
+      : this.view() === 'resources'
+        ? [{ label: 'Resources' }]
+        : []),
   ]);
 }

@@ -105,6 +105,7 @@ function publicDeployment(
     config: {
       retentionDays: snapshot.retentionDays,
       image: snapshot.image ?? undefined,
+      registryCredentialId: snapshot.registryCredentialId,
       port: snapshot.port,
       env: snapshot.env,
       spaFallback: snapshot.spaFallback,

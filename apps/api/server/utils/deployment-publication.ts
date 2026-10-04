@@ -1,12 +1,11 @@
 import { TRPCError } from '@trpc/server';
-import { and, eq, isNull, max } from 'drizzle-orm';
+import { and, eq, max } from 'drizzle-orm';
 import { customAlphabet } from 'nanoid';
 import {
   deployment,
   deploymentArtifact,
   deploymentBranchAlias,
   deploymentHistory,
-  deploymentRegistryCredential,
   deploymentSecret,
   deploymentTag,
   organization,
@@ -14,27 +13,17 @@ import {
 import {
   isValidPreviewHostname,
   type DeploymentActor,
-  type DeploymentSnapshot,
   type PublishDeploymentInput,
 } from '../../shared/deployments';
 import { db } from './db';
-import {
-  encrypt,
-  decrypt,
-  runtimeFingerprint,
-  type CapturedDeploymentSecrets,
-} from './deployment-secrets';
-import {
-  getProjectDeploymentSettings,
-  getInstanceDeploymentDefaults,
-  projectRuntimeValues,
-} from './project-deployment-settings';
 import { withArtifactStorageLock } from './deployment-storage-lock';
 import { deploymentStorageRoot } from './deployment-storage';
-import { getArtifact } from './deployment-artifacts';
 import { getProjectDeployment } from './deployment-summary';
 import { branchAlias } from './deployment-addresses';
 import { event } from './deployment-history';
+import { resolvePublicationInput } from './deployment-publication-input';
+import { encrypt, runtimeFingerprint } from './deployment-secrets';
+import type { DeploymentSnapshot } from '../../shared/deployments';
 
 const id = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 21);
 const shortDeploymentId = customAlphabet('abcdefghjkmnopqrstuvwxy2345679', 12);
@@ -74,87 +63,8 @@ export async function publishDeployment(input: PublishDeploymentInput, actor?: D
 }
 
 function publishDeploymentLocked(input: PublishDeploymentInput, actor?: DeploymentActor) {
-  const runtime = projectRuntimeValues(input.projectId);
-  const settings = getProjectDeploymentSettings(input.projectId);
-  const defaults = getInstanceDeploymentDefaults();
-  let artifactId = input.artifactId;
-  let image = input.image;
-  let registryCredentialId = input.registryCredentialId;
-  let registryAuth: { serverAddress: string; username: string; password: string } | undefined;
-  if (input.reuseDeploymentId) {
-    const original = db
-      .select()
-      .from(deployment)
-      .where(
-        and(
-          eq(deployment.id, input.reuseDeploymentId),
-          eq(deployment.projectId, input.projectId),
-          isNull(deployment.deletedAt),
-        ),
-      )
-      .get();
-    if (!original || original.kind !== input.kind)
-      throw new TRPCError({
-        code: 'BAD_REQUEST',
-        message: 'Choose a retained deployment of the same kind to reuse.',
-      });
-    const originalSnapshot = original.snapshot as DeploymentSnapshot;
-    if (input.kind === 'static') {
-      if (!original.artifactId)
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message: 'The original artifact is no longer retained.',
-        });
-      artifactId = original.artifactId;
-    } else {
-      image = original.imageDigest ?? undefined;
-      if (typeof image !== 'string' || !/@sha256:[a-f0-9]{64}$/.test(image))
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message: 'The original image digest is not ready to reuse.',
-        });
-    }
-    registryCredentialId = originalSnapshot.registryCredentialId ?? undefined;
-    const originalSecrets = db
-      .select()
-      .from(deploymentSecret)
-      .where(eq(deploymentSecret.deploymentId, original.id))
-      .get();
-    if (originalSecrets) {
-      registryAuth = decrypt<CapturedDeploymentSecrets>(originalSecrets.ciphertext).registryAuth;
-    }
-  }
-  if (input.kind === 'static' && !artifactId)
-    throw new TRPCError({ code: 'BAD_REQUEST', message: 'Choose an uploaded static artifact.' });
-  if (input.kind === 'container' && !image)
-    throw new TRPCError({ code: 'BAD_REQUEST', message: 'Enter a container image.' });
-  if (input.kind === 'static' && artifactId) {
-    const artifact = getArtifact(artifactId);
-    if (artifact.projectId !== input.projectId || artifact.kind !== 'static')
-      throw new TRPCError({
-        code: 'BAD_REQUEST',
-        message: 'The artifact is not available to this project.',
-      });
-  }
-  if (input.registryCredentialId) {
-    const credential = db
-      .select()
-      .from(deploymentRegistryCredential)
-      .where(
-        and(
-          eq(deploymentRegistryCredential.id, input.registryCredentialId),
-          eq(deploymentRegistryCredential.projectId, input.projectId),
-        ),
-      )
-      .get();
-    if (!credential)
-      throw new TRPCError({ code: 'BAD_REQUEST', message: 'Registry credential not found.' });
-    registryAuth = {
-      serverAddress: credential.registry,
-      username: credential.username,
-      password: decrypt<string>(credential.ciphertext),
-    };
-  }
+  const { artifactId, image, registryCredentialId, registryAuth, runtime, settings, defaults } =
+    resolvePublicationInput(input);
   const now = new Date();
   const order =
     (db

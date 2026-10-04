@@ -1,0 +1,99 @@
+<app-auth-layout>
+  <form [formRoot]="adminForm" (submit)="create($event)">
+    <div hlmFieldGroup>
+      <header class="grid gap-2">
+        <p
+          class="text-muted-foreground text-xs font-medium tracking-widest uppercase"
+        >
+          Instance setup
+        </p>
+        <h1 class="text-3xl font-semibold tracking-tight">
+          Make this instance yours.
+        </h1>
+        <p class="text-muted-foreground text-sm">
+          Create the first admin account to manage users and projects.
+        </p>
+      </header>
+      <div hlmField>
+        <label hlmFieldLabel for="setup-name">Full name</label>
+        <input
+          hlmInput
+          id="setup-name"
+          autocomplete="name"
+          [formField]="adminForm.name"
+        />
+        @if (adminForm.name().touched()) {
+          @for (error of adminForm.name().errors(); track error) {
+            <hlm-field-error>{{ error.message }}</hlm-field-error>
+          }
+        }
+      </div>
+      <div hlmField>
+        <label hlmFieldLabel for="setup-email">Email address</label>
+        <input
+          hlmInput
+          id="setup-email"
+          type="email"
+          autocomplete="username"
+          [formField]="adminForm.email"
+        />
+        @if (adminForm.email().touched()) {
+          @for (error of adminForm.email().errors(); track error) {
+            <hlm-field-error>{{ error.message }}</hlm-field-error>
+          }
+        }
+      </div>
+      <div hlmField>
+        <label hlmFieldLabel for="setup-password">Password</label>
+        <spartan-password-input
+          inputId="setup-password"
+          autocomplete="new-password"
+          [formField]="adminForm.password"
+        />
+        @if (adminForm.password().touched()) {
+          @for (error of adminForm.password().errors(); track error) {
+            <hlm-field-error>{{ error.message }}</hlm-field-error>
+          }
+        }
+      </div>
+      <div hlmField>
+        <label hlmFieldLabel for="setup-confirm-password"
+          >Confirm password</label
+        >
+        <spartan-password-input
+          inputId="setup-confirm-password"
+          autocomplete="new-password"
+          [formField]="adminForm.confirmPassword"
+        />
+        @if (adminForm.confirmPassword().touched()) {
+          @for (error of adminForm.confirmPassword().errors(); track error) {
+            <hlm-field-error>{{ error.message }}</hlm-field-error>
+          }
+        }
+      </div>
+      @if (errorMessage()) {
+        <p role="alert" class="text-destructive text-sm">
+          {{ errorMessage() }}
+        </p>
+      }
+      @if (created()) {
+        <a hlmBtn href="/login">Continue to login</a>
+      } @else {
+        <button
+          hlmBtn
+          type="submit"
+          [disabled]="busy() || adminForm().invalid()"
+        >
+          @if (busy()) {
+            <hlm-spinner />
+          }
+          Create admin account
+        </button>
+      }
+      <p class="text-muted-foreground text-xs">
+        You can sign in immediately. Email verification is not required to set
+        up this instance.
+      </p>
+    </div>
+  </form>
+</app-auth-layout>

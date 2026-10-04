@@ -24,6 +24,7 @@ type SessionExpectation = (session: SessionData) => boolean;
 @Injectable({ providedIn: 'root' })
 export class SessionRecovery {
   private readonly auth = injectAuthClient();
+  private readonly sessionQuery = this.auth.useSession();
   private readonly state = inject(AuthState);
   private readonly queries = inject(QueryClient);
   private readonly router = inject(Router);
@@ -41,8 +42,8 @@ export class SessionRecovery {
     this.begin();
     if (expectation) this.expected = expectation;
     try {
-      await this.auth.useSession()().refetch();
-      const session = this.auth.useSession()();
+      await this.sessionQuery().refetch();
+      const session = this.sessionQuery();
       if (
         session.error ||
         session.isPending ||

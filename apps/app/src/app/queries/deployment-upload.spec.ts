@@ -71,3 +71,18 @@ test('directory upload rejects inconsistent roots and malformed upload responses
   request.flush({ artifactId: '', size: 'twelve', sha256: null });
   await expect(result).rejects.toThrow('upload response was invalid');
 });
+
+test('directory upload reports empty and missing paths before sending a request', async () => {
+  const upload = TestBed.inject(DeploymentUpload);
+  await expect(
+    upload.directory('project-id', [] as unknown as FileList),
+  ).rejects.toThrow('The selected directory is empty.');
+
+  const file = new File(['a'], 'a');
+  await expect(
+    upload.directory('project-id', [file] as unknown as FileList),
+  ).rejects.toThrow('Choose a directory so file paths are preserved.');
+  TestBed.inject(HttpTestingController).expectNone(
+    `${environment.apiUrl}/api/deployments/artifacts`,
+  );
+});

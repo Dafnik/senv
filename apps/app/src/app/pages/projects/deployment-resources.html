@@ -1,0 +1,90 @@
+<section hlmCard aria-labelledby="resource-title">
+  <header hlmCardHeader>
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h1 id="resource-title" hlmCardTitle>Origin resources</h1>
+        <p hlmCardDescription>
+          Live CPU and memory use for this deployment’s origin container.
+        </p>
+      </div>
+      @if (resources.data()?.status === 'available' && !resources.isError()) {
+        <span class="text-muted-foreground text-xs" aria-live="polite">
+          Updated {{ sampledAt(resources.data()!.sampledAt) }}
+        </span>
+      }
+    </div>
+  </header>
+  <div hlmCardContent>
+    @if (resources.isPending()) {
+      <div class="flex min-h-48 items-center justify-center" aria-busy="true">
+        <hlm-spinner aria-label="Loading origin resource usage" />
+      </div>
+    } @else if (resources.isError()) {
+      <div class="grid min-h-48 content-center justify-items-start gap-3">
+        <p role="alert">{{ resources.error().message }}</p>
+        <button hlmBtn variant="outline" (click)="resources.refetch()">
+          Try again
+        </button>
+      </div>
+    } @else if (resources.data(); as sample) {
+      @if (sample.status === 'unavailable') {
+        <div
+          class="bg-muted/30 text-muted-foreground grid min-h-48 content-center justify-items-center gap-2 rounded-lg border p-6 text-center"
+          role="status"
+        >
+          <p class="text-foreground font-medium">Usage is unavailable</p>
+          <p>{{ unavailableReason(sample.reason) }}</p>
+          <p class="text-xs">Checked {{ sampledAt(sample.sampledAt) }}</p>
+        </div>
+      } @else {
+        <div class="grid gap-4 sm:grid-cols-2" aria-live="polite">
+          <article class="bg-muted/20 grid gap-5 rounded-lg border p-5">
+            <div class="flex items-center justify-between gap-4">
+              <h2 class="text-muted-foreground text-sm font-medium">CPU</h2>
+              <span class="text-3xl font-semibold tabular-nums">
+                {{ sample.cpuPercent | number: '1.0-1'
+                }}<span class="text-lg">%</span>
+              </span>
+            </div>
+            <p class="text-muted-foreground text-xs">
+              100% represents one CPU core; usage can exceed 100% on multi-core
+              containers.
+            </p>
+          </article>
+          <article class="bg-muted/20 grid gap-5 rounded-lg border p-5">
+            <div class="flex items-center justify-between gap-4">
+              <h2 class="text-muted-foreground text-sm font-medium">Memory</h2>
+              <span class="text-right text-2xl font-semibold tabular-nums">
+                {{ formatBytes(sample.memoryUsedBytes) }}
+              </span>
+            </div>
+            @if (sample.memoryLimitBytes; as limit) {
+              <div class="grid gap-2">
+                <div
+                  class="bg-muted h-2 overflow-hidden rounded-full"
+                  role="meter"
+                  aria-label="Memory usage"
+                  [attr.aria-valuenow]="sample.memoryUsedBytes"
+                  aria-valuemin="0"
+                  [attr.aria-valuemax]="limit"
+                >
+                  <div
+                    class="bg-primary h-full rounded-full transition-[width] duration-500"
+                    [style.width.%]="(sample.memoryUsedBytes / limit) * 100"
+                  ></div>
+                </div>
+                <p class="text-muted-foreground text-xs">
+                  of {{ formatBytes(limit) }} limit
+                </p>
+              </div>
+            } @else {
+              <p class="text-muted-foreground text-xs">
+                No memory limit reported
+              </p>
+            }
+          </article>
+        </div>
+      }
+    }
+  </div>
+</section>

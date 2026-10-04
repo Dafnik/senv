@@ -1,71 +1,57 @@
 import {
-  apply,
-  email,
-  maxLength,
-  minLength,
-  required,
+  MAX_LENGTH,
+  MIN_LENGTH,
+  REQUIRED,
+  metadata,
   schema,
-  validate,
+  validateStandardSchema,
 } from '@angular/forms/signals';
 import {
   accountNameMaxLength,
+  accountDetailsSchema as accountDetailsValueSchema,
+  accountPasswordSchema,
+  emailAddressSchema as emailAddressValueSchema,
   passwordMaxLength,
   passwordMinLength,
+  passwordConfirmationSchema as passwordConfirmationValueSchema,
   projectNameMaxLength,
+  projectNameSchema as projectNameValueSchema,
 } from '@senv/api/shared/validation';
 
-export const emailAddressSchema = schema<string>((p) => {
-  required(p, { message: 'Enter an email address.' });
-  email(p, { message: 'Enter a valid email address.' });
+export const emailAddressSchema = schema<string>((path) => {
+  metadata(path, REQUIRED, () => true);
+  validateStandardSchema(path, emailAddressValueSchema);
 });
 
-export const accountDetailsSchema = schema<{
-  name: string;
-  email: string;
-}>((p) => {
-  required(p.name, { message: 'Enter a name.' });
-  maxLength(p.name, accountNameMaxLength, {
-    message: `Use ${accountNameMaxLength} characters or fewer.`,
-  });
-  validate(p.name, ({ value }) =>
-    !value() || value().trim()
-      ? null
-      : { kind: 'required', message: 'Enter a name.' },
-  );
-  apply(p.email, emailAddressSchema);
+export const accountDetailsSchema = schema<{ name: string; email: string }>(
+  (path) => {
+    metadata(path.name, REQUIRED, () => true);
+    metadata(path.name, MAX_LENGTH, () => accountNameMaxLength);
+    metadata(path.email, REQUIRED, () => true);
+    validateStandardSchema(path, accountDetailsValueSchema);
+  },
+);
+
+export const passwordSchema = schema<string>((path) => {
+  metadata(path, REQUIRED, () => true);
+  metadata(path, MIN_LENGTH, () => passwordMinLength);
+  metadata(path, MAX_LENGTH, () => passwordMaxLength);
+  validateStandardSchema(path, accountPasswordSchema);
 });
 
-export const passwordSchema = schema<string>((p) => {
-  required(p, { message: 'Enter a password.' });
-  minLength(p, passwordMinLength, {
-    message: `Use at least ${passwordMinLength} characters.`,
-  });
-  maxLength(p, passwordMaxLength, {
-    message: `Use ${passwordMaxLength} characters or fewer.`,
-  });
-});
-
-export const projectNameSchema = schema<string>((p) => {
-  required(p, { message: 'Enter a project name.' });
-  maxLength(p, projectNameMaxLength, {
-    message: `Use ${projectNameMaxLength} characters or fewer.`,
-  });
-  validate(p, ({ value }) =>
-    !value() || value().trim()
-      ? null
-      : { kind: 'required', message: 'Enter a project name.' },
-  );
+export const projectNameSchema = schema<string>((path) => {
+  metadata(path, REQUIRED, () => true);
+  metadata(path, MAX_LENGTH, () => projectNameMaxLength);
+  validateStandardSchema(path, projectNameValueSchema);
 });
 
 export const passwordConfirmationSchema = schema<{
   password: string;
   confirmPassword: string;
-}>((p) => {
-  apply(p.password, passwordSchema);
-  required(p.confirmPassword, { message: 'Confirm your password.' });
-  validate(p.confirmPassword, ({ value, valueOf }) =>
-    value() === valueOf(p.password)
-      ? null
-      : { kind: 'passwordMismatch', message: 'Passwords must match.' },
-  );
+}>((path) => {
+  metadata(path.password, REQUIRED, () => true);
+  metadata(path.password, MIN_LENGTH, () => passwordMinLength);
+  metadata(path.password, MAX_LENGTH, () => passwordMaxLength);
+  metadata(path.confirmPassword, REQUIRED, () => true);
+  validateStandardSchema(path, passwordConfirmationValueSchema);
 });

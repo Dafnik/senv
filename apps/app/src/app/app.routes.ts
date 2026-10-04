@@ -90,6 +90,15 @@ export const appRoutes: Route[] = [
             title: 'Deployment logs',
           },
           {
+            path: 'deployments/:deploymentId/resources',
+            loadComponent: () =>
+              import('./pages/projects/deployment-detail').then(
+                (m) => m.DeploymentDetail,
+              ),
+            data: { view: 'resources' },
+            title: 'Origin resources',
+          },
+          {
             path: 'deployments/:deploymentId',
             loadComponent: () =>
               import('./pages/projects/deployment-detail').then(

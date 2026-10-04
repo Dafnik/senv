@@ -10,7 +10,7 @@ import {
 import { db } from './db';
 import { customAlphabet } from 'nanoid';
 import { isProjectRole, projectAccess, projectRoles } from '../../shared/project-permissions';
-import { projectNameMaxLength } from '../../shared/validation';
+import { previewSlugSchema, projectNameSchema } from '../../shared/validation';
 import { deploymentSettingsSchema } from '../../shared/deployments';
 import { isValidPreviewHostname } from '../../shared/deployments';
 import { sendProjectInvitation } from './email';
@@ -34,18 +34,19 @@ export function normalizePreviewSlug(value: string) {
 
 function previewSlug(value: unknown, name: string) {
   const candidate = value === undefined ? normalizePreviewSlug(name) : value;
-  if (typeof candidate !== 'string' || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(candidate)) {
+  const parsed = previewSlugSchema.safeParse(candidate);
+  if (!parsed.success) {
     throw new APIError('BAD_REQUEST', {
       message:
         'Preview slugs must be lowercase DNS labels with letters, digits, and internal hyphens.',
     });
   }
   if (
-    db.select().from(organizationTable).where(eq(organizationTable.previewSlug, candidate)).get()
+    db.select().from(organizationTable).where(eq(organizationTable.previewSlug, parsed.data)).get()
   ) {
     throw new APIError('BAD_REQUEST', { message: 'That preview slug is already in use.' });
   }
-  return candidate;
+  return parsed.data;
 }
 
 export function suggestUniquePreviewSlug(name: string) {
@@ -62,12 +63,13 @@ export function suggestUniquePreviewSlug(name: string) {
 }
 
 function projectName(value: unknown) {
-  if (typeof value !== 'string' || !value.trim() || value.trim().length > projectNameMaxLength) {
+  const parsed = projectNameSchema.safeParse(value);
+  if (!parsed.success) {
     throw new APIError('BAD_REQUEST', {
       message: 'Project names must contain 1 to 100 characters.',
     });
   }
-  return value.trim();
+  return parsed.data;
 }
 
 export function validateProjectRole(role: unknown) {

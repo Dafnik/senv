@@ -7,12 +7,14 @@ import {
 import { RouterLink } from '@angular/router';
 import type { PublicDeployment } from '@senv/api/shared/deployments';
 import { HlmCardImports } from '@spartan-ng/helm/card';
+import { HlmButtonImports } from '@spartan-ng/helm/button';
 import { formatBytes } from '../../ui/format-bytes';
+import { canReuseDeployment } from './deployment-presentation';
 
 @Component({
   selector: 'app-deployment-configuration',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, HlmCardImports],
+  imports: [RouterLink, HlmButtonImports, HlmCardImports],
   host: { class: 'min-w-0' },
   template: `
     @let deployment = this.deployment();
@@ -131,6 +133,18 @@ import { formatBytes } from '../../ui/format-bytes';
               deployment.artifactId || deployment.imageDigest || 'Not available'
             }}
           </p>
+          @if (canManage() && canReuse(deployment)) {
+            <a
+              hlmBtn
+              size="sm"
+              variant="outline"
+              class="mt-3"
+              [routerLink]="['/projects', projectSlug(), 'deployments']"
+              [queryParams]="{ redeploy: deployment.id }"
+            >
+              Redeploy
+            </a>
+          }
         </div>
         <details class="border-t pt-4">
           <summary class="text-muted-foreground cursor-pointer text-sm">
@@ -149,7 +163,9 @@ import { formatBytes } from '../../ui/format-bytes';
 export class DeploymentConfiguration {
   readonly deployment = input.required<PublicDeployment>();
   readonly projectSlug = input.required<string>();
+  readonly canManage = input(false);
   readonly formatBytes = formatBytes;
+  readonly canReuse = canReuseDeployment;
   readonly environmentEntries = computed(() =>
     Object.entries(this.deployment().config.env),
   );

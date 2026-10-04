@@ -9,7 +9,7 @@ import { setSessionCookie } from 'better-auth/cookies';
 import { and, eq } from 'drizzle-orm';
 import * as z from 'zod';
 import { account, session, user, verification } from '../../../../drizzle/schema';
-import { passwordMaxLength, passwordMinLength } from '../../shared/validation';
+import { accountPasswordSchema } from '../../shared/validation';
 import { db } from './db';
 import { sendAccountSignup } from './email';
 import env from './env';
@@ -98,7 +98,7 @@ export const accountSignup = {
         use: [formCsrfMiddleware],
         body: z.object({
           token: z.string().min(1).max(128),
-          password: z.string().min(passwordMinLength).max(passwordMaxLength),
+          password: accountPasswordSchema,
         }),
       },
       async (ctx) => {

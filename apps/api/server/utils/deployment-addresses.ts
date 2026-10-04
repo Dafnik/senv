@@ -1,5 +1,5 @@
 import { TRPCError } from '@trpc/server';
-import { and, eq, isNull, or, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { customAlphabet } from 'nanoid';
 import {
   deployment,
@@ -8,6 +8,7 @@ import {
   organization,
 } from '../../../../drizzle/schema';
 import { isValidPreviewHostname, type DeploymentActor } from '../../shared/deployments';
+import { deploymentTagNameSchema } from '../../shared/deployment-tags';
 import { db } from './db';
 import { event } from './deployment-history';
 import { updateRetention } from './deployment-retention';
@@ -45,7 +46,7 @@ export async function assignDeploymentTag(
   actor?: DeploymentActor,
 ) {
   return serializeRouteMutation(async () => {
-    if (!/^(?!br-)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(name))
+    if (!deploymentTagNameSchema.safeParse(name).success)
       throw new TRPCError({
         code: 'BAD_REQUEST',
         message: 'Tags must be lowercase DNS labels and cannot start with br-.',
@@ -177,120 +178,4 @@ export async function removeDeploymentTag(
   });
 }
 
-export function getPreviewRouteTargets() {
-  const projects = db
-    .select({ id: organization.id, projectSlug: organization.previewSlug })
-    .from(organization)
-    .all();
-  const projectSlugs = new Map(projects.map((project) => [project.id, project.projectSlug]));
-  const available = new Set(
-    db
-      .select({ id: deployment.id })
-      .from(deployment)
-      .where(
-        and(
-          isNull(deployment.deletedAt),
-          isNull(deployment.cleanupStartedAt),
-          eq(deployment.desiredState, 'running'),
-          or(eq(deployment.status, 'healthy'), eq(deployment.status, 'unhealthy')),
-        ),
-      )
-      .all()
-      .map((row) => row.id),
-  );
-  return {
-    baseDomain: process.env['PREVIEW_BASE_DOMAIN'] ?? 'preview.localhost',
-    deployments: db
-      .select({ deploymentId: deployment.id, projectId: deployment.projectId })
-      .from(deployment)
-      .where(
-        and(
-          isNull(deployment.deletedAt),
-          isNull(deployment.cleanupStartedAt),
-          eq(deployment.desiredState, 'running'),
-          or(eq(deployment.status, 'healthy'), eq(deployment.status, 'unhealthy')),
-        ),
-      )
-      .all()
-      .map((target) => ({
-        deploymentId: target.deploymentId,
-        projectSlug: projectSlugs.get(target.projectId)!,
-      })),
-    branches: db
-      .select({
-        branchAlias: deploymentBranchAlias.alias,
-        projectId: deploymentBranchAlias.projectId,
-        deploymentId: deploymentBranchAlias.deploymentId,
-      })
-      .from(deploymentBranchAlias)
-      .all()
-      .filter((target) => target.deploymentId && available.has(target.deploymentId))
-      .map((target) => ({
-        branchAlias: target.branchAlias,
-        projectSlug: projectSlugs.get(target.projectId)!,
-        deploymentId: target.deploymentId!,
-      })),
-    tags: db
-      .select()
-      .from(deploymentTag)
-      .all()
-      .filter((target) => available.has(target.deploymentId))
-      .map((target) => ({
-        tag: target.name,
-        projectSlug: projectSlugs.get(target.projectId)!,
-        deploymentId: target.deploymentId,
-      })),
-  };
-}
-
-export async function updateProjectPreviewSlug(projectId: string, slug: string) {
-  return serializeRouteMutation(async () => {
-    if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(slug))
-      throw new TRPCError({
-        code: 'BAD_REQUEST',
-        message:
-          'Preview slugs must be lowercase DNS labels with letters, digits, and internal hyphens.',
-      });
-    const conflict = db
-      .select()
-      .from(organization)
-      .where(and(eq(organization.previewSlug, slug), sql`${organization.id} <> ${projectId}`))
-      .get();
-    if (conflict)
-      throw new TRPCError({ code: 'CONFLICT', message: 'That preview slug is already in use.' });
-    const domain = process.env['PREVIEW_BASE_DOMAIN'] ?? 'preview.localhost';
-    if (!isValidPreviewHostname(slug, 'a'.repeat(63), domain))
-      throw new TRPCError({
-        code: 'BAD_REQUEST',
-        message:
-          'The configured preview domain leaves no room for valid deployment, branch, and tag labels.',
-      });
-    const tooLong = db
-      .select()
-      .from(deployment)
-      .where(eq(deployment.projectId, projectId))
-      .all()
-      .some((row) => !isValidPreviewHostname(slug, row.id, domain));
-    if (tooLong)
-      throw new TRPCError({
-        code: 'BAD_REQUEST',
-        message: 'The generated preview hostname would exceed the DNS name limit.',
-      });
-    const before = db.select().from(organization).where(eq(organization.id, projectId)).get();
-    if (!before) throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found.' });
-    const saved = db
-      .update(organization)
-      .set({ previewSlug: slug })
-      .where(eq(organization.id, projectId))
-      .returning()
-      .get();
-    await refreshOrRollback(() =>
-      db
-        .update(organization)
-        .set({ previewSlug: before.previewSlug })
-        .where(and(eq(organization.id, projectId), eq(organization.previewSlug, slug)))
-        .run(),
-    );
-    return saved;
-  });
-}
+export * from './deployment-preview-addresses';

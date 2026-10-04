@@ -1,10 +1,13 @@
 import { mkdir, rename, writeFile } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
 import { dirname, basename, join } from 'node:path';
 import type { DockerEngine } from '../docker-engine';
 
 import type { PreviewRouteTargets } from './contracts';
+import { buildPreviewRouteConfig } from './preview-route-config';
+import { containerName } from './preview-route-identity';
 export type { PreviewRouteTargets } from './contracts';
+export { containerName } from './preview-route-identity';
+export { normalizeDomain } from './preview-route-config';
 export type PreviewRouteOptions = {
   configFile: string;
   instanceId: string;
@@ -29,70 +32,7 @@ export class PreviewRoutePublisher {
   }
 
   async #publish(targets: PreviewRouteTargets): Promise<void> {
-    const http: {
-      routers?: Record<string, unknown>;
-      services?: Record<string, unknown>;
-      middlewares: Record<string, unknown>;
-    } = { middlewares: {} };
-    const config: Record<string, unknown> = { http };
-    const baseDomain = normalizeDomain(targets.baseDomain);
-    const hosts = new Map<string, string>();
-    for (const route of targets.deployments)
-      addHost(
-        hosts,
-        `${safeLabel(route.deploymentId)}.${safeLabel(route.projectSlug)}.${baseDomain}`,
-        route.deploymentId,
-      );
-    for (const route of targets.branches)
-      addHost(
-        hosts,
-        `${safeLabel(route.branchAlias)}.${safeLabel(route.projectSlug)}.${baseDomain}`,
-        route.deploymentId,
-      );
-    for (const route of targets.tags)
-      addHost(
-        hosts,
-        `${safeLabel(route.tag)}.${safeLabel(route.projectSlug)}.${baseDomain}`,
-        route.deploymentId,
-      );
-
-    // Traefik 3.5 rejects empty routers/services maps and retains its prior snapshot.
-    // Omitting them when empty creates a valid middleware-only update that clears old routes.
-    if (hosts.size) {
-      http.routers = {};
-      http.services = {};
-    }
-
-    // Traefik can retain its previous provider state for a completely empty file.
-    // This unused no-op middleware keeps the per-instance file non-empty without exposing a route.
-    http.middlewares[`senv-${this.options.instanceId}-route-snapshot`] = {
-      headers: { customRequestHeaders: { 'X-Senv-Route-Snapshot': this.options.instanceId } },
-    };
-
-    for (const [host, deploymentId] of hosts) {
-      const token = safeToken(host);
-      const routeName = `senv-${this.options.instanceId}-${token}`;
-      const serviceName = `${routeName}-service`;
-      const router: Record<string, unknown> = {
-        rule: 'Host(`' + host + '`)',
-        entryPoints: this.options.entryPoints,
-        service: serviceName,
-      };
-      if (this.options.tls) {
-        router['tls'] = this.options.certificateResolver
-          ? { certResolver: this.options.certificateResolver }
-          : {};
-      }
-      http.routers![routeName] = router;
-      http.services![serviceName] = {
-        loadBalancer: {
-          servers: [
-            { url: `http://${containerName(this.options.instanceId, deploymentId, 'proxy')}:80` },
-          ],
-          passHostHeader: true,
-        },
-      };
-    }
+    const { config, hosts } = buildPreviewRouteConfig(targets, this.options);
     const tempPath = join(
       dirname(this.options.configFile),
       `.${basename(this.options.configFile)}-${process.pid}-${Date.now()}.tmp`,
@@ -192,52 +132,4 @@ export class PreviewRoutePublisher {
       Labels: { 'senv.managed': 'true', 'senv.instance': this.options.instanceId },
     });
   }
-}
-
-export function normalizeDomain(domain: string): string {
-  const value = domain.trim().toLowerCase().replace(/\.$/, '');
-  const labels = value.split('.');
-  if (
-    !value ||
-    value.length > 253 ||
-    labels.some(
-      (label) =>
-        label.length < 1 || label.length > 63 || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label),
-    )
-  ) {
-    throw new Error(
-      'Preview base domain must be a valid DNS domain with labels no longer than 63 characters.',
-    );
-  }
-  return value;
-}
-
-function safeLabel(value: string): string {
-  if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(value))
-    throw new Error(`Invalid preview DNS label: ${value}`);
-  return value;
-}
-function safeToken(value: string): string {
-  const slug = value
-    .replaceAll('.', '-')
-    .replace(/[^a-z0-9-]/g, '-')
-    .slice(0, 45)
-    .replace(/-+$/, '');
-  return `${slug}-${createHash('sha256').update(value).digest('hex').slice(0, 12)}`;
-}
-function addHost(hosts: Map<string, string>, host: string, deploymentId: string): void {
-  if (host.length > 253) throw new Error(`Preview hostname exceeds the DNS maximum: ${host}`);
-  hosts.set(host, deploymentId);
-}
-export function containerName(
-  instanceId: string,
-  deploymentId: string,
-  role: 'origin' | 'proxy',
-): string {
-  if (
-    !/^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/.test(instanceId) ||
-    !/^[a-zA-Z0-9_-]+$/.test(deploymentId)
-  )
-    throw new Error('Invalid senv container identity.');
-  return `senv-${instanceId}-${deploymentId}-${role}`;
 }

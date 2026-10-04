@@ -1,12 +1,12 @@
 import { execFile } from 'node:child_process';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { connect } from 'node:net';
 import { get } from 'node:http';
 import { promisify } from 'node:util';
-import { afterAll, beforeAll, describe, expect, test } from 'vite-plus/test';
+import { afterAll, beforeAll, describe } from 'vite-plus/test';
+import { registerNginxScenarios } from './nginx.integration-scenarios';
 import { createNginxConfig } from './nginx-config';
 
 const docker = promisify(execFile);
@@ -176,106 +176,5 @@ describe.skipIf(!enabled)('live deployment Nginx behavior', () => {
     if (directory) await rm(directory, { recursive: true, force: true });
   }, 30_000);
 
-  test('specific routes rewrite paths and bypass matching file cache rules', async () => {
-    const first = await request(0, '/api/app.js');
-    const second = await request(0, '/api/app.js');
-    expect(JSON.parse(first.body).path).toBe('/app.js');
-    expect(first.body).not.toBe(second.body);
-    expect(JSON.parse((await request(0, '/api/admin/users')).body).path).toBe('/special/users');
-    expect(JSON.parse((await request(0, '/apiary/users')).body).path).toBe('/apiary/users');
-  });
-
-  test('external routes send the target authority and origin routes preserve the preview Host', async () => {
-    const headers = { Host: 'review.project.preview.localhost', 'X-Forwarded-For': '192.0.2.1' };
-    const external = await request(0, '/api/users', headers);
-    expect(external.response.status).toBe(200);
-    expect(JSON.parse(external.body).host).toBe(`${origin}:8080`);
-    expect(JSON.parse(external.body).forwardedFor).toContain('192.0.2.1');
-    expect(JSON.parse((await request(0, '/users', headers)).body).host).toBe(headers.Host);
-  });
-
-  test('path cache rules win over file rules and default-origin responses are cached', async () => {
-    const first = await request(0, '/assets/app.js');
-    expect((await request(0, '/assets/app.js')).body).toBe(first.body);
-    await new Promise((resolve) => setTimeout(resolve, 2200));
-    expect((await request(0, '/assets/app.js')).body).not.toBe(first.body);
-    const extension = await request(0, '/app.js');
-    expect((await request(0, '/app.js')).body).toBe(extension.body);
-  });
-
-  test('cache honors response restrictions and bypasses request credentials', async () => {
-    for (const path of ['/private.js', '/no-store.js', '/set-cookie.js']) {
-      expect((await request(0, path)).body).not.toBe((await request(0, path)).body);
-    }
-    const publicResponse = await request(0, '/identity.js');
-    expect((await request(0, '/identity.js')).body).toBe(publicResponse.body);
-    const credentials: Record<string, string>[] = [
-      { Cookie: 'session=value' },
-      { Authorization: 'Bearer value' },
-    ];
-    for (const headers of credentials) {
-      expect((await request(0, '/identity.js', headers)).body).not.toBe(publicResponse.body);
-    }
-    expect((await request(0, '/identity.js')).body).toBe(publicResponse.body);
-  });
-
-  test('SPA fallback survives both path and extension cache rules', async () => {
-    for (const path of ['/app/dashboard', '/missing.js']) {
-      const result = await request(0, path);
-      expect(result.response.status).toBe(200);
-      expect(JSON.parse(result.body).path).toBe('/index.html');
-    }
-  });
-
-  test('compression follows allowed endings and includes extensionless paths by default', async () => {
-    expect(
-      (await request(0, '/compress.js', { 'Accept-Encoding': 'gzip' })).response.headers.get(
-        'content-encoding',
-      ),
-    ).toBe('gzip');
-    expect(
-      (await request(0, '/compress.html', { 'Accept-Encoding': 'gzip' })).response.headers.get(
-        'content-encoding',
-      ),
-    ).toBeNull();
-    expect(
-      (await request(1, '/extensionless', { 'Accept-Encoding': 'gzip' })).response.headers.get(
-        'content-encoding',
-      ),
-    ).toBe('gzip');
-    expect(JSON.parse((await request(0, '/missing')).body).path).toBe('/index.html');
-  });
-
-  test('streaming flushes before completion and WebSocket upgrades reach the origin', async () => {
-    const startedAt = Date.now();
-    const response = await fetch(`http://127.0.0.1:${ports[0]}/stream`, {
-      headers: { 'Accept-Encoding': 'identity' },
-    });
-    const reader = response.body!.getReader();
-    expect(new TextDecoder().decode((await reader.read()).value)).toContain('first');
-    expect(Date.now() - startedAt).toBeLessThan(800);
-    while (!(await reader.read()).done) {
-      /* drain the streaming response */
-    }
-    const key = randomBytes(16).toString('base64');
-    const expected = createHash('sha1')
-      .update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
-      .digest('base64');
-    const bytes = await new Promise<Buffer>((resolve, reject) => {
-      const socket = connect(ports[0], '127.0.0.1');
-      const chunks: Buffer[] = [];
-      socket.setTimeout(5000, () => socket.destroy(new Error('WebSocket upgrade timed out.')));
-      socket.once('error', reject);
-      socket.on('data', (chunk) => chunks.push(chunk));
-      socket.once('end', () => resolve(Buffer.concat(chunks)));
-      socket.once('connect', () =>
-        socket.write(
-          `GET /websocket HTTP/1.1\r\nHost: review.localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: ${key}\r\n\r\n`,
-        ),
-      );
-    });
-    expect(bytes.toString()).toContain('101 Switching Protocols');
-    expect(bytes.toString()).toContain(expected);
-    expect(bytes.subarray(-2).toString()).toBe('ok');
-  });
+  registerNginxScenarios({ origin, getPorts: () => ports, request });
 });

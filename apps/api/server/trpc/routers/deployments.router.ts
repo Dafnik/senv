@@ -2,7 +2,9 @@ import { TRPCError } from '@trpc/server';
 import { and, eq } from 'drizzle-orm';
 import * as z from 'zod';
 import { deployment } from '../../../../../drizzle/schema';
-import { publishDeploymentSchema, registryServerSchema } from '../../../shared/deployments';
+import { publishDeploymentSchema } from '../../../shared/deployments';
+import { deploymentAuditQuerySchema } from '../../../shared/deployment-audit';
+import { registryCredentialInputSchema } from '../../../shared/deployment-credentials';
 import { db } from '../../utils/db';
 import {
   assignDeploymentTag,
@@ -11,6 +13,7 @@ import {
   getDeploymentLogs,
   getProjectDeployment,
   listDeploymentHistory,
+  listDeploymentAudit,
   listProjectDeployments,
   listRegistryCredentials,
   publishDeployment,
@@ -23,6 +26,9 @@ import {
 } from '../../utils/deployments';
 import { assertProjectAccess } from '../../utils/project-access';
 import { requestDeploymentPreview } from '../../utils/deployment-preview-status';
+import { DockerEngine } from '../../utils/docker-engine';
+import { deploymentInstanceId } from '../../utils/deployment-runtime/identity';
+import { readOriginResourceSample } from '../../utils/deployment-runtime/origin-resources';
 import { authedProcedure, router } from '../trpc';
 
 const projectIdInput = z.object({ projectId: z.string().min(1) });
@@ -33,7 +39,7 @@ function accessibleDeployment(
   actor: { id: string; role?: string | null },
   permission: 'read' | 'manage' = 'read',
 ) {
-  assertProjectAccess(projectId, actor, permission === 'manage');
+  assertProjectAccess(projectId, actor, permission);
   const row = db
     .select()
     .from(deployment)
@@ -45,14 +51,14 @@ function accessibleDeployment(
 
 export const deploymentsRouter = router({
   list: authedProcedure.input(projectIdInput).query(({ ctx, input }) => {
-    assertProjectAccess(input.projectId, ctx.user);
+    assertProjectAccess(input.projectId, ctx.user, 'read');
     return {
       deployments: listProjectDeployments(input.projectId),
       baseDomain: process.env['PREVIEW_BASE_DOMAIN'] ?? 'preview.localhost',
     };
   }),
   detail: authedProcedure.input(deploymentInput).query(({ ctx, input }) => {
-    assertProjectAccess(input.projectId, ctx.user);
+    assertProjectAccess(input.projectId, ctx.user, 'read');
     const detail = getProjectDeployment(input.projectId, input.deploymentId);
     return {
       ...detail,
@@ -61,12 +67,12 @@ export const deploymentsRouter = router({
     };
   }),
   previewStatus: authedProcedure.input(deploymentInput).query(({ ctx, input }) => {
-    assertProjectAccess(input.projectId, ctx.user);
+    assertProjectAccess(input.projectId, ctx.user, 'read');
     const detail = getProjectDeployment(input.projectId, input.deploymentId);
     return requestDeploymentPreview(detail.previewUrl);
   }),
   publish: authedProcedure.input(publishDeploymentSchema).mutation(({ ctx, input }) => {
-    assertProjectAccess(input.projectId, ctx.user, true);
+    assertProjectAccess(input.projectId, ctx.user, 'manage');
     return publishDeployment(input, ctx.user);
   }),
   setPinned: authedProcedure
@@ -95,11 +101,17 @@ export const deploymentsRouter = router({
       }),
     )
     .query(({ ctx, input }) => {
-      assertProjectAccess(input.projectId, ctx.user);
+      assertProjectAccess(input.projectId, ctx.user, 'read');
       return listDeploymentHistory(input.projectId, input.limit, input.cursor);
     }),
+  audit: authedProcedure.input(deploymentAuditQuerySchema).query(({ ctx, input }) => {
+    if (input.deploymentId)
+      accessibleDeployment(input.projectId, input.deploymentId, ctx.user, 'read');
+    else assertProjectAccess(input.projectId, ctx.user, 'read');
+    return listDeploymentAudit(input);
+  }),
   removeHistory: authedProcedure.input(deploymentInput).mutation(({ ctx, input }) => {
-    assertProjectAccess(input.projectId, ctx.user, false, true);
+    assertProjectAccess(input.projectId, ctx.user, 'admin');
     return removeDeploymentHistory(input.projectId, input.deploymentId);
   }),
   assignTag: authedProcedure
@@ -111,7 +123,7 @@ export const deploymentsRouter = router({
   removeTag: authedProcedure
     .input(projectIdInput.extend({ name: z.string().trim().min(1).max(63) }))
     .mutation(async ({ ctx, input }) => {
-      assertProjectAccess(input.projectId, ctx.user, true);
+      assertProjectAccess(input.projectId, ctx.user, 'manage');
       return removeDeploymentTag(input.projectId, input.name, ctx.user);
     }),
   logs: authedProcedure
@@ -128,28 +140,29 @@ export const deploymentsRouter = router({
       accessibleDeployment(input.projectId, input.deploymentId, ctx.user);
       return getDeploymentLogs(input.deploymentId, input.source, input.limit, input.cursor);
     }),
+  resources: authedProcedure.input(deploymentInput).query(({ ctx, input }) => {
+    accessibleDeployment(input.projectId, input.deploymentId, ctx.user, 'read');
+    return readOriginResourceSample({
+      engine: new DockerEngine(),
+      instanceId: deploymentInstanceId(),
+      projectId: input.projectId,
+      deploymentId: input.deploymentId,
+    });
+  }),
   registryCredentials: authedProcedure.input(projectIdInput).query(({ ctx, input }) => {
-    assertProjectAccess(input.projectId, ctx.user, true);
+    assertProjectAccess(input.projectId, ctx.user, 'manage');
     return listRegistryCredentials(input.projectId);
   }),
   saveRegistryCredential: authedProcedure
-    .input(
-      projectIdInput.extend({
-        id: z.string().optional(),
-        name: z.string().trim().min(1).max(100),
-        registry: registryServerSchema,
-        username: z.string().trim().min(1).max(256),
-        secret: z.string().max(8192).default(''),
-      }),
-    )
+    .input(projectIdInput.extend(registryCredentialInputSchema.shape))
     .mutation(({ ctx, input }) => {
-      assertProjectAccess(input.projectId, ctx.user, true);
+      assertProjectAccess(input.projectId, ctx.user, 'manage');
       return saveRegistryCredential(input);
     }),
   deleteRegistryCredential: authedProcedure
     .input(projectIdInput.extend({ credentialId: z.string().min(1) }))
     .mutation(({ ctx, input }) => {
-      assertProjectAccess(input.projectId, ctx.user, true);
+      assertProjectAccess(input.projectId, ctx.user, 'manage');
       return deleteRegistryCredential(input.projectId, input.credentialId);
     }),
 });

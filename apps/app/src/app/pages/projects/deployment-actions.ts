@@ -1,5 +1,6 @@
 import { inject, linkedSignal, type Signal } from '@angular/core';
 import type { PublicDeployment } from '@senv/api/shared/deployments';
+import { deploymentTagNameSchema } from '@senv/api/shared/deployment-tags';
 import { toast } from '@spartan-ng/brain/sonner';
 import { injectAuthSessionId } from '../../auth/auth-client';
 import { DeploymentsData } from '../../queries/deployments';
@@ -114,7 +115,7 @@ export class DeploymentActions {
   async assignTag(event: Event, deployment: PublicDeployment) {
     event.preventDefault();
     const tag = this.tagDrafts()[deployment.id]?.trim().toLowerCase() ?? '';
-    if (!/^(?!br-)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(tag)) {
+    if (!deploymentTagNameSchema.safeParse(tag).success) {
       toast.error(
         'Enter a lowercase DNS-safe tag. The br- prefix is reserved.',
       );

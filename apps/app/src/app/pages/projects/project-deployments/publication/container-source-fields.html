@@ -1,0 +1,68 @@
+<div class="grid gap-4 sm:grid-cols-2">
+  <div hlmField class="sm:col-span-2">
+    <label hlmFieldLabel for="deployment-image">Registry image</label>
+    <input
+      hlmInput
+      id="deployment-image"
+      placeholder="ghcr.io/acme/web:latest"
+      autocomplete="off"
+      [formField]="publishForm().image"
+      (input)="imageInput.emit($event)"
+    />
+    <p hlmFieldDescription>
+      We resolve this reference to a fixed digest when it is published.
+    </p>
+    @if (publishForm().image().touched()) {
+      @for (error of publishForm().image().errors(); track error) {
+        <hlm-field-error>{{ error.message }}</hlm-field-error>
+      }
+    }
+  </div>
+  @if (
+    credentials()()?.length ||
+    registryCredentialId()() === keepCapturedCredential()
+  ) {
+    <div hlmField>
+      <label hlmFieldLabel for="registry-credential"
+        >Private registry credential</label
+      >
+      <hlm-native-select
+        id="registry-credential"
+        [formField]="publishForm().registryCredentialId"
+        (change)="credentialSelection.emit($event)"
+      >
+        <option value="">Public image</option>
+        @if (registryCredentialId()() === keepCapturedCredential()) {
+          <option [value]="keepCapturedCredential()">
+            @if (capturedCredentialLabel()()) {
+              Keep captured credential ·
+              {{ capturedCredentialLabel()() }}
+            } @else {
+              Keep captured credential (unavailable)
+            }
+          </option>
+        }
+        @for (credential of credentials()() ?? []; track credential.id) {
+          <option [value]="credential.id">
+            {{ credential.name }} · {{ credential.registry }}
+          </option>
+        }
+      </hlm-native-select>
+      <p hlmFieldDescription>Saved credentials are never shown here.</p>
+    </div>
+  }
+  <div hlmField>
+    <label hlmFieldLabel for="http-port">HTTP port</label>
+    <input
+      hlmInput
+      id="http-port"
+      type="number"
+      [formField]="publishForm().port"
+    />
+    @if (publishForm().port().touched()) {
+      @for (error of publishForm().port().errors(); track error) {
+        <hlm-field-error>{{ error.message }}</hlm-field-error>
+      }
+    }
+  </div>
+</div>
