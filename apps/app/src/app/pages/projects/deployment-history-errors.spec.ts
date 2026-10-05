@@ -1,16 +1,16 @@
 import { expect, test, vi } from 'vite-plus/test';
 import {
   createHistory,
-  queryAudit,
+  queryHistory,
   setupDeploymentHistoryTests,
 } from './deployment-history.test-support';
 
 setupDeploymentHistoryTests();
 test('audit failures show an alert and a retry action while retaining filters', async () => {
-  queryAudit.mockRejectedValue(new Error('Audit service unavailable'));
+  queryHistory.mockRejectedValue(new Error('Audit service unavailable'));
   const fixture = createHistory();
   await vi.waitFor(() =>
-    expect(fixture.componentInstance.audit.isError()).toBe(true),
+    expect(fixture.componentInstance.history.isError()).toBe(true),
   );
   await fixture.whenStable();
   expect(fixture.nativeElement.textContent).toContain(

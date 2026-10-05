@@ -183,6 +183,9 @@ export function deploymentCommands(program: Command) {
     });
   const history = deployments
     .command('history')
+    .alias('audit')
+    .option('--deployment <id>')
+    .option('--offset <count>', 'Result offset', '0')
     .option('--limit <count>', 'History count', integer, 100)
     .action(async (options, command: Command) => {
       const value = await context(command);
@@ -190,6 +193,8 @@ export function deploymentCommands(program: Command) {
         await value.client.deployments.history.query({
           projectId: await value.project(),
           limit: options.limit,
+          deploymentId: options.deployment,
+          offset: Number(options.offset),
         }),
         command,
       );
@@ -203,23 +208,6 @@ export function deploymentCommands(program: Command) {
         await value.client.deployments.removeHistory.mutate({
           projectId: await value.project(),
           deploymentId,
-        }),
-        command,
-      );
-    });
-  deployments
-    .command('audit')
-    .option('--deployment <id>')
-    .option('--offset <count>', 'Result offset', '0')
-    .option('--limit <count>', 'Page size', integer, 20)
-    .action(async (options, command: Command) => {
-      const value = await context(command);
-      output(
-        await value.client.deployments.audit.query({
-          projectId: await value.project(),
-          deploymentId: options.deployment,
-          offset: Number(options.offset),
-          limit: options.limit,
         }),
         command,
       );

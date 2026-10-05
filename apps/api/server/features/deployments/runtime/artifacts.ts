@@ -1,9 +1,15 @@
 import { createHash } from 'node:crypto';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import { withArtifactStorageLock } from '../storage/storage-lock';
+import { extractZipToDirectory } from './artifact-zip-stream';
+import type { StagedUploadFile } from './artifact-multipart';
 import {
   chmod,
   mkdir,
   mkdtemp,
-  readFile,
+  copyFile,
   readdir,
   rename,
   rm,
@@ -14,7 +20,7 @@ import { dirname, join } from 'node:path';
 import { staticArchiveExtensions } from '../../../../shared/deployments';
 import { extractTar, extractZip } from './artifact-archives';
 import { maxStaticArtifactEntries } from './artifact-limits';
-import { safeRelativePath } from './artifact-paths';
+import { safeRelativePath, stripSelectedDirectoryRoot } from './artifact-paths';
 import type { ArtifactStoreOptions, StaticUploadFile, StoredArtifact } from './artifact-types';
 export { withArtifactStorageLock } from '../storage/storage-lock';
 export { safeRelativePath, stripSelectedDirectoryRoot } from './artifact-paths';
@@ -75,6 +81,62 @@ export class ArtifactStore {
     return this.ingestFiles(await extractTar(archive, lower, this.options.maxBytes));
   }
 
+  /** Extract and hash without holding the reference/cleanup lock. Only commit is serialized. */
+  async ingestStaged(
+    files: StagedUploadFile[],
+    register: (saved: StoredArtifact) => void,
+  ): Promise<StoredArtifact> {
+    const temp = await mkdtemp(join(this.options.root, 'tmp/upload-'));
+    try {
+      await chmod(temp, 0o755);
+      let total = 0;
+      if (files.length === 1 && files[0]!.field === 'file') {
+        const file = files[0]!;
+        const lower = file.name.toLowerCase();
+        if (!file.size) throw new Error('Select a non-empty archive.');
+        if (!staticArchiveExtensions.some((extension) => lower.endsWith(extension)))
+          throw new Error('Select a ZIP or TAR archive with a supported compression format.');
+        if (lower.endsWith('.zip'))
+          total = await extractZipToDirectory(file.filename, temp, this.options.maxBytes);
+        else
+          await extractTar(
+            createReadStream(file.filename),
+            lower,
+            this.options.maxBytes,
+            async (name, entry, size) => {
+              const target = join(temp, ...name.split('/'));
+              await mkdir(dirname(target), { recursive: true, mode: 0o755 });
+              await pipeline(
+                Readable.from(entry),
+                createWriteStream(target, { flags: 'wx', mode: 0o644 }),
+              );
+              total += size;
+            },
+          );
+      } else {
+        if (!files.length || files.some((file) => file.field !== 'files'))
+          throw new Error('Upload one archive or a set of directory files.');
+        const seen = new Set<string>();
+        for (const file of stripSelectedDirectoryRoot(files)) {
+          const name = safeRelativePath(file.name);
+          if (seen.has(name)) throw new Error(`Duplicate website path: ${name}`);
+          seen.add(name);
+          total += file.size;
+          if (total > this.options.maxBytes)
+            throw new Error(`Extracted website exceeds the ${this.options.maxBytes}-byte limit.`);
+          const target = join(temp, ...name.split('/'));
+          await mkdir(dirname(target), { recursive: true, mode: 0o755 });
+          await copyFile(file.filename, target);
+          await chmod(target, 0o644);
+        }
+      }
+      return await this.#commit(temp, total, register);
+    } catch (error) {
+      await rm(temp, { recursive: true, force: true });
+      throw error;
+    }
+  }
+
   async remove(storageKey: string): Promise<void> {
     if (!/^[a-f0-9]{64}$/.test(storageKey)) throw new Error('Invalid artifact storage key.');
     await rm(join(this.options.root, 'artifacts', storageKey), { recursive: true, force: true });
@@ -89,7 +151,11 @@ export class ArtifactStore {
     }
   }
 
-  async #commit(temp: string, total: number): Promise<StoredArtifact> {
+  async #commit(
+    temp: string,
+    total: number,
+    register?: (saved: StoredArtifact) => void,
+  ): Promise<StoredArtifact> {
     const index = join(temp, 'index.html');
     if (!(await stat(index).catch(() => null))?.isFile())
       throw new Error('Website root must contain index.html.');
@@ -107,23 +173,28 @@ export class ArtifactStore {
         digest.update(uint64(pathBytes.byteLength)).update(pathBytes);
         if (entry.isDirectory()) await visit(join(dir, entry.name), path);
         else {
-          const bytes = await readFile(join(dir, entry.name));
-          digest.update(uint64(bytes.byteLength)).update(bytes);
+          const filename = join(dir, entry.name);
+          digest.update(uint64((await stat(filename)).size));
+          for await (const bytes of createReadStream(filename)) digest.update(bytes);
         }
       }
     };
     await visit(temp);
     const sha256 = digest.digest('hex');
-    const destination = join(this.options.root, 'artifacts', sha256);
-    await mkdir(dirname(destination), { recursive: true, mode: 0o750 });
-    try {
-      await rename(temp, destination);
-    } catch (error) {
-      // A matching content-addressed artifact may already exist from a concurrent publish.
-      if (!(await this.exists(sha256))) throw error;
-      await rm(temp, { recursive: true, force: true });
-    }
-    return { storageKey: sha256, size: total, sha256 };
+    const saved = { storageKey: sha256, size: total, sha256 };
+    const commit = async () => {
+      const destination = join(this.options.root, 'artifacts', sha256);
+      await mkdir(dirname(destination), { recursive: true, mode: 0o750 });
+      try {
+        await rename(temp, destination);
+      } catch (error) {
+        if (!(await this.exists(sha256))) throw error;
+        await rm(temp, { recursive: true, force: true });
+      }
+      register?.(saved);
+      return saved;
+    };
+    return register ? withArtifactStorageLock(this.options.root, commit) : commit();
   }
 }
 

@@ -36,6 +36,7 @@ import { isProjectSection, type ProjectSection } from '../project-sections';
 import { ProjectMembers } from '../project-members/project-members';
 import { DeploymentHistory } from '../deployment-history';
 import { ProjectDeployments } from '../project-deployments/project-deployments';
+import { ProjectArtifacts } from '../project-artifacts/project-artifacts';
 import { ProjectDeploymentSettings } from '../project-deployment-settings/project-deployment-settings';
 
 @Component({
@@ -57,6 +58,7 @@ import { ProjectDeploymentSettings } from '../project-deployment-settings/projec
     ProjectInvitations,
     ProjectMembers,
     ProjectDeployments,
+    ProjectArtifacts,
     DeploymentHistory,
     ProjectDeploymentSettings,
   ],

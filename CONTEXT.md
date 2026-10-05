@@ -111,6 +111,10 @@ _Avoid_: Long-lived deployment
 The fixed prebuilt website files or container image content supplied for a deployment.
 _Avoid_: Source repository
 
+**Uploaded artifact**:
+A fixed collection of prebuilt website files within a project, optionally associated with a branch or commit. Deployments can share it, and it follows their cleanup policy.
+_Avoid_: Source repository, container image
+
 **Project runtime settings**:
 The project's environment variables and runtime secrets, captured by each new deployment. Changes affect future publications. Secret values are never returned after saving.
 _Avoid_: Per-deployment runtime overrides
@@ -124,7 +128,7 @@ The optional, single source repository associated with a project. Commit and bra
 _Avoid_: Deployment tag source
 
 **Source metadata**:
-Optional information associating a deployment with a Git commit or branch. It describes the claimed source of the supplied artifact and does not assign deployment tags.
+Optional information associating a deployment or uploaded artifact with a Git commit or branch. It describes the claimed source of the supplied artifact and does not assign deployment tags.
 _Avoid_: Deployment tag
 
 **Deployment tag**:
@@ -156,7 +160,7 @@ A deployment with no branch association. If untagged, its automatic cleanup cloc
 _Avoid_: Current branch deployment
 
 **Deployment history**:
-The lifecycle events, source metadata, configuration summaries without secret values, and failure reasons retained after deletion or cleanup removes a deployment's resources, artifact, and raw logs. Only project admins can permanently remove this record.
+The lifecycle events, source metadata, configuration summaries without secret values, and failure reasons retained after deletion or cleanup removes a deployment's resources, artifact, and raw logs. Project and deployment views share one history API with search, filters, sorting, and pagination. Only project admins can permanently remove this record.
 _Avoid_: Running deployment
 
 **Stopped deployment**:

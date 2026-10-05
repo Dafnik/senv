@@ -35,7 +35,10 @@ test('directory upload strips the selected root folder and preserves relative fi
   });
   const files = [index, script] as unknown as FileList;
 
-  const result = upload.directory('project-id', files);
+  const result = upload.directory('project-id', files, {
+    branch: 'feature/files',
+    commit: 'abc123',
+  });
   const request = http.expectOne(
     `${environment.apiUrl}/api/deployments/artifacts`,
   );
@@ -43,6 +46,10 @@ test('directory upload strips the selected root folder and preserves relative fi
   const body = request.request.body as FormData;
   expect(body.get('projectId')).toBe('project-id');
   expect(body.get('kind')).toBe('static');
+  expect(JSON.parse(body.get('source') as string)).toEqual({
+    branch: 'feature/files',
+    commit: 'abc123',
+  });
   expect((body.getAll('files')[0] as File).name).toBe('index.html');
   expect((body.getAll('files')[1] as File).name).toBe('assets/app.js');
   request.flush({ artifactId: 'artifact-id', size: 12, sha256: 'digest' });

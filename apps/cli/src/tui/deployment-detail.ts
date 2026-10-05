@@ -10,7 +10,7 @@ import type { Row } from './types.ts';
 
 type Client = ClientContext['client'];
 type Deployment = Awaited<ReturnType<Client['deployments']['detail']['query']>>;
-type Event = Deployment['history'][number];
+type Event = Awaited<ReturnType<Client['deployments']['history']['query']>>['entries'][number];
 
 export function detailDocument(row: Row, document: DetailBlock[]): Row {
   return { ...row, document, lines: layoutDetail(document, 80).map(lineText) };

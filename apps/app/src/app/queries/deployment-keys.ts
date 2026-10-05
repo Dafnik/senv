@@ -1,4 +1,4 @@
-import type { DeploymentAuditQuery } from '@senv/api/shared/deployment-audit';
+import type { DeploymentHistoryQuery } from '@senv/api/shared/deployment-history';
 
 export const deploymentKeys = {
   list: (sessionId: string | null, projectId: string) =>
@@ -15,8 +15,6 @@ export const deploymentKeys = {
     ['deployment-preview-status', sessionId, projectId, deploymentId] as const,
   previewStatusPrefix: (sessionId: string | null, projectId: string) =>
     ['deployment-preview-status', sessionId, projectId] as const,
-  history: (sessionId: string | null, projectId: string) =>
-    ['deployment-history', sessionId, projectId] as const,
   logs: (
     sessionId: string | null,
     projectId: string,
@@ -41,10 +39,10 @@ export const deploymentKeys = {
     ] as const,
   logsPrefix: (sessionId: string | null, projectId: string) =>
     ['deployment-logs', sessionId, projectId] as const,
-  audit: (sessionId: string | null, input: DeploymentAuditQuery) =>
-    ['deployment-audit', sessionId, input.projectId, input] as const,
-  auditPrefix: (sessionId: string | null, projectId: string) =>
-    ['deployment-audit', sessionId, projectId] as const,
+  history: (sessionId: string | null, input: DeploymentHistoryQuery) =>
+    ['deployment-history', sessionId, input.projectId, input] as const,
+  historyPrefix: (sessionId: string | null, projectId: string) =>
+    ['deployment-history', sessionId, projectId] as const,
   settings: (sessionId: string | null, projectId: string) =>
     ['deployment-settings', sessionId, projectId] as const,
   runtime: (sessionId: string | null, projectId: string) =>

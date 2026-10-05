@@ -101,7 +101,7 @@ test.skipIf(!python || process.platform === 'win32')(
         memoryUsedBytes: 256 * 1024 ** 2,
         memoryLimitBytes: 1024 ** 3,
       },
-      'deployments.audit': {
+      'deployments.history': {
         entries: Array.from({ length: 10 }, (_, index) => ({
           ...event,
           id: `event-${index}`,
@@ -197,7 +197,7 @@ test.skipIf(!python || process.platform === 'win32')(
           'deployments.logsForward',
           'deployments.resources',
           'deployments.resourceHistory',
-          'deployments.audit',
+          'deployments.history',
           'cli.sessions',
           'cli.tokens',
         ]),

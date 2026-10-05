@@ -4,18 +4,18 @@ import {
   rowSortingFeature,
   tableFeatures,
 } from '@tanstack/angular-table';
-import type { DeploymentAuditEntry } from '@senv/api/shared/deployments';
+import type { DeploymentHistoryEntry } from '@senv/api/shared/deployments';
 import { TableHeadSortButton } from '../../ui/table/sort-header-button';
 
-export const deploymentAuditTableFeatures = tableFeatures({
+export const deploymentHistoryTableFeatures = tableFeatures({
   rowPaginationFeature,
   rowSortingFeature,
   columnMeta: {} as { label: string },
 });
 
 const column = createColumnHelper<
-  typeof deploymentAuditTableFeatures,
-  DeploymentAuditEntry
+  typeof deploymentHistoryTableFeatures,
+  DeploymentHistoryEntry
 >();
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
@@ -54,7 +54,7 @@ const detailColumn = column.accessor((entry) => entry.details, {
   enableSorting: false,
 });
 
-export const deploymentAuditColumns = (includeDeployment: boolean) =>
+export const deploymentHistoryColumns = (includeDeployment: boolean) =>
   column.columns([
     ...baseColumns,
     ...(includeDeployment ? [deploymentIdColumn] : []),

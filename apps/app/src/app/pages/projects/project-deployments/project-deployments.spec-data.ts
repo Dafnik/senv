@@ -84,7 +84,7 @@ export const localStorageMock = {
   clear: () => storage.clear(),
 };
 
-export const audit = {
+export const history = {
   entries: [
     {
       id: 'event-a',

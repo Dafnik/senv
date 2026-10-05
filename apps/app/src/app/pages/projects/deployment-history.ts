@@ -24,18 +24,18 @@ import {
   TanStackTable,
 } from '@tanstack/angular-table';
 import {
-  deploymentAuditSortFields,
-  type DeploymentAuditQuery,
-} from '@senv/api/shared/deployment-audit';
+  deploymentHistorySortFields,
+  type DeploymentHistoryQuery,
+} from '@senv/api/shared/deployment-history';
 import { injectAuthSessionId } from '../../auth/auth-client';
 import { DeploymentsData } from '../../queries/deployments';
 import { lastPageIndex } from '../../tools/table/pagination';
 import { TablePaginaton } from '../../ui/table/pagination';
 import { DeploymentHistoryEmptyState } from './deployment-history-empty-state';
 import {
-  deploymentAuditColumns,
-  deploymentAuditTableFeatures,
-} from './deployment-audit-columns';
+  deploymentHistoryColumns,
+  deploymentHistoryTableFeatures,
+} from './deployment-history-columns';
 
 @Component({
   selector: 'app-deployment-history',
@@ -62,7 +62,7 @@ export class DeploymentHistory {
   private readonly data = inject(DeploymentsData);
   private readonly sessionId = injectAuthSessionId();
   readonly columns = computed(() =>
-    deploymentAuditColumns(!this.deploymentId()),
+    deploymentHistoryColumns(!this.deploymentId()),
   );
   readonly eventSelectId = computed(() => this.selectId('event'));
   readonly actorSelectId = computed(() => this.selectId('actor'));
@@ -106,17 +106,17 @@ export class DeploymentHistory {
       pageSize: previous?.value.pageSize ?? 20,
     }),
   });
-  readonly audit = injectQuery(() => {
+  readonly history = injectQuery(() => {
     const { pageIndex, pageSize } = this.pagination();
     const sort = this.sorting()[0];
-    const sortBy: DeploymentAuditQuery['sortBy'] =
+    const sortBy: DeploymentHistoryQuery['sortBy'] =
       sort &&
-      deploymentAuditSortFields.includes(
-        sort.id as (typeof deploymentAuditSortFields)[number],
+      deploymentHistorySortFields.includes(
+        sort.id as (typeof deploymentHistorySortFields)[number],
       )
-        ? (sort.id as DeploymentAuditQuery['sortBy'])
+        ? (sort.id as DeploymentHistoryQuery['sortBy'])
         : 'createdAt';
-    return this.data.audit(this.sessionId(), {
+    return this.data.history(this.sessionId(), {
       projectId: this.projectId(),
       ...(this.deploymentId() ? { deploymentId: this.deploymentId() } : {}),
       offset: pageIndex * pageSize,
@@ -133,14 +133,14 @@ export class DeploymentHistory {
   readonly actorItemToString = (value: string) =>
     value === 'all'
       ? 'All actors'
-      : (this.audit.data()?.actors.find((actor) => actor.id === value)?.name ??
-        value);
+      : (this.history.data()?.actors.find((actor) => actor.id === value)
+          ?.name ?? value);
   readonly table = injectTable(() => ({
-    key: 'deployment-audit',
-    features: deploymentAuditTableFeatures,
+    key: 'deployment-history',
+    features: deploymentHistoryTableFeatures,
     columns: this.columns(),
-    data: this.audit.isError() ? [] : (this.audit.data()?.entries ?? []),
-    rowCount: this.audit.data()?.total ?? 0,
+    data: this.history.isError() ? [] : (this.history.data()?.entries ?? []),
+    rowCount: this.history.data()?.total ?? 0,
     getRowId: (row) => row.id,
     manualPagination: true,
     manualSorting: true,
@@ -161,7 +161,7 @@ export class DeploymentHistory {
 
   constructor() {
     effect(() => {
-      const total = this.audit.data()?.total;
+      const total = this.history.data()?.total;
       if (total === undefined) return;
       const page = this.pagination();
       const lastPage = lastPageIndex(total, page.pageSize);
@@ -176,7 +176,7 @@ export class DeploymentHistory {
 
   private selectId(kind: 'event' | 'actor') {
     const scope = `${this.projectId()}-${this.deploymentId() ?? 'project'}`;
-    return `deployment-audit-${kind}-${scope.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+    return `deployment-history-${kind}-${scope.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
   }
 
   updateSearch(event: Event) {

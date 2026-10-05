@@ -13,9 +13,10 @@ import { safeRelativePath } from './artifact-paths';
 import type { StaticUploadFile } from './artifact-types';
 
 export async function extractTar(
-  archive: Buffer,
+  archive: Buffer | Readable,
   filename: string,
   maxBytes: number,
+  consume?: (name: string, entry: AsyncIterable<unknown>, size: number) => Promise<void>,
 ): Promise<StaticUploadFile[]> {
   const decompressor = /\.(?:tgz|gz|gzip)$/.test(filename)
     ? createGunzip()
@@ -74,6 +75,12 @@ export async function extractTar(
       }
       if (total + (header.size ?? 0) > maxBytes)
         throw new Error(`Extracted website exceeds the ${maxBytes}-byte limit.`);
+      if (consume) {
+        await consume(name, entry, header.size ?? 0);
+        total += header.size ?? 0;
+        next();
+        return;
+      }
       const chunks: Buffer[] = [];
       let size = 0;
       for await (const chunk of entry) {
@@ -93,7 +100,8 @@ export async function extractTar(
       parser.destroy(error);
     });
   });
-  if (decompressor) await pipeline(Readable.from([archive]), decompressor, bounded, parser);
-  else await pipeline(Readable.from([archive]), bounded, parser);
+  const source = Buffer.isBuffer(archive) ? Readable.from([archive]) : archive;
+  if (decompressor) await pipeline(source, decompressor, bounded, parser);
+  else await pipeline(source, bounded, parser);
   return files;
 }

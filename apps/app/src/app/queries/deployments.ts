@@ -5,6 +5,7 @@ import { QueryClient } from '@tanstack/angular-query';
 
 export { deploymentKeys } from './deployment-keys';
 import { deploymentKeys } from './deployment-keys';
+import { artifactKeys } from './artifacts';
 
 @Injectable({ providedIn: 'root' })
 export class DeploymentsData {
@@ -15,7 +16,6 @@ export class DeploymentsData {
   readonly list = this.queries.list.bind(this.queries);
   readonly detail = this.queries.detail.bind(this.queries);
   readonly history = this.queries.history.bind(this.queries);
-  readonly audit = this.queries.audit.bind(this.queries);
   readonly previewStatus = this.queries.previewStatus.bind(this.queries);
   readonly logs = this.queries.logs.bind(this.queries);
   readonly resourceHistory = this.queries.resourceHistory.bind(this.queries);
@@ -47,16 +47,16 @@ export class DeploymentsData {
   async invalidate(sessionId: string | null, projectId: string) {
     await Promise.all([
       this.queryClient.invalidateQueries({
+        queryKey: artifactKeys(sessionId, projectId),
+      }),
+      this.queryClient.invalidateQueries({
         queryKey: deploymentKeys.runtime(sessionId, projectId),
       }),
       this.queryClient.invalidateQueries({
         queryKey: deploymentKeys.list(sessionId, projectId),
       }),
       this.queryClient.invalidateQueries({
-        queryKey: deploymentKeys.history(sessionId, projectId),
-      }),
-      this.queryClient.invalidateQueries({
-        queryKey: deploymentKeys.auditPrefix(sessionId, projectId),
+        queryKey: deploymentKeys.historyPrefix(sessionId, projectId),
       }),
       this.queryClient.invalidateQueries({
         queryKey: deploymentKeys.settings(sessionId, projectId),

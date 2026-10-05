@@ -1,4 +1,4 @@
-<section hlmCard id="deployment-audit" class="scroll-mt-6">
+<section hlmCard id="deployment-history" class="scroll-mt-6">
   <div hlmCardHeader>
     <h2 hlmCardTitle>{{ title() }}</h2>
     <p hlmCardDescription>
@@ -36,7 +36,7 @@
           <hlm-select-content *hlmSelectPortal>
             <hlm-select-group>
               <hlm-select-item value="all">All events</hlm-select-item>
-              @for (event of audit.data()?.events ?? []; track event) {
+              @for (event of history.data()?.events ?? []; track event) {
                 <hlm-select-item [value]="event">
                   {{ event.split('_').join(' ') }}
                 </hlm-select-item>
@@ -60,7 +60,7 @@
           <hlm-select-content *hlmSelectPortal>
             <hlm-select-group>
               <hlm-select-item value="all">All actors</hlm-select-item>
-              @for (actor of audit.data()?.actors ?? []; track actor.id) {
+              @for (actor of history.data()?.actors ?? []; track actor.id) {
                 <hlm-select-item [value]="actor.id">
                   {{ actor.name }}
                 </hlm-select-item>
@@ -79,7 +79,7 @@
       <div hlmTableContainer>
         <table
           hlmTable
-          [attr.aria-busy]="audit.isFetching()"
+          [attr.aria-busy]="history.isFetching()"
           [attr.aria-label]="title()"
         >
           <thead hlmTHead>
@@ -141,11 +141,11 @@
               <tr hlmTr>
                 <td hlmTd [attr.colspan]="table.getAllLeafColumns().length">
                   <app-deployment-history-empty-state
-                    [isError]="audit.isError()"
-                    [isPending]="audit.isPending()"
+                    [isError]="history.isError()"
+                    [isPending]="history.isPending()"
                     [hasFilters]="hasFilters()"
-                    [errorMessage]="audit.error()?.message ?? ''"
-                    (retry)="audit.refetch()"
+                    [errorMessage]="history.error()?.message ?? ''"
+                    (retry)="history.refetch()"
                   />
                 </td>
               </tr>

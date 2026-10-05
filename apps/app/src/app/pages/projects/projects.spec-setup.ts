@@ -50,11 +50,16 @@ const deploymentDataMock = {
     queryFn: async () => [],
     refetchInterval: false,
   }),
-  audit: (
+  history: (
     sessionId: string,
     input: { projectId: string; deploymentId?: string },
   ) => ({
-    queryKey: ['audit', sessionId, input.projectId, input.deploymentId ?? null],
+    queryKey: [
+      'history',
+      sessionId,
+      input.projectId,
+      input.deploymentId ?? null,
+    ],
     queryFn: async () => ({
       entries: [],
       total: 0,

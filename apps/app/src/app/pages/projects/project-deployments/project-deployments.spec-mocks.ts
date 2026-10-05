@@ -1,7 +1,7 @@
 import { vi } from 'vite-plus/test';
 import type { DeploymentPreviewStatus as PreviewStatusResult } from '@senv/api/shared/deployments';
 import {
-  audit,
+  history,
   deployments,
   registryCredentials,
   settings,
@@ -31,9 +31,9 @@ export const mock = {
     queryFn: async () => deployments,
     refetchInterval: false,
   })),
-  audit: vi.fn(() => ({
-    queryKey: ['audit'],
-    queryFn: async () => audit,
+  history: vi.fn(() => ({
+    queryKey: ['history'],
+    queryFn: async () => history,
   })),
   settings: vi.fn(() => ({
     queryKey: ['settings'],

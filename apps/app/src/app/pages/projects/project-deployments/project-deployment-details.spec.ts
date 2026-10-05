@@ -24,7 +24,7 @@ test('deployment details explain expiry without repeating the ID as a title', as
   expect(element.textContent).toContain('Configuration out of date');
   expect(element.textContent).toContain('Health checks');
   expect(element.querySelector('#deployment-configuration')).not.toBeNull();
-  expect(element.querySelector('#deployment-audit')).not.toBeNull();
+  expect(element.querySelector('#deployment-history')).not.toBeNull();
   expect(
     element.querySelector(
       '#deployment-information app-deployment-preview-status',
@@ -46,7 +46,7 @@ test('deployment details explain expiry without repeating the ID as a title', as
   );
   expect(element.textContent).toContain('Expires');
   expect(element.textContent).toContain('Oct 12, 2026');
-  expect(element.textContent).toContain('audit history remains available');
+  expect(element.textContent).toContain('history remains available');
   expect(element.textContent).toContain('assign a tag to prevent expiry');
   expect(element.textContent).toContain('Retention started');
 });

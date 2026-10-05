@@ -1,20 +1,31 @@
-import { and, asc, count, desc, eq, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, lt, or, sql } from 'drizzle-orm';
 import { deploymentHistory } from '../../../../../../drizzle/schema';
-import type { DeploymentAuditQuery } from '../../../../shared/deployment-audit';
-import type { DeploymentActor, DeploymentAuditEntry } from '../../../../shared/deployments';
+import type { DeploymentHistoryQuery } from '../../../../shared/deployment-history';
+import type { DeploymentActor, DeploymentHistoryEntry } from '../../../../shared/deployments';
 import { db } from '../../../infrastructure/db';
 
-function scopeFilter(input: DeploymentAuditQuery) {
+function scopeFilter(input: DeploymentHistoryQuery) {
   return and(
     eq(deploymentHistory.projectId, input.projectId),
     input.deploymentId ? eq(deploymentHistory.deploymentId, input.deploymentId) : undefined,
   );
 }
 
-function entryFilter(input: DeploymentAuditQuery) {
+function entryFilter(input: DeploymentHistoryQuery) {
   const search = input.search.toLowerCase();
   return and(
     scopeFilter(input),
+    input.cursor === undefined
+      ? undefined
+      : typeof input.cursor === 'number'
+        ? lt(deploymentHistory.createdAt, new Date(input.cursor))
+        : or(
+            lt(deploymentHistory.createdAt, input.cursor.createdAt),
+            and(
+              eq(deploymentHistory.createdAt, input.cursor.createdAt),
+              lt(deploymentHistory.id, input.cursor.id),
+            ),
+          ),
     input.event ? eq(deploymentHistory.event, input.event) : undefined,
     input.actor === 'system'
       ? eq(deploymentHistory.actorType, 'system')
@@ -33,8 +44,8 @@ function entryFilter(input: DeploymentAuditQuery) {
   );
 }
 
-export function listDeploymentAudit(input: DeploymentAuditQuery): {
-  entries: DeploymentAuditEntry[];
+export function listDeploymentHistoryPage(input: DeploymentHistoryQuery): {
+  entries: DeploymentHistoryEntry[];
   total: number;
   events: string[];
   actors: Array<{ id: string; name: string }>;
@@ -55,7 +66,7 @@ export function listDeploymentAudit(input: DeploymentAuditQuery): {
     .orderBy(direction(sortColumns[input.sortBy]), desc(deploymentHistory.id))
     .limit(input.limit)
     .offset(input.offset)
-    .all() as DeploymentAuditEntry[];
+    .all() as DeploymentHistoryEntry[];
   const total = db.select({ total: count() }).from(deploymentHistory).where(filter).get()!.total;
   const events = db
     .selectDistinct({ event: deploymentHistory.event })

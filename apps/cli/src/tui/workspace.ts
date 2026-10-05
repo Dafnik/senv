@@ -64,7 +64,6 @@ export function deploymentRow(
   } = withAddresses(deployment);
   // Configuration and environment values are deliberately excluded from TUI state.
   const data = { ...safe };
-  delete (data as { history?: unknown }).history;
   return row(
     deployment.id,
     `${deployment.id}  ${deployment.kind}  ${deployment.status}`,
@@ -90,7 +89,7 @@ export async function selectProject(
   };
 }
 function historyRows(
-  entries: Awaited<ReturnType<Client['deployments']['audit']['query']>>['entries'],
+  entries: Awaited<ReturnType<Client['deployments']['history']['query']>>['entries'],
 ) {
   return entries.map((entry) =>
     detailDocument(
@@ -146,7 +145,7 @@ export async function loadScreen(
       };
     }
     case 'History': {
-      const result = await client.deployments.audit.query({
+      const result = await client.deployments.history.query({
         projectId,
         limit: pageSize,
         offset,
@@ -351,7 +350,7 @@ export async function loadDeployment(
     }
     case 'History': {
       const offset = Number(previous?.data.offset ?? 0);
-      const result = await value.client.deployments.audit.query({
+      const result = await value.client.deployments.history.query({
         ...input,
         search: options.query,
         event: options.historyEvent || undefined,

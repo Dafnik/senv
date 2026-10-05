@@ -90,12 +90,14 @@ export function registerRecoveryScenarios(harness: LifecycleHarness): void {
       db.$client.close();
     }
     await rpc(harness, 'deployments.removeHistory', input(harness, harness.replacement.id));
-    const history = await rpc<Array<{ deploymentId: string }>>(
+    const history = await rpc<{ entries: Array<{ deploymentId: string }> }>(
       harness,
       'deployments.history',
       { projectId: harness.project.id },
       true,
     );
-    expect(history.some((event) => event.deploymentId === harness.replacement.id)).toBe(false);
+    expect(history.entries.some((event) => event.deploymentId === harness.replacement.id)).toBe(
+      false,
+    );
   }, 120_000);
 }

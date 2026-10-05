@@ -17,3 +17,5 @@ export function removeDeploymentHistory(projectId: string, deploymentId: string)
   });
   return { success: true };
 }
+
+export { listDeploymentHistoryPage } from '../repositories/history-page';

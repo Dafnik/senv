@@ -1,4 +1,4 @@
-import { and, eq, isNotNull } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNotNull } from 'drizzle-orm';
 import { deployment, deploymentArtifact } from '../../../../../../drizzle/schema';
 import { db, type QueryHandle } from '../../../infrastructure/db';
 
@@ -46,6 +46,40 @@ export function listArtifactStorageKeys() {
 
 export function listArtifacts() {
   return db.select().from(deploymentArtifact).all();
+}
+
+export function listProjectArtifacts(projectId: string, limit: number, offset: number) {
+  const condition = and(
+    eq(deploymentArtifact.projectId, projectId),
+    eq(deploymentArtifact.kind, 'static'),
+    isNotNull(deploymentArtifact.publishedAt),
+  );
+  return {
+    items: db
+      .select()
+      .from(deploymentArtifact)
+      .where(condition)
+      .orderBy(desc(deploymentArtifact.createdAt), desc(deploymentArtifact.id))
+      .limit(limit)
+      .offset(offset)
+      .all(),
+    total: db.select({ value: count() }).from(deploymentArtifact).where(condition).get()!.value,
+  };
+}
+
+export function listArtifactDeployments(projectId: string, artifactIds: string[]) {
+  if (!artifactIds.length) return [];
+  return db
+    .select({
+      id: deployment.id,
+      artifactId: deployment.artifactId,
+      status: deployment.status,
+      source: deployment.source,
+    })
+    .from(deployment)
+    .where(and(eq(deployment.projectId, projectId), inArray(deployment.artifactId, artifactIds)))
+    .orderBy(deployment.submissionOrder)
+    .all();
 }
 
 export function listArtifactsByStorageKey(storageKey: string) {

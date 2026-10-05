@@ -45,7 +45,7 @@ export function retentionInfo(deployment: PublicDeployment, now = Date.now()) {
       label: 'Removed',
       context: 'History retained',
       description:
-        'The runtime and artifacts have been removed. Audit history remains available.',
+        'The runtime and artifacts have been removed. History remains available.',
       overdue: false,
       deadline: null,
     };
@@ -54,7 +54,7 @@ export function retentionInfo(deployment: PublicDeployment, now = Date.now()) {
       label: 'Removal pending',
       context: 'Cleanup in progress',
       description:
-        'The runtime and artifacts are being removed. Audit history will remain available.',
+        'The runtime and artifacts are being removed. History will remain available.',
       overdue: false,
       deadline: null,
     };
@@ -91,7 +91,7 @@ export function retentionInfo(deployment: PublicDeployment, now = Date.now()) {
   return {
     label: 'Expires',
     context,
-    description: `After expiry, audit history remains available. Pin the deployment or assign a tag to prevent expiry.`,
+    description: `After expiry, history remains available. Pin the deployment or assign a tag to prevent expiry.`,
     overdue: remaining <= 0,
     deadline,
   };

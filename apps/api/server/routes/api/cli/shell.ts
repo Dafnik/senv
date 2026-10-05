@@ -1,4 +1,4 @@
-import { createError, defineWebSocketHandler } from 'nitro/h3';
+import { HTTPError, defineWebSocketHandler } from 'nitro/h3';
 import * as z from 'zod';
 import { DockerEngine } from '../../../infrastructure/docker-engine';
 import {
@@ -29,9 +29,9 @@ const control = (value: unknown) =>
 
 export default defineWebSocketHandler(async (event) => {
   if (!event.req.headers.get('authorization'))
-    throw createError({ statusCode: 401, statusMessage: 'A CLI bearer session is required.' });
+    throw new HTTPError({ status: 401, message: 'A CLI bearer session is required.' });
   const principal = await resolvePrincipal(event.req.headers).catch(() => {
-    throw createError({ statusCode: 401 });
+    throw new HTTPError({ status: 401 });
   });
   requirePersonal(principal);
   let grant: ShellGrant | undefined;

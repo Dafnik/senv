@@ -17,8 +17,11 @@ export {
   listReferencedArtifactStorageKeys,
   registerUploadedArtifact,
 } from './services/artifacts';
-export { listDeploymentAudit } from './services/audit';
-export { listDeploymentHistory, removeDeploymentHistory } from './services/history';
+export {
+  listDeploymentHistory,
+  listDeploymentHistoryPage,
+  removeDeploymentHistory,
+} from './services/history';
 export { publishDeployment } from './services/publication';
 export {
   cleanupDueDeployments,

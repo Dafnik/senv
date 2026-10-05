@@ -1,5 +1,5 @@
 import * as z from 'zod';
-import { deploymentAuditQuerySchema } from '../../../shared/deployment-audit';
+import { deploymentHistoryQuerySchema } from '../../../shared/deployment-history';
 import { registryCredentialInputSchema } from '../../../shared/deployment-credentials';
 import { publishDeploymentSchema } from '../../../shared/deployments';
 import { authedProcedure, router } from '../../trpc/trpc';
@@ -10,8 +10,7 @@ import {
   deleteRegistryCredential,
   getDeploymentLogs,
   getProjectDeployment,
-  listDeploymentAudit,
-  listDeploymentHistory,
+  listDeploymentHistoryPage,
   listProjectDeployments,
   listRegistryCredentials,
   publishDeployment,
@@ -72,7 +71,6 @@ export const deploymentsRouter = router({
     const detail = getProjectDeployment(input.projectId, input.deploymentId);
     return {
       ...detail,
-      history: listDeploymentHistory(input.projectId, 100, undefined, input.deploymentId),
       baseDomain: process.env['PREVIEW_BASE_DOMAIN'] ?? 'preview.localhost',
     };
   }),
@@ -103,27 +101,11 @@ export const deploymentsRouter = router({
     accessibleDeployment(input.projectId, input.deploymentId, ctx.user, 'manage');
     return deleteDeployment(input.deploymentId, ctx.user);
   }),
-  history: authedProcedure
-    .input(
-      projectIdInput.extend({
-        limit: z.number().int().min(1).max(200).default(100),
-        cursor: z
-          .union([
-            z.number().int().nonnegative(),
-            z.object({ createdAt: z.date(), id: z.string().min(1) }),
-          ])
-          .optional(),
-      }),
-    )
-    .query(({ ctx, input }) => {
-      assertProjectAccess(input.projectId, ctx.user, 'read');
-      return listDeploymentHistory(input.projectId, input.limit, input.cursor);
-    }),
-  audit: authedProcedure.input(deploymentAuditQuerySchema).query(({ ctx, input }) => {
+  history: authedProcedure.input(deploymentHistoryQuerySchema).query(({ ctx, input }) => {
     if (input.deploymentId)
       accessibleDeployment(input.projectId, input.deploymentId, ctx.user, 'read');
     else assertProjectAccess(input.projectId, ctx.user, 'read');
-    return listDeploymentAudit(input);
+    return listDeploymentHistoryPage(input);
   }),
   removeHistory: authedProcedure.input(deploymentInput).mutation(({ ctx, input }) => {
     assertProjectAccess(input.projectId, ctx.user, 'admin');

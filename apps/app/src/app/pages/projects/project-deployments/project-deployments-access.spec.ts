@@ -18,7 +18,7 @@ test('viewers can inspect deployment status and preview without mutation control
       ?.getAttribute('href'),
   ).toBe(deployments[0]!.previewUrl);
   expect(fixture.nativeElement.textContent).toContain('feature/ui');
-  expect(fixture.nativeElement.querySelector('#deployment-audit')).toBeNull();
+  expect(fixture.nativeElement.querySelector('#deployment-history')).toBeNull();
   expect(aliasUrl(deployments[0]!, deployments[0]!.branchAlias!)).toBe(
     'https://br-feature-ui.project.preview.example.test/',
   );

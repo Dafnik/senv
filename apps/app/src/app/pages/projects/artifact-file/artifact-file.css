@@ -1,0 +1,13 @@
+.code-preview span[style] {
+  color: var(--token-light);
+}
+:host-context(.dark) .code-preview span[style] {
+  color: var(--token-dark);
+}
+.image-preview {
+  background-image: repeating-conic-gradient(
+    var(--muted) 0% 25%,
+    var(--background) 0% 50%
+  );
+  background-size: 24px 24px;
+}
