@@ -2,6 +2,7 @@ import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { request as httpRequest, type IncomingMessage, type RequestOptions } from 'node:http';
 import { pipeline } from 'node:stream/promises';
+import { Duplex } from 'node:stream';
 
 export type DockerResponse<T> = { status: number; headers: IncomingMessage['headers']; body: T };
 export type DockerEngineOptions = { socketPath?: string; apiVersion?: string; timeoutMs?: number };
@@ -83,6 +84,39 @@ export class DockerEngine {
       throw new Error(`Docker Engine ${method} ${path} failed (${response.statusCode}): ${body}`);
     }
     return response;
+  }
+
+  async attachExec(execId: string): Promise<Duplex> {
+    const payload = Buffer.from(JSON.stringify({ Detach: false, Tty: true }));
+    const req = this.#request('POST', `/exec/${encodeURIComponent(execId)}/start`, {
+      'content-type': 'application/json',
+      'content-length': String(payload.length),
+      connection: 'Upgrade',
+      upgrade: 'tcp',
+    });
+    return new Promise((resolve, reject) => {
+      req.setTimeout(this.#timeoutMs, () =>
+        req.destroy(new Error('Docker exec attach timed out.')),
+      );
+      req.once('error', reject);
+      req.once('upgrade', (_response, socket, head) => {
+        req.setTimeout(0);
+        socket.setTimeout(0);
+        if (head.length) socket.unshift(head);
+        resolve(socket);
+      });
+      req.once('response', (response) => {
+        req.setTimeout(0);
+        if (response.statusCode !== 200 || !response.socket) {
+          response.resume();
+          reject(new Error(`Docker exec attach failed (${response.statusCode}).`));
+          return;
+        }
+        response.socket.setTimeout(0);
+        resolve(Duplex.from({ readable: response, writable: response.socket }));
+      });
+      req.end(payload);
+    });
   }
 
   async uploadFile(

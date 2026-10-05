@@ -124,8 +124,21 @@ import { canReuseDeployment } from './deployment-presentation';
             are hidden.
           </p>
         </div>
-        <div class="border-t pt-5">
-          <h3 class="mb-2 text-sm font-semibold">Artifact</h3>
+        <div class="border-t pt-5 grid gap-2">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+              <h3 class="text-sm font-semibold">Artifact</h3>
+            @if (canManage() && canReuse(deployment)) {
+              <a
+                hlmBtn
+                size="sm"
+                variant="outline"
+                [routerLink]="['/projects', projectSlug(), 'deployments']"
+                [queryParams]="{ redeploy: deployment.id }"
+              >
+                Redeploy
+              </a>
+            }
+          </div>
           <p
             class="text-muted-foreground font-mono text-xs leading-5 break-all"
           >
@@ -133,18 +146,6 @@ import { canReuseDeployment } from './deployment-presentation';
               deployment.artifactId || deployment.imageDigest || 'Not available'
             }}
           </p>
-          @if (canManage() && canReuse(deployment)) {
-            <a
-              hlmBtn
-              size="sm"
-              variant="outline"
-              class="mt-3"
-              [routerLink]="['/projects', projectSlug(), 'deployments']"
-              [queryParams]="{ redeploy: deployment.id }"
-            >
-              Redeploy
-            </a>
-          }
         </div>
         <details class="border-t pt-4">
           <summary class="text-muted-foreground cursor-pointer text-sm">

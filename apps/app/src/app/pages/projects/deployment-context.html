@@ -110,7 +110,7 @@
 <app-deployment-preview-status [deployment]="item" />
 @if (
   item.failureReason || item.status === 'failed' || item.status === 'unhealthy'
-  ) {
+) {
   <p
     role="alert"
     class="text-destructive border-destructive/20 bg-destructive/5 rounded-md border p-4 text-sm"

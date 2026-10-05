@@ -1,7 +1,7 @@
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
-import { admin } from 'better-auth/plugins';
+import { admin, bearer, deviceAuthorization } from 'better-auth/plugins';
 import * as schema from '../../../../../drizzle/schema';
 import { db } from '../../infrastructure/db';
 import env from '../../infrastructure/env';
@@ -11,6 +11,7 @@ import { administerAccount } from './services/account-administration';
 import { accountPassword } from './services/password-options';
 import { instanceSetup } from './services/setup-options';
 import { accountSignup, sendAccountSignupInvitation } from './services/signup-options';
+import { beforeCliAuth, afterCliAuth } from './services/cli-auth-options';
 
 export const auth = betterAuth({
   baseURL: env.API_URL,
@@ -42,10 +43,15 @@ export const auth = betterAuth({
       '/account-signup/resend': { window: 60, max: 5 },
       '/account-password/request': { window: 60, max: 5 },
       '/account-password/admin-reset': { window: 60, max: 5 },
+      '/device/code': { window: 60, max: 10 },
+      '/device/token': { window: 60, max: 30 },
+      '/device/approve': { window: 60, max: 10 },
+      '/device/deny': { window: 60, max: 10 },
     },
   },
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
+      await beforeCliAuth(ctx);
       const response = await administerAccount(ctx);
       if (response) return response;
       // Better Auth cancels the previous link before beforeCreateInvitation runs.
@@ -60,6 +66,7 @@ export const auth = betterAuth({
       return undefined;
     }),
     after: createAuthMiddleware(async (ctx) => {
+      await afterCliAuth(ctx);
       if (ctx.path !== '/admin/create-user' || !ctx.request) return;
       const result = ctx.context.returned as
         | { user?: { id: string; email: string; name: string } }
@@ -77,7 +84,20 @@ export const auth = betterAuth({
       return ctx.json({ ...result, signupEmailSent });
     }),
   },
-  plugins: [admin(), projects, instanceSetup, accountSignup, accountPassword],
+  plugins: [
+    admin(),
+    projects,
+    instanceSetup,
+    accountSignup,
+    accountPassword,
+    bearer(),
+    deviceAuthorization({
+      verificationUri: new URL('/cli/authorize', env.APP_URL).href,
+      validateClient: (id) => id === 'senv-cli',
+      expiresIn: '10m',
+      interval: '5s',
+    }),
+  ],
 });
 
 export default { fetch: auth.handler };

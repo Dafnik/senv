@@ -1,6 +1,6 @@
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { randomBytes } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect } from 'vite-plus/test';
@@ -48,7 +48,12 @@ describe.runIf(process.env['SENV_DOCKER_TESTS'] === 'true')('live deployment lif
     await readFile(resolve('dist/apps/api/server/index.mjs'));
     harness.directory = await mkdtemp(join(tmpdir(), 'senv-lifecycle-'));
     await chmod(harness.directory, 0o755);
-    await mkdir(join(harness.directory, 'deployments'), { mode: 0o755 });
+    await mkdir(join(harness.directory, 'deployments/routes'), { recursive: true, mode: 0o755 });
+    // Uploaded YAML must never be parsed by Traefik's file provider.
+    await writeFile(
+      join(harness.directory, 'deployments/uploaded-site.yml'),
+      'http: [invalid deployment artifact',
+    );
     const db = createDatabase(`file:${join(harness.directory, 'senv.sqlite')}`);
     migrate(db, { migrationsFolder: 'drizzle/migrations' });
     db.$client.close();
@@ -72,7 +77,7 @@ describe.runIf(process.env['SENV_DOCKER_TESTS'] === 'true')('live deployment lif
       ExposedPorts: { '80/tcp': {}, '8080/tcp': {} },
       HostConfig: {
         NetworkMode: network,
-        Binds: [`${join(harness.directory, 'deployments')}:/etc/traefik/dynamic:ro`],
+        Binds: [`${join(harness.directory, 'deployments/routes')}:/etc/traefik/dynamic:ro`],
         PortBindings: {
           '80/tcp': [{ HostIp: '127.0.0.1', HostPort: '0' }],
           '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '0' }],

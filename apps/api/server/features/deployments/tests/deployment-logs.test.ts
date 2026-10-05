@@ -1,8 +1,46 @@
 import { eq } from 'drizzle-orm';
-import { expect, test, vi } from 'vite-plus/test';
+import { beforeAll, expect, test, vi } from 'vite-plus/test';
 import { deployment, deploymentLog } from '../../../../../../drizzle/schema.ts';
 
 import { api, db, projectId, publishStatic } from './deployments.test-support.ts';
+let forwardDeploymentLogs: (typeof import('../repositories/logs'))['forwardDeploymentLogs'];
+
+// Load database-backed code after the shared harness selects its temporary database.
+beforeAll(async () => {
+  ({ forwardDeploymentLogs } = await import('../repositories/logs'));
+});
+
+test('forward log polling handles multiple pages and detects retention gaps without duplicates', async () => {
+  const artifact = api.registerUploadedArtifact({
+    projectId,
+    kind: 'static',
+    storageKey: 'b'.repeat(64),
+    size: 1,
+    sha256: 'b'.repeat(64),
+  });
+  const target = await publishStatic({ artifactId: artifact.artifactId });
+  api.appendDeploymentLog(target.id, 'origin', 'initial');
+  const initial = forwardDeploymentLogs(target.id, 'origin', 2);
+  for (let index = 0; index < 5; index++)
+    api.appendDeploymentLog(target.id, 'origin', `new-${index}`);
+  const first = forwardDeploymentLogs(target.id, 'origin', 2, initial.afterSequence);
+  const second = forwardDeploymentLogs(target.id, 'origin', 2, first.afterSequence);
+  const third = forwardDeploymentLogs(target.id, 'origin', 2, second.afterSequence);
+  expect([...first.logs, ...second.logs, ...third.logs].map((row) => row.content)).toEqual([
+    'new-0',
+    'new-1',
+    'new-2',
+    'new-3',
+    'new-4',
+  ]);
+  expect(first.hasMore).toBe(true);
+  expect(third.hasMore).toBe(false);
+  expect(forwardDeploymentLogs(target.id, 'origin', 2, third.afterSequence).logs).toEqual([]);
+  db.delete(deploymentLog).where(eq(deploymentLog.sequence, initial.afterSequence)).run();
+  expect(forwardDeploymentLogs(target.id, 'origin', 2, initial.afterSequence).retentionGap).toBe(
+    true,
+  );
+});
 
 test('deployment logs page through every retained row with a stable cursor', async () => {
   const artifact = api.registerUploadedArtifact({

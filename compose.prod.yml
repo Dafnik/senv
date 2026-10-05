@@ -27,7 +27,7 @@ services:
       DEPLOYMENT_ARTIFACT_VOLUME: senv-deployment-data-${SENV_INSTANCE_ID:-${COMPOSE_PROJECT_NAME:-senv}}
       SENV_INSTANCE_ID: ${SENV_INSTANCE_ID:-${COMPOSE_PROJECT_NAME:-senv}}
       PREVIEW_BASE_DOMAIN: ${PREVIEW_BASE_DOMAIN:-preview.example.com}
-      PREVIEW_DYNAMIC_CONFIG: /data/deployments/senv-routes.yml
+      PREVIEW_DYNAMIC_CONFIG: /data/preview-routes/senv-routes.yml
       PREVIEW_ENTRYPOINTS: ${PREVIEW_ENTRYPOINTS:-websecure}
       PREVIEW_TLS: ${PREVIEW_TLS:-true}
       PREVIEW_TLS_RESOLVER: ${PREVIEW_TLS_RESOLVER:-}
@@ -36,6 +36,7 @@ services:
     volumes:
       - db-data:/data
       - deployment-data:/data/deployments
+      - preview-route-data:/data/preview-routes
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - default
@@ -71,12 +72,13 @@ services:
       - ${PREVIEW_HTTPS_PORT:-443}:443
       - '127.0.0.1:${PREVIEW_TRAEFIK_API_PORT:-8080}:8080'
     volumes:
-      - deployment-data:/etc/traefik/dynamic:ro
+      - preview-route-data:/etc/traefik/dynamic:ro
     networks:
       - preview
 
 volumes:
   db-data:
+  preview-route-data:
   deployment-data:
     name: senv-deployment-data-${SENV_INSTANCE_ID:-${COMPOSE_PROJECT_NAME:-senv}}
 

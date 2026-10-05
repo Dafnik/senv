@@ -64,7 +64,6 @@ export class DeploymentListItem {
     'deployments',
     this.deployment().id,
   ]);
-  readonly logsLink = computed(() => [...this.detailLink(), 'logs']);
   readonly dateLabel = dateLabel;
   readonly statusVariant = statusVariant;
   readonly canMutate = canMutateDeployment;

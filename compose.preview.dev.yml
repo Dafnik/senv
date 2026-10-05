@@ -13,7 +13,7 @@ services:
       - ${PREVIEW_HTTP_PORT:-80}:80
       - '127.0.0.1:${PREVIEW_TRAEFIK_API_PORT:-8080}:8080'
     volumes:
-      - ${DEPLOYMENT_STORAGE_DIR:-./data/deployments}:/etc/traefik/dynamic:ro
+      - ${PREVIEW_CONFIG_DIR:-${DEPLOYMENT_STORAGE_DIR:-./data/deployments}/routes}:/etc/traefik/dynamic:ro
     networks:
       - preview
 

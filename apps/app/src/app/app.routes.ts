@@ -61,6 +61,14 @@ export const appRoutes: Route[] = [
     canActivate: [instanceReadyGuard, authGuard()],
     children: [
       {
+        path: 'cli/authorize',
+        loadComponent: () =>
+          import('./pages/cli/cli-authorize/cli-authorize').then(
+            (m) => m.CliAuthorize,
+          ),
+        title: 'Authorize senv CLI',
+      },
+      {
         path: 'profile',
         loadComponent: () =>
           import('./pages/profile/profile-page/profile-page.page').then(

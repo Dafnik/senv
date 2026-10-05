@@ -3,8 +3,8 @@ import {
   Component,
   computed,
   input,
+  linkedSignal,
   model,
-  signal,
 } from '@angular/core';
 import {
   type FormValueControl,
@@ -18,6 +18,7 @@ export const durationUnits = [
   { value: 'hours', label: 'Hours', seconds: 3600 },
   { value: 'days', label: 'Days', seconds: 86400 },
   { value: 'months', label: 'Months', seconds: 2592000 },
+  { value: 'years', label: 'Years', seconds: 31536000 },
 ] as const;
 
 @Component({
@@ -65,6 +66,9 @@ export const durationUnits = [
     @if (unit() === 'months') {
       <p class="text-muted-foreground mt-1 text-xs">1 month = 30 days.</p>
     }
+    @if (unit() === 'years') {
+      <p class="text-muted-foreground mt-1 text-xs">1 year = 365 days.</p>
+    }
     @if (min() !== undefined && max() !== undefined) {
       <p class="text-muted-foreground mt-1 text-xs">
         Allowed: {{ min() }}–{{ max() }} seconds.
@@ -91,19 +95,31 @@ export class DurationInput implements FormValueControl<number> {
   readonly min = input<number>();
   readonly max = input<number>();
   readonly secondsOnly = input(false);
+  readonly allowedUnits = input<readonly string[]>(
+    durationUnits.map((option) => option.value),
+  );
   readonly units = computed(() =>
     durationUnits.filter(
-      (option) => this.max() === undefined || option.seconds <= this.max()!,
+      (option) =>
+        this.allowedUnits().includes(option.value) &&
+        (this.max() === undefined || option.seconds <= this.max()!),
     ),
   );
-  readonly unit = signal<string>('seconds');
+  readonly defaultUnit = input('seconds');
+  readonly unit = linkedSignal(() =>
+    this.units().some((option) => option.value === this.defaultUnit())
+      ? this.defaultUnit()
+      : (this.units()[0]?.value ?? 'seconds'),
+  );
   readonly multiplier = computed(() =>
     this.secondsOnly()
       ? 1
       : (this.units().find((option) => option.value === this.unit())?.seconds ??
         1),
   );
-  readonly amount = computed(() => this.value() / this.multiplier());
+  readonly amount = computed(() =>
+    Number.isNaN(this.value()) ? '' : this.value() / this.multiplier(),
+  );
   setUnit(unit: string | null | undefined) {
     if (
       this.secondsOnly() ||

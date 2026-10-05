@@ -4,7 +4,6 @@
     "jsx": "react-jsx",
     "strict": true,
     "lib": ["ES2022", "DOM"],
-    // API router type inference traverses server source; those implementation files are not app output.
     "importHelpers": false,
     "noImplicitOverride": true,
     "noPropertyAccessFromIndexSignature": true,
@@ -51,7 +50,8 @@
       ],
       "@spartan-ng/helm/breadcrumb": ["./libs/ui/breadcrumb/src/index.ts"],
       "@spartan-ng/helm/button-group": ["./libs/ui/button-group/src/index.ts"],
-      "@spartan-ng/helm/chart": ["./libs/ui/chart/src/index.ts"]
+      "@spartan-ng/helm/chart": ["./libs/ui/chart/src/index.ts"],
+      "@spartan-ng/helm/combobox": ["./libs/ui/combobox/src/index.ts"]
     }
   },
   "angularCompilerOptions": {

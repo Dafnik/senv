@@ -44,7 +44,7 @@ import type { DeploymentLogLine } from '../deployment-log-lines';
       [itemSize]="lineHeight"
       [minBufferPx]="240"
       [maxBufferPx]="480"
-      class="h-[65vh] min-h-96 font-mono text-xs leading-6 pb-5"
+      class="h-[65vh] min-h-96 pb-5 font-mono text-xs leading-6"
       tabindex="0"
       role="list"
       [attr.aria-label]="label()"

@@ -71,3 +71,31 @@ test('short timeouts have no unit selector and continue to save seconds', async 
   await fixture.whenStable();
   expect(fixture.componentInstance.value()).toBe(10);
 });
+
+test('months and years store seconds and empty values stay empty when units change', async () => {
+  const fixture = TestBed.createComponent(DurationInput);
+  fixture.componentRef.setInput('inputId', 'lifetime');
+  fixture.componentRef.setInput('defaultUnit', 'days');
+  fixture.componentRef.setInput('value', 2592000);
+  await fixture.whenStable();
+  const input = fixture.nativeElement.querySelector(
+    'input',
+  ) as HTMLInputElement;
+  expect(input.value).toBe('30');
+  for (const [unit, seconds] of [
+    ['months', 2592000],
+    ['years', 31536000],
+  ] as const) {
+    fixture.componentInstance.setUnit(unit);
+    input.value = '2';
+    input.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    expect(fixture.componentInstance.value()).toBe(2 * seconds);
+  }
+  input.value = '';
+  input.dispatchEvent(new Event('input'));
+  fixture.componentInstance.setUnit('months');
+  await fixture.whenStable();
+  expect(Number.isNaN(fixture.componentInstance.value())).toBe(true);
+  expect(input.value).toBe('');
+});

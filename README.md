@@ -17,7 +17,7 @@ cp .env.dev .env
 
 Set `BETTER_AUTH_SECRET` in `.env`, for example with `openssl rand -base64 32`. The default `DATABASE_URL=file:./data/senv.sqlite` creates a local database under `data/`. Database paths are relative to the working directory, and workspace scripts run database commands and the API from the repository root.
 
-Initialize the database and start both apps:
+Initialize the database and start the apps:
 
 ```bash
 vp run db:migrate
@@ -68,14 +68,23 @@ control the preview slug and retention/resource defaults. Instance admins can
 manage instance upload, proxy, and log limits. Unsaved project-name drafts survive
 background refreshes, with a warning if the saved name changes.
 
+## CLI and access management
+
+The Commander CLI and its full-screen `senv tui` interface reuse the typed tRPC API, profiles, and credentials. See [the CLI guide](apps/cli/README.md) for installation, browser-approved login, TUI shortcuts, CI tokens, commands, and shell access. Build it with `vp run @senv/cli#build`; package it with `pnpm --filter @senv/cli pack --pack-destination /tmp`.
+
+Profile manages independent browser/CLI sessions and project-scoped automation tokens. `/cli/authorize` requires an explicit review and approval of the terminal code. Automation tokens default to 30 days, accept seconds/days/months/years in the access form, and never expire when the lifetime is empty. They cannot open shells or administer users. Password reset invalidates sessions, tokens, and outstanding device authorizations.
+
+Interactive shells use only the running app/static origin and the container's configured user. The API owns Docker access and verifies deployment labels and current permissions; the CLI needs no local Docker socket. The API ingress must forward WebSocket upgrades at `/api/cli/shell`. Project configuration and instance defaults have no CLI management commands.
+
 ## Workspace commands
 
 ```bash
-vp run build                 # Angular SSR and Nitro production builds
+vp run build                 # CLI, Angular SSR and Nitro production builds
 vp run check                 # Vite Plus checks and Angular Prettier checks
 vp run fmt                   # Format the repository
-vp run test                  # Database, API, and Angular tests
+vp run test                  # Database, API, CLI, and Angular tests
 vp run @senv/api#typecheck     # Check API types
+vp run @senv/cli#typecheck     # Check CLI types
 vp run @senv/app#test          # Angular CLI unit tests
 ```
 
@@ -109,14 +118,14 @@ vp run db:migrate
 
 `vp run db:studio` opens Drizzle Studio. `vp run db:push` applies schema changes directly for local experimentation; use checked-in migrations for deployment.
 
-After changing Better Auth plugins, generate its schema into `drizzle/auth-schema.generated.ts`. Review that output and merge the required auth changes into `schema-core.ts` and `schema-access.ts` before generating a migration. The generated file is outside the schema export path, so generation preserves the deployment tables:
+After changing Better Auth plugins, generate its schema into `drizzle/auth-schema.generated.ts`. Review that output and merge the required auth changes into `schema-core.ts`, `schema-access.ts`, and `schema-cli.ts` before generating a migration. The generated file is outside the schema export path, so generation preserves the deployment tables:
 
 ```bash
 vp run auth:generate
 vp run db:generate
 ```
 
-This WIP uses a single initial SQLite migration. There is no upgrade or data conversion path. When the schema changes, stop the apps, remove the local database (`data/senv.sqlite`, `data/senv.sqlite-wal`, and `data/senv.sqlite-shm`), and run `vp run db:migrate` to initialize a fresh database. Setup then creates a new admin.
+Apply checked-in migrations with `vp run db:migrate` when upgrading. The CLI migration `0002_cli_access.sql` adds device authorization, CLI session metadata, and hashed automation-token tables without deleting existing users, sessions, projects, or deployments. Back up the SQLite database before a production upgrade. `0003_automation_token_optional_expiry.sql` makes token expiry optional while preserving existing credentials. No database reset is required.
 
 ## SSR preview
 
@@ -137,7 +146,7 @@ vp run build
 docker compose -f compose.prod.yml up -d --build
 ```
 
-The `db-migrate` service applies Drizzle migrations before the API starts. The API mounts `db-data` at `/data` and the separate `deployment-data` volume at `/data/deployments`. Keep both volumes when recreating containers. `preview-proxy` is Traefik's public entry point; it reads an atomically replaced route file from `deployment-data` and shares a private Docker network with the API and deployment containers.
+The `db-migrate` service applies Drizzle migrations before the API starts. The API mounts `db-data` at `/data` and the separate `deployment-data` volume at `/data/deployments`. Keep both volumes when recreating containers. `preview-proxy` is Traefik's public entry point; it reads an atomically replaced route file from the separate `preview-route-data` volume and shares a private Docker network with the API and deployment containers.
 
 Set the authentication URLs and preview address in `.env`. A production instance needs a unique senv namespace and a DNS name that points to the host:
 
@@ -161,9 +170,12 @@ The API mounts `/var/run/docker.sock`, which grants it control over containers o
 For local HTTP previews, `.env.dev` selects `preview.localhost`, the `web` entry point, HTTP, and the local Traefik acknowledgement API. Start the local Traefik entry point before publishing:
 
 ```bash
+mkdir -p "${DEPLOYMENT_STORAGE_DIR:-./data/deployments}/routes"
 docker compose -f compose.preview.dev.yml up -d
 vp run dev
 ```
+
+The local proxy mounts only `data/deployments/routes` (or `PREVIEW_CONFIG_DIR`), so uploaded YAML and inaccessible artifact directories are excluded from Traefik’s file provider. If `PREVIEW_DYNAMIC_CONFIG` is overridden, place that file in the mounted directory. After changing the mount, recreate the proxy with `docker compose -f compose.preview.dev.yml up -d --force-recreate preview-proxy`. If route acknowledgement reports empty routers, check that `docker compose -f compose.preview.dev.yml exec preview-proxy ls -la /etc/traefik/dynamic` can read `senv-routes.yml`.
 
 The Docker publish workflow builds the app, API, and migration images together. The API waits for Traefik to acknowledge each changed route snapshot before a route mutation completes; the Traefik API port is bound to loopback on the host and is not exposed publicly. Container health checks run inside the private network. The deployment detail page also requests the public preview root URL and reports its HTTP status, connection errors, and check time separately. It refreshes every 30 seconds and can be checked manually.
 

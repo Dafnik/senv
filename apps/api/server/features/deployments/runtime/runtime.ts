@@ -114,7 +114,7 @@ export class DeploymentRuntime {
       configFile:
         options.previewConfigFile ??
         process.env['PREVIEW_DYNAMIC_CONFIG'] ??
-        join(this.root, 'senv-routes.yml'),
+        join(this.root, 'routes', 'senv-routes.yml'),
       instanceId: this.instanceId,
       entryPoints:
         options.entryPoints ??

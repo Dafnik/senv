@@ -25,10 +25,41 @@ import {
 import { accessibleDeployment } from './services/access';
 import { requestDeploymentPreview } from './services/preview-status';
 import { getDeploymentResources, getDeploymentResourceHistory } from './services/resources';
+import { forwardDeploymentLogs } from './repositories/logs';
+import { createShellGrant, shellInput } from './services/shell';
+import { getInstanceDeploymentDefaults } from '../admin/services/deployment-defaults';
+import { maxStaticArtifactEntries } from './runtime/artifact-limits';
 
 const projectIdInput = z.object({ projectId: z.string().min(1) });
 const deploymentInput = z.object({ projectId: z.string().min(1), deploymentId: z.string().min(1) });
 export const deploymentsRouter = router({
+  uploadConstraints: authedProcedure.input(projectIdInput).query(({ ctx, input }) => {
+    assertProjectAccess(input.projectId, ctx.user, 'manage');
+    return {
+      maxBytes: getInstanceDeploymentDefaults().uploadLimitBytes,
+      maxEntries: maxStaticArtifactEntries,
+    };
+  }),
+  shellGrant: authedProcedure
+    .input(shellInput)
+    .mutation(({ ctx, input }) => createShellGrant(ctx, input)),
+  logsForward: authedProcedure
+    .input(
+      deploymentInput.extend({
+        source: z.enum(['origin', 'proxy']),
+        limit: z.number().int().min(1).max(500).default(100),
+        afterSequence: z.number().int().nonnegative().optional(),
+      }),
+    )
+    .query(({ ctx, input }) => {
+      accessibleDeployment(input.projectId, input.deploymentId, ctx.user, 'read');
+      return forwardDeploymentLogs(
+        input.deploymentId,
+        input.source,
+        input.limit,
+        input.afterSequence,
+      );
+    }),
   list: authedProcedure.input(projectIdInput).query(({ ctx, input }) => {
     assertProjectAccess(input.projectId, ctx.user, 'read');
     return {

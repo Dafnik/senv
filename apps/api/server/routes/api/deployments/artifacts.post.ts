@@ -1,5 +1,8 @@
 import { createError, defineEventHandler, getHeader, readMultipartFormData } from 'nitro/h3';
-import { auth } from '../../../features/auth/auth';
+import {
+  authorizeOperation,
+  resolvePrincipal,
+} from '../../../features/auth/services/request-principal';
 import { assertCanPublishProject } from '../../../features/projects/services/access';
 import { getInstanceDeploymentDefaults } from '../../../features/admin/services/deployment-defaults';
 import { registerUploadedArtifact } from '../../../features/deployments/index';
@@ -14,8 +17,13 @@ import { maxStaticArtifactEntries } from '../../../features/deployments/runtime/
 
 const multipartOverheadLimit = 8 * 1024 * 1024;
 export default defineEventHandler(async (event) => {
-  const session = await auth.api.getSession({ headers: event.req.headers });
-  if (!session)
+  const principal = await resolvePrincipal(event.req.headers).catch((error) => {
+    throw createError({
+      statusCode: error.code === 'FORBIDDEN' ? 403 : 401,
+      statusMessage: 'Sign in to upload deployment artifacts.',
+    });
+  });
+  if (!principal)
     throw createError({
       statusCode: 401,
       statusMessage: 'Sign in to upload deployment artifacts.',
@@ -58,7 +66,8 @@ export default defineEventHandler(async (event) => {
     : undefined;
   if (!projectId) throw createError({ statusCode: 400, statusMessage: 'projectId is required.' });
   try {
-    assertCanPublishProject(session.user.id, projectId);
+    authorizeOperation(principal, 'artifacts.upload', { projectId });
+    assertCanPublishProject(principal.user.id, projectId);
   } catch (error) {
     throw createError({
       statusCode: 403,

@@ -1,5 +1,11 @@
 import { and, count, eq, sql } from 'drizzle-orm';
-import { account, session, user } from '../../../../../../drizzle/schema';
+import {
+  account,
+  session,
+  user,
+  automationToken,
+  deviceCode,
+} from '../../../../../../drizzle/schema';
 import { db, type QueryHandle } from '../../../infrastructure/db';
 export function findAccount(userId: string, database: Pick<QueryHandle, 'select'> = db) {
   return database.select().from(user).where(eq(user.id, userId)).get();
@@ -28,6 +34,8 @@ export function verifyAccountEmail(database: QueryHandle, userId: string) {
   return database.update(user).set({ emailVerified: true }).where(eq(user.id, userId)).run();
 }
 export function deleteAccountSessions(database: QueryHandle, userId: string) {
+  database.delete(automationToken).where(eq(automationToken.userId, userId)).run();
+  database.delete(deviceCode).where(eq(deviceCode.userId, userId)).run();
   return database.delete(session).where(eq(session.userId, userId)).run();
 }
 export function findAccountByEmail(email: string) {

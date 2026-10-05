@@ -30,6 +30,45 @@ export function listDeploymentLogRows(
     .all();
 }
 
+export function forwardDeploymentLogs(
+  deploymentId: string,
+  source: 'proxy' | 'origin',
+  limit: number,
+  afterSequence?: number,
+) {
+  const scope = and(eq(deploymentLog.deploymentId, deploymentId), eq(deploymentLog.source, source));
+  const gap =
+    afterSequence !== undefined &&
+    afterSequence > 0 &&
+    !db
+      .select({ sequence: deploymentLog.sequence })
+      .from(deploymentLog)
+      .where(and(scope, eq(deploymentLog.sequence, afterSequence)))
+      .get();
+  const rows = db
+    .select()
+    .from(deploymentLog)
+    .where(
+      and(
+        scope,
+        afterSequence === undefined ? undefined : gt(deploymentLog.sequence, afterSequence),
+      ),
+    )
+    .orderBy(
+      afterSequence === undefined ? desc(deploymentLog.sequence) : asc(deploymentLog.sequence),
+    )
+    .limit(limit + 1)
+    .all();
+  const logs = rows.slice(0, limit);
+  if (afterSequence === undefined) logs.reverse();
+  return {
+    logs,
+    afterSequence: logs.at(-1)?.sequence ?? afterSequence ?? 0,
+    hasMore: afterSequence !== undefined && rows.length > limit,
+    retentionGap: Boolean(gap),
+  };
+}
+
 export function getRetainedLogBytes(
   tx: QueryHandle,
   deploymentId: string,

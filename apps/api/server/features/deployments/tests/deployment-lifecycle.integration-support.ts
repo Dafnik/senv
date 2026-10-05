@@ -63,7 +63,7 @@ export async function rpc<T>(
   const value = (await response.json()) as { result?: { data: { json: T } }; error?: unknown };
   if (!response.ok || !value.result) {
     const routes = await readFile(
-      join(harness.directory, 'deployments/senv-routes.yml'),
+      join(harness.directory, 'deployments/routes/senv-routes.yml'),
       'utf8',
     ).catch(() => 'unavailable');
     throw new Error(
@@ -142,7 +142,7 @@ export async function startApi(harness: LifecycleHarness): Promise<void> {
       PREVIEW_BASE_DOMAIN: 'preview.localhost',
       PREVIEW_TLS: 'false',
       PREVIEW_ENTRYPOINTS: 'web',
-      PREVIEW_DYNAMIC_CONFIG: join(harness.directory, 'deployments/senv-routes.yml'),
+      PREVIEW_DYNAMIC_CONFIG: join(harness.directory, 'deployments/routes/senv-routes.yml'),
       PREVIEW_TRAEFIK_API_URL: `http://127.0.0.1:${harness.traefikApiPort}`,
       DEPLOYMENT_STATIC_ORIGIN_IMAGE: 'nginx:alpine',
       DEPLOYMENT_PROXY_IMAGE: 'nginx:alpine',
