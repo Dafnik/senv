@@ -1,3 +1,4 @@
+import { DatePipe } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -20,6 +21,7 @@ import { injectTrpc } from '../../../trpc/trpc.service';
 
 @Component({
   imports: [
+    DatePipe,
     FormField,
     RouterLink,
     HlmButtonImports,
@@ -86,6 +88,10 @@ import { injectTrpc } from '../../../trpc/trpc.service';
                   <dd>{{ detail.label }}</dd>
                 </div>
                 <div>
+                  <dt>Expires</dt>
+                  <dd>{{ detail.expiresAt | date: 'medium' }}</dd>
+                </div>
+                <div>
                   <dt>CLI version</dt>
                   <dd>{{ detail.version }}</dd>
                 </div>
@@ -137,6 +143,7 @@ export class CliAuthorize {
     label: string;
     version: string;
     appUrl: string;
+    expiresAt: Date;
   } | null>(null);
   readonly busy = signal(false);
   readonly error = signal('');

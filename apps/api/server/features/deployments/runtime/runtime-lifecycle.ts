@@ -1,3 +1,4 @@
+import { closeShells } from '../services/shell-registry';
 import { DockerEngine } from '../../../infrastructure/docker-engine';
 import { ContainerOwnershipError } from './container-ownership';
 import { DockerDeploymentContainers } from './containers';
@@ -67,6 +68,7 @@ export class RuntimeDeploymentLifecycle {
     ]);
     if (existingOrigin) this.containers.assertOwnedContainer(existingOrigin, config, 'origin');
     if (existingProxy) this.containers.assertOwnedContainer(existingProxy, config, 'proxy');
+    await closeShells({ deploymentId: config.id }, 'container_replaced');
     await this.containers.removeOwned(config, 'origin');
     await this.containers.removeOwned(config, 'proxy');
     const created: string[] = [];

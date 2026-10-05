@@ -1,3 +1,4 @@
+import { closeShells } from '../deployments/services/shell-registry';
 import { APIError } from 'better-auth/api';
 import { organization } from 'better-auth/plugins';
 import { customAlphabet } from 'nanoid';
@@ -8,7 +9,11 @@ import { db } from '../../infrastructure/db';
 import { findAccount } from '../auth/repositories/accounts';
 import { sendProjectInvitation } from '../notifications/services/email';
 import { initializeProjectDeploymentSettings } from './repositories/deployment-settings';
-import { findProjectByPreviewSlug, recordProjectMemberInviter } from './repositories/projects';
+import {
+  findProject,
+  findProjectByPreviewSlug,
+  recordProjectMemberInviter,
+} from './repositories/projects';
 
 // Excludes 0/o, 1/i/l, 2/z, 5/s, 8/b and all uppercase characters.
 const projectId = customAlphabet('acdefghjkmnpqrtuvwxy34679', 21);
@@ -36,7 +41,7 @@ function previewSlug(value: unknown, name: string) {
         'Preview slugs must be lowercase DNS labels with letters, digits, and internal hyphens.',
     });
   }
-  if (findProjectByPreviewSlug(parsed.data)) {
+  if (findProject(parsed.data) || findProjectByPreviewSlug(parsed.data)) {
     throw new APIError('BAD_REQUEST', { message: 'That preview slug is already in use.' });
   }
   return parsed.data;
@@ -46,7 +51,7 @@ export function suggestUniquePreviewSlug(name: string) {
   const base = normalizePreviewSlug(name);
   let candidate = base;
   let suffix = 2;
-  while (findProjectByPreviewSlug(candidate)) {
+  while (findProject(candidate) || findProjectByPreviewSlug(candidate)) {
     const tail = `-${suffix++}`;
     candidate = `${base.slice(0, 63 - tail.length).replace(/-+$/g, '')}${tail}`;
   }
@@ -122,6 +127,18 @@ export const projects = organization({
     afterCreateOrganization: async ({ organization }) => {
       const defaults = deploymentSettingsSchema.parse({});
       initializeProjectDeploymentSettings(db, organization.id, defaults);
+    },
+    afterRemoveMember: async ({ member }) => {
+      await closeShells(
+        { userId: member.userId, projectId: member.organizationId },
+        'permission_lost',
+      );
+    },
+    afterUpdateMemberRole: async ({ member }) => {
+      await closeShells(
+        { userId: member.userId, projectId: member.organizationId },
+        'permission_lost',
+      );
     },
     beforeAddMember: async ({ member }) => validateProjectRole(member.role),
     beforeUpdateMemberRole: async ({ newRole }) => validateProjectRole(newRole),

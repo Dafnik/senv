@@ -1,3 +1,4 @@
+import { closeShells } from './shell-registry';
 import { TRPCError } from '@trpc/server';
 import type { DeploymentActor } from '../../../../shared/deployments';
 import { db } from '../../../infrastructure/db';
@@ -57,6 +58,7 @@ export async function requestDeploymentStart(deploymentId: string, actor?: Deplo
         failureReason: row.failureReason,
       }),
     );
+    await closeShells({ deploymentId }, 'container_replaced');
     event(db, row.projectId, row.id, 'restart-requested', {}, new Date(), actor);
     return getProjectDeployment(row.projectId, row.id);
   });
@@ -79,6 +81,7 @@ export async function stopDeployment(deploymentId: string, actor?: DeploymentAct
         failureReason: row.failureReason,
       }),
     );
+    await closeShells({ deploymentId }, 'deployment_stopped');
     event(db, row.projectId, row.id, 'stopped', {}, new Date(), actor);
     return getProjectDeployment(row.projectId, row.id);
   });

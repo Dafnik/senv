@@ -43,6 +43,7 @@ test('Commander commands operate against the real auth/tRPC HTTP handlers with n
   await once(server, 'listening');
   const directory = await mkdtemp(join(tmpdir(), 'senv-cli-http-'));
   vi.stubEnv('SENV_CONFIG_DIR', directory);
+  vi.stubEnv('SENV_INSTANCE', 'test');
   vi.stubEnv('SENV_TOKEN', personal.token);
   const address = server.address() as { port: number };
   await writeConfiguration({
@@ -91,6 +92,7 @@ test('Commander commands operate against the real auth/tRPC HTTP handlers with n
     });
     expect(await run('users', 'resend-signup', created.user.id)).toMatchObject({ status: true });
     const token = await run('--project', project.id, 'auth', 'tokens', 'create', 'CI');
+    vi.stubEnv('SENV_INSTANCE', 'test');
     vi.stubEnv('SENV_TOKEN', token.secret);
     expect(await run('--project', project.id, 'deployments', 'list')).toEqual([]);
     await expect(run('users', 'list')).rejects.toMatchObject({ exitCode: 3 });
@@ -100,7 +102,7 @@ test('Commander commands operate against the real auth/tRPC HTTP handlers with n
     const automationTui = new TuiController({ project: project.id });
     try {
       await automationTui.start();
-      expect(automationTui.snapshot().navigation).not.toContain('Users');
+      expect(automationTui.snapshot().navigation).not.toContain('Administration');
       expect(automationTui.snapshot().navigation).not.toContain('Sessions');
       expect(automationTui.snapshot()).toMatchObject({
         projectId: project.id,
@@ -110,11 +112,12 @@ test('Commander commands operate against the real auth/tRPC HTTP handlers with n
     } finally {
       automationTui.dispose();
     }
+    vi.stubEnv('SENV_INSTANCE', 'test');
     vi.stubEnv('SENV_TOKEN', personal.token);
     const tui = new TuiController({ project: project.id });
     try {
       await tui.start();
-      expect(tui.snapshot().navigation).toContain('Users');
+      expect(tui.snapshot().navigation).toContain('Administration');
       for (const [screen, expected] of [
         ['Sessions', personal.id],
         ['Automation tokens', token.id],

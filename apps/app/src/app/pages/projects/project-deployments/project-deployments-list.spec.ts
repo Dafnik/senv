@@ -38,7 +38,7 @@ test('directory publication uploads selected files and submits the chosen port',
   );
 });
 
-test('list links open deployment details and logs using the project slug', async () => {
+test('list links open the deployment workspace using the project slug', async () => {
   const fixture = createFixture();
   await fixture.whenStable();
   const element = fixture.nativeElement as HTMLElement;
@@ -47,9 +47,5 @@ test('list links open deployment details and logs using the project slug', async
       'a[href="/projects/project/deployments/deployment-a"]',
     ),
   ).not.toBeNull();
-  expect(
-    element.querySelector(
-      'a[href="/projects/project/deployments/deployment-a/logs"]',
-    ),
-  ).not.toBeNull();
+  expect(element.textContent).toContain('View details');
 });

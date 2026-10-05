@@ -25,7 +25,7 @@ import { accessibleDeployment } from './services/access';
 import { requestDeploymentPreview } from './services/preview-status';
 import { getDeploymentResources, getDeploymentResourceHistory } from './services/resources';
 import { forwardDeploymentLogs } from './repositories/logs';
-import { createShellGrant, shellInput } from './services/shell';
+import { createShellGrant, shellInput, inspectShellContainer } from './services/shell';
 import { getInstanceDeploymentDefaults } from '../admin/services/deployment-defaults';
 import { maxStaticArtifactEntries } from './runtime/artifact-limits';
 
@@ -37,6 +37,13 @@ export const deploymentsRouter = router({
     return {
       maxBytes: getInstanceDeploymentDefaults().uploadLimitBytes,
       maxEntries: maxStaticArtifactEntries,
+    };
+  }),
+  shellTarget: authedProcedure.input(deploymentInput).query(async ({ ctx, input }) => {
+    const container = await inspectShellContainer(ctx, input);
+    return {
+      target: 'origin' as const,
+      configuredUser: container.Config?.User || 'root (image default)',
     };
   }),
   shellGrant: authedProcedure
@@ -65,6 +72,10 @@ export const deploymentsRouter = router({
       deployments: listProjectDeployments(input.projectId),
       baseDomain: process.env['PREVIEW_BASE_DOMAIN'] ?? 'preview.localhost',
     };
+  }),
+  status: authedProcedure.input(deploymentInput).query(({ ctx, input }) => {
+    const row = accessibleDeployment(input.projectId, input.deploymentId, ctx.user, 'read');
+    return { id: row.id, status: row.status, failureReason: row.failureReason };
   }),
   detail: authedProcedure.input(deploymentInput).query(({ ctx, input }) => {
     assertProjectAccess(input.projectId, ctx.user, 'read');

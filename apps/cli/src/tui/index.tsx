@@ -53,6 +53,8 @@ export async function launchTui(options: TuiOptions) {
   };
   process.on('SIGTERM', interrupt);
   process.on('SIGINT', interrupt);
+  process.on('SIGHUP', interrupt);
+  process.on('uncaughtExceptionMonitor', failure);
   process.stdin.on('error', failure);
   process.stdout.on('error', failure);
   if (process.platform !== 'win32') {
@@ -70,6 +72,8 @@ export async function launchTui(options: TuiOptions) {
     app.cleanup();
     process.off('SIGTERM', interrupt);
     process.off('SIGINT', interrupt);
+    process.off('SIGHUP', interrupt);
+    process.off('uncaughtExceptionMonitor', failure);
     process.stdin.off('error', failure);
     process.stdout.off('error', failure);
     process.off('SIGTSTP', stop);

@@ -29,7 +29,9 @@ beforeAll(async () => {
   email = await import('../../notifications/services/email.ts');
 });
 
+let clientNumber = 0;
 beforeEach(() => {
+  clientNumber++;
   db.delete(user).run();
   email.clearEmailNotifications();
 });
@@ -51,7 +53,12 @@ export function request(
   return auth.handler(
     new Request(`http://localhost:3000/api/auth/${path}`, {
       method: body ? 'POST' : 'GET',
-      headers: { origin, ...headers, ...(body ? { 'content-type': 'application/json' } : {}) },
+      headers: {
+        origin,
+        'x-forwarded-for': `127.0.0.${++clientNumber}`,
+        ...headers,
+        ...(body ? { 'content-type': 'application/json' } : {}),
+      },
       ...(body ? { body: JSON.stringify(body) } : {}),
     }),
   );

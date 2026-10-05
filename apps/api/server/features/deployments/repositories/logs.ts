@@ -37,14 +37,15 @@ export function forwardDeploymentLogs(
   afterSequence?: number,
 ) {
   const scope = and(eq(deploymentLog.deploymentId, deploymentId), eq(deploymentLog.source, source));
+  const first = db
+    .select({ sequence: deploymentLog.sequence })
+    .from(deploymentLog)
+    .where(scope)
+    .orderBy(asc(deploymentLog.sequence))
+    .limit(1)
+    .get();
   const gap =
-    afterSequence !== undefined &&
-    afterSequence > 0 &&
-    !db
-      .select({ sequence: deploymentLog.sequence })
-      .from(deploymentLog)
-      .where(and(scope, eq(deploymentLog.sequence, afterSequence)))
-      .get();
+    afterSequence !== undefined && first !== undefined && first.sequence > afterSequence + 1;
   const rows = db
     .select()
     .from(deploymentLog)

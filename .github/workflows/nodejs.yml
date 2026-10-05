@@ -32,3 +32,5 @@ jobs:
       - run: vp run test
       - run: vp run @senv/api#typecheck
       - run: vp run build
+      - name: Install and run packed CLI without automatic peers
+        run: node apps/cli/scripts/smoke-pack.mjs

@@ -1,3 +1,4 @@
+import { closeShells } from '../../deployments/services/shell-registry';
 import { and, count, eq, sql } from 'drizzle-orm';
 import {
   account,
@@ -34,6 +35,7 @@ export function verifyAccountEmail(database: QueryHandle, userId: string) {
   return database.update(user).set({ emailVerified: true }).where(eq(user.id, userId)).run();
 }
 export function deleteAccountSessions(database: QueryHandle, userId: string) {
+  void closeShells({ userId }, 'session_revoked');
   database.delete(automationToken).where(eq(automationToken.userId, userId)).run();
   database.delete(deviceCode).where(eq(deviceCode.userId, userId)).run();
   return database.delete(session).where(eq(session.userId, userId)).run();
@@ -58,9 +60,11 @@ export function countInstanceAdmins(database: QueryHandle) {
   return database.select({ total: count() }).from(user).where(eq(user.role, 'admin')).get();
 }
 export function updateAccountRole(database: QueryHandle, userId: string, role: string) {
+  void closeShells({ userId }, 'permission_lost');
   return database.update(user).set({ role }).where(eq(user.id, userId)).returning().get();
 }
 export function deleteAccount(database: QueryHandle, userId: string) {
+  void closeShells({ userId }, 'session_revoked');
   return database.delete(user).where(eq(user.id, userId)).run();
 }
 

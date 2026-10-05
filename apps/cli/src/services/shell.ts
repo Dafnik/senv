@@ -19,8 +19,8 @@ export async function runShell(
       projectId,
       deploymentId,
       executable,
-      cols: process.stdout.columns || 80,
-      rows: process.stdout.rows || 24,
+      cols: Math.min(process.stdout.columns || 80, 1000),
+      rows: Math.min(process.stdout.rows || 24, 1000),
       term: process.env['TERM']?.match(/^[A-Za-z0-9_-]{1,64}$/)
         ? process.env['TERM']
         : 'xterm-256color',
@@ -37,17 +37,26 @@ export async function runShell(
     followRedirects: false,
   });
   options.onMessage?.(
-    `Opening the origin using ${grant.executable}. Press Ctrl-] to detach. Changes affect writable runtime files only.`,
+    `Opening the origin using ${grant.executable} as ${grant.configuredUser}. Press Ctrl-] to detach. Changes affect writable runtime files only.`,
   );
   let exitCode: number | undefined;
   let detached = false;
   let remoteError: string | undefined;
   const wasRaw = process.stdin.isRaw;
+  const encoding = process.stdin.readableEncoding;
   await new Promise<void>((resolve, reject) => {
     let restored = false;
+    let ready = false;
+    let lastPing = Date.now();
+    const heartbeat = setInterval(() => {
+      if (Date.now() - lastPing > 30_000) failure('Terminal heartbeat timed out.');
+    }, 5000);
     const restore = () => {
       if (restored) return;
       restored = true;
+      clearInterval(heartbeat);
+      if (encoding) process.stdin.setEncoding(encoding);
+      else (process.stdin.setEncoding as unknown as (encoding: null) => unknown)(null);
       options.signal?.removeEventListener('abort', terminateLater);
       process.stdout.off('drain', drain);
       try {
@@ -58,7 +67,8 @@ export async function runShell(
       process.stdin.pause();
       process.stdin.off('data', input);
       process.stdout.off('resize', resize);
-      process.off('SIGTERM', terminate);
+      for (const name of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) process.off(name, terminate);
+      process.off('uncaughtExceptionMonitor', restore);
       process.stdin.off('error', terminalError);
       process.stdout.off('error', terminalError);
     };
@@ -69,23 +79,28 @@ export async function runShell(
     function terminateLater() {
       terminate();
     }
+    const failure = (message: string) => {
+      restore();
+      reject(new CliError(message));
+      socket.terminate();
+    };
     const terminalError = () => {
       restore();
-      socket.terminate();
       reject(new CliError('Local terminal failed.'));
+      socket.terminate();
     };
     const terminate = () => {
       restore();
-      socket.terminate();
       reject(new CliError('Cancelled.', 130));
+      socket.terminate();
     };
     const resize = () => {
       if (socket.readyState === WebSocket.OPEN)
         socket.send(
           frame({
             type: 'resize',
-            cols: process.stdout.columns || 80,
-            rows: process.stdout.rows || 24,
+            cols: Math.min(process.stdout.columns || 80, 1000),
+            rows: Math.min(process.stdout.rows || 24, 1000),
           }),
         );
     };
@@ -100,7 +115,7 @@ export async function runShell(
         return;
       }
       if (socket.bufferedAmount > 256 * 1024) {
-        terminate();
+        failure('Terminal send buffer overflow.');
         return;
       }
       for (let start = 0; start < bytes.length; start += 32 * 1024)
@@ -112,6 +127,11 @@ export async function runShell(
         return;
       }
       socket.send(frame({ type: 'open', grant: grant.grant }));
+    });
+    const activate = () => {
+      if (ready || restored) return;
+      ready = true;
+      (process.stdin.setEncoding as unknown as (encoding: null) => unknown)(null);
       try {
         process.stdin.setRawMode(true);
       } catch {
@@ -121,10 +141,11 @@ export async function runShell(
       process.stdin.resume();
       process.stdin.on('data', input);
       process.stdout.on('resize', resize);
-      process.on('SIGTERM', terminate);
+      for (const name of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) process.on(name, terminate);
+      process.on('uncaughtExceptionMonitor', restore);
       process.stdin.on('error', terminalError);
       process.stdout.on('error', terminalError);
-    });
+    };
     socket.on('message', (data) => {
       if (restored) return;
       const bytes = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
@@ -140,7 +161,11 @@ export async function runShell(
             code?: number | null;
             message?: string;
           };
-          if (message.type === 'ping') socket.send(frame({ type: 'pong' }));
+          if (message.type === 'ready') activate();
+          if (message.type === 'ping') {
+            lastPing = Date.now();
+            socket.send(frame({ type: 'pong' }));
+          }
           if (message.type === 'exit' && typeof message.code === 'number') exitCode = message.code;
           if (message.type === 'error') remoteError = message.message ?? 'Shell failed.';
         } catch {
@@ -154,12 +179,19 @@ export async function runShell(
       restore();
       reject(new CliError('Terminal connection failed.'));
     });
-    socket.once('close', () => {
+    socket.once('close', (_code, reason) => {
       restore();
       if (exitCode !== undefined && !remoteError) {
         resolve();
       } else
-        reject(new CliError(remoteError ?? 'Terminal connection ended without an exit status.'));
+        reject(
+          new CliError(
+            remoteError ??
+              (reason.length
+                ? `Terminal connection ended: ${reason.toString()}`
+                : 'Terminal connection ended without an exit status.'),
+          ),
+        );
     });
   });
   return { exitCode: exitCode ?? 0, detached };

@@ -1,4 +1,4 @@
-import { lstat, readdir, open } from 'node:fs/promises';
+import { lstat, readdir, open, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
@@ -6,7 +6,17 @@ import { basename, join, resolve, sep } from 'node:path';
 import { CliError } from '../errors.ts';
 import { configDirectory } from '../profiles.ts';
 
-const excluded = new Set(['.senv.json', '.git', '.env', '.env.local']);
+export const uploadExcluded = new Set([
+  '.senv.json',
+  '.git',
+  '.env',
+  '.envrc',
+  '.npmrc',
+  '.netrc',
+  '.aws',
+  '.ssh',
+  '.gnupg',
+]);
 export async function staticUpload(
   apiUrl: string,
   token: string,
@@ -17,8 +27,9 @@ export async function staticUpload(
 ) {
   options.signal?.throwIfAborted();
   const root = resolve(path);
-  const credentials = resolve(configDirectory());
-  if (root === credentials || root.startsWith(`${credentials}${sep}`))
+  const credentials = await realpath(configDirectory()).catch(() => resolve(configDirectory()));
+  const realRoot = await realpath(root);
+  if (realRoot === credentials || realRoot.startsWith(`${credentials}${sep}`))
     throw new CliError('The CLI credential directory cannot be uploaded.', 2);
   const info = await lstat(root);
   if (info.isSymbolicLink() || (!info.isDirectory() && !info.isFile()))
@@ -44,8 +55,13 @@ export async function staticUpload(
       throw new CliError('Upload directories cannot be symbolic links.', 2);
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       options.signal?.throwIfAborted();
-      if (resolve(directory, entry.name) === credentials) continue;
-      if (excluded.has(entry.name) || entry.name.startsWith('.env.')) continue;
+      if ((await realpath(join(directory, entry.name))) === credentials) continue;
+      if (
+        uploadExcluded.has(entry.name) ||
+        entry.name.startsWith('.env.') ||
+        /\.(pem|key|p12|pfx)$/i.test(entry.name)
+      )
+        continue;
       const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
       if (entry.isDirectory()) await walk(join(directory, entry.name), relative);
       else await add(join(directory, entry.name), relative);
@@ -72,6 +88,16 @@ export async function staticUpload(
     projectPart.length +
     end.length +
     headers.reduce((total, header) => total + header.length + 2, 0);
+  const idle = new AbortController();
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  const progress = () => {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(
+      () => idle.abort(new Error('Upload made no progress for 120 seconds.')),
+      120_000,
+    );
+    idleTimer.unref?.();
+  };
   let sent = 0;
   options.onProgress?.(0, size);
   async function* multipart() {
@@ -93,6 +119,7 @@ export async function staticUpload(
         let read = 0;
         for await (const bytes of handle.createReadStream({ autoClose: false })) {
           options.signal?.throwIfAborted();
+          progress();
           read += bytes.length;
           sent += bytes.length;
           options.onProgress?.(sent, size);
@@ -114,22 +141,28 @@ export async function staticUpload(
   const body = Readable.from(multipart());
   let response: Response;
   try {
+    progress();
     response = await fetch(`${apiUrl}/api/deployments/artifacts`, {
       method: 'POST',
       headers: {
         authorization: `Bearer ${token}`,
+        'x-senv-project-id': projectId,
         'content-type': `multipart/form-data; boundary=${boundary}`,
         'content-length': String(contentLength),
       },
       body: body as unknown as BodyInit,
       duplex: 'half',
       redirect: 'error',
-      signal: AbortSignal.any([
-        AbortSignal.timeout(120_000),
-        ...(options.signal ? [options.signal] : []),
-      ]),
-    } as RequestInit & { duplex: 'half' });
+      signal: AbortSignal.any([idle.signal, ...(options.signal ? [options.signal] : [])]),
+    } as RequestInit & { duplex: 'half' }).catch((error) => {
+      if (options.signal?.aborted || error instanceof CliError) throw error;
+      if (error instanceof Error && error.cause instanceof CliError) throw error.cause;
+      throw new CliError(
+        `Upload to ${apiUrl} failed: ${error instanceof Error ? error.message : 'network failure'}${error instanceof Error && error.cause instanceof Error ? ` (${error.cause.message})` : ''}`,
+      );
+    });
   } finally {
+    clearTimeout(idleTimer);
     body.destroy();
   }
   const value = (await response.json().catch(() => ({}))) as {
@@ -140,7 +173,13 @@ export async function staticUpload(
   if (!response.ok || !value.artifactId)
     throw new CliError(
       value.statusMessage ?? value.message ?? 'Artifact upload failed.',
-      response.status === 401 ? 3 : response.status === 403 ? 4 : 1,
+      response.status === 401
+        ? 3
+        : response.status === 403
+          ? 4
+          : [400, 413].includes(response.status)
+            ? 2
+            : 1,
     );
   return value.artifactId;
 }

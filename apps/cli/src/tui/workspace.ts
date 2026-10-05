@@ -74,19 +74,11 @@ export function deploymentRow(
 export async function selectProject(
   value: ClientContext,
   selection: string,
-  identity: Identity,
-  access: Access,
+  _identity: Identity,
+  _access: Access,
 ): Promise<Project> {
   const project = await value.client.cli.project.query({ project: selection });
-  if (access.kind === 'automation') return { ...project, role: access.permission! };
-  const detail = await value.client.projects.detail.query({ projectId: project.id });
-  return {
-    ...project,
-    role:
-      identity.role === 'admin'
-        ? 'admin'
-        : (detail.members.find((m) => m.userId === identity.id)?.role ?? 'viewer'),
-  };
+  return project;
 }
 function historyRows(
   entries: Awaited<ReturnType<Client['deployments']['history']['query']>>['entries'],
@@ -254,20 +246,11 @@ export async function loadScreen(
       };
       return { rows: [row(id, email, `${name}  ${role}`, data)], hasNext: false };
     }
-    case 'Instances': {
-      const profiles = Object.entries((await readConfiguration()).profiles);
+    case 'Instances':
       return {
-        rows: profiles.map(([name, p]) =>
-          row(name, name, p.apiUrl, {
-            name,
-            apiUrl: p.apiUrl,
-            appUrl: p.appUrl,
-            active: name === value.name,
-          }),
-        ),
+        rows: instanceRows((await readConfiguration()).profiles, value.name),
         hasNext: false,
       };
-    }
   }
 }
 export async function loadDeployment(
@@ -375,4 +358,18 @@ export async function loadDeployment(
     case 'Logs':
       return previous ?? row(deploymentId, `Logs for ${deploymentId}`, options.source, {}, []);
   }
+}
+
+export function instanceRows(
+  profiles: Awaited<ReturnType<typeof readConfiguration>>['profiles'],
+  active?: string,
+) {
+  return Object.entries(profiles).map(([name, p]) =>
+    row(name, name, p.apiUrl, {
+      name,
+      apiUrl: p.apiUrl,
+      appUrl: p.appUrl,
+      active: name === active,
+    }),
+  );
 }

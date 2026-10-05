@@ -1,5 +1,6 @@
 import { CommanderError } from 'commander';
 import { createProgram } from './program.ts';
+import { terminalText } from './tui/safety.ts';
 import { errorCode } from './errors.ts';
 
 try {
@@ -9,9 +10,10 @@ try {
     process.exitCode =
       error.code === 'commander.helpDisplayed' || error.code === 'commander.version' ? 0 : 2;
   } else {
+    const code = errorCode(error);
     process.stderr.write(
-      `${error instanceof Error ? error.message.replace(/senv_at_[A-Za-z0-9_-]+/g, '[redacted]') : 'Command failed.'}\n`,
+      `${error instanceof Error ? terminalText(error.message).replace(/senv_at_[A-Za-z0-9_-]+/g, '[redacted]') : 'Command failed.'}${code === 3 ? '\nRun senv auth login.' : ''}\n`,
     );
-    process.exitCode = errorCode(error);
+    process.exitCode = code;
   }
 }

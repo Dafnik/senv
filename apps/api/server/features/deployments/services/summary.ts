@@ -75,7 +75,14 @@ function publicDeployment(
     ? relations.branchAlias
     : (findDeploymentBranchAlias(row.id, row.projectId)?.alias ?? null);
   const tags = relations?.tags ?? listDeploymentTags(row.id, row.projectId).map((tag) => tag.name);
+  const address = (label: string) =>
+    `${process.env['PREVIEW_TLS'] === 'false' ? 'http' : 'https'}://${label}.${current.slug}.${process.env['PREVIEW_BASE_DOMAIN'] ?? 'preview.localhost'}`;
   return {
+    addresses: {
+      fixed: address(row.id),
+      branch: branchAlias ? address(branchAlias) : null,
+      tags: tags.map((name) => ({ name, url: address(name) })),
+    },
     id: row.id,
     previewUrl: `${process.env['PREVIEW_TLS'] === 'false' ? 'http' : 'https'}://${row.id}.${current.slug}.${process.env['PREVIEW_BASE_DOMAIN'] ?? 'preview.localhost'}`,
     configurationOutdated: changes.length > 0,

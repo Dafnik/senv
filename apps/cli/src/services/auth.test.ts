@@ -21,11 +21,13 @@ const mocks = vi.hoisted(() => ({
   request: vi.fn(),
   store: vi.fn(),
   revoke: vi.fn(),
+  readStored: vi.fn(),
   configuration: { active: 'test', profiles: {} as Record<string, unknown>, credentials: {} },
 }));
 vi.mock('../profiles.ts', () => ({
   readConfiguration: async () => mocks.configuration,
-  getCredential: async () => 'old-secret',
+  localProject: async () => undefined,
+  getStoredCredential: (...args: unknown[]) => mocks.readStored(...args),
   setCredential: mocks.store,
   removeCredential: vi.fn(),
   validateApiUrl: (value: string) => value,
@@ -46,6 +48,7 @@ beforeEach(() => {
   mocks.configuration.profiles = {
     test: { apiUrl: 'https://api.example.com', accountId: 'user', sessionId: 'old-session' },
   };
+  mocks.readStored.mockReset().mockResolvedValue('old-secret');
   mocks.request.mockReset();
   mocks.store.mockReset();
   mocks.revoke.mockReset();
@@ -158,7 +161,30 @@ test('persistence failure revokes the newly redeemed session and preserves the o
 test('authorization URLs must match trusted instance metadata', async () => {
   mocks.request.mockResolvedValueOnce({
     verification_uri_complete: 'https://untrusted.example.com/authorize',
+    expires_in: 600,
+    interval: 5,
   });
   await expect(login({ browser: false })).rejects.toThrow('unexpected authorization URL');
   expect(mocks.store).not.toHaveBeenCalled();
+});
+
+test('cancellation after redemption revokes the new session before any credential write', async () => {
+  const controller = new AbortController();
+  mocks.readStored.mockImplementationOnce(async () => {
+    controller.abort();
+    return 'old-secret';
+  });
+  const promise = login({ browser: false, signal: controller.signal });
+  const rejected = expect(promise).rejects.toMatchObject({ name: 'AbortError' });
+  await vi.advanceTimersByTimeAsync(1000);
+  await rejected;
+  expect(mocks.store).not.toHaveBeenCalled();
+  expect(mocks.revoke).not.toHaveBeenCalled();
+  expect(mocks.request).toHaveBeenCalledWith(
+    'https://api.example.com',
+    'sign-out',
+    'new-secret',
+    {},
+    { origin: 'https://app.example.com' },
+  );
 });

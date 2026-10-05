@@ -8,6 +8,7 @@ export class CliError extends Error {
   }
 }
 export function errorCode(error: unknown) {
+  if (error instanceof Error && error.name === 'AbortError') return 130;
   if (error instanceof CliError) return error.exitCode;
   if (error instanceof TRPCClientError) {
     const code = error.data?.code as string | undefined;
@@ -18,4 +19,9 @@ export function errorCode(error: unknown) {
     );
   }
   return 1;
+}
+
+export function unknownOutcome(error: unknown) {
+  if (error instanceof TRPCClientError && error.data?.code) return false;
+  return errorCode(error) === 1 || errorCode(error) === 130;
 }

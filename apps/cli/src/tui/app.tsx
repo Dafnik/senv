@@ -33,7 +33,12 @@ function DetailLineView({ line }: { line: DetailLine }) {
   );
 }
 const border =
-  process.env['SENV_ASCII'] === '1' || process.env['LANG'] === 'C' ? 'classic' : 'single';
+  process.env['SENV_ASCII'] === '1' ||
+  !/utf-?8/i.test(
+    process.env['LC_ALL'] || process.env['LC_CTYPE'] || process.env['LANG'] || 'UTF-8',
+  )
+    ? 'classic'
+    : 'single';
 function ModalView({
   modal,
   width,
@@ -41,6 +46,7 @@ function ModalView({
   scroll,
   target,
   now,
+  secretLines,
 }: {
   modal: Modal;
   width: number;
@@ -48,6 +54,7 @@ function ModalView({
   scroll: number;
   target: string;
   now: number;
+  secretLines: string[];
 }) {
   let lines: string[] = [];
   let footer = 'Enter or Esc closes';
@@ -79,12 +86,14 @@ function ModalView({
     ];
     footer = 'Left/Right selects | Enter activates | Esc cancels';
   } else if (modal.kind === 'message') {
-    lines = wrapLines(modal.lines, width - 6);
+    lines = wrapLines(modal.secret ? secretLines : modal.lines, width - 6);
     footer = 'Arrows scroll | Enter or Esc closes';
   } else {
     lines = wrapLines(
       [
         modal.url,
+        `Device: ${modal.label ?? 'senv CLI'}`,
+        `State: ${modal.state ?? 'pending'}`,
         `Code: ${modal.code}`,
         `Expires in ${Math.max(0, Math.ceil((modal.expiresAt - now) / 1000))} seconds: ${new Date(modal.expiresAt).toISOString()}`,
         'Waiting for explicit browser approval.',
@@ -162,6 +171,11 @@ export function TuiApp({ controller }: { controller: TuiController }) {
       const previousG = pendingG.current;
       pendingG.current = undefined;
       if (state.suspended) return;
+      if (columns < 40 || rows < 10) {
+        if (key.ctrl && input === 'c') controller.requestQuit(130);
+        else if (input === 'q') controller.requestQuit();
+        return;
+      }
       if (key.ctrl && input === 'z' && process.platform !== 'win32') {
         process.kill(process.pid, 'SIGTSTP');
         return;
@@ -177,6 +191,14 @@ export function TuiApp({ controller }: { controller: TuiController }) {
       }
       const modal = state.modal;
       if (modal) {
+        if (
+          input === 'r' &&
+          modal.kind === 'message' &&
+          modal.title.startsWith('Public preview status')
+        ) {
+          void controller.refresh();
+          return;
+        }
         if (key.escape) {
           controller.back();
           return;
@@ -345,6 +367,7 @@ export function TuiApp({ controller }: { controller: TuiController }) {
       )}
       {state.modal ? (
         <ModalView
+          secretLines={controller.revealLines()}
           modal={state.modal}
           width={columns}
           height={bodyHeight}

@@ -88,7 +88,14 @@ for (const [mode, image] of [
         role: 'admin',
         emailVerified: true,
       };
-      const project = { id: 'project', name: 'Project', previewSlug: 'project', members: [] };
+      const project = {
+        id: 'project',
+        name: 'Project',
+        previewSlug: 'project',
+        role: 'admin',
+        permission: 'admin',
+        members: [],
+      };
       const server = createServer((request, response) => {
         const path = new URL(request.url!, 'http://localhost').pathname.split('/').at(-1)!;
         const outputs: Record<string, unknown> = {
@@ -104,7 +111,12 @@ for (const [mode, image] of [
           'projects.detail': project,
           'deployments.list': { deployments: [deployment] },
           'deployments.detail': { ...deployment, history: [] },
-          'deployments.shellGrant': { grant: 'g'.repeat(32), executable: '/bin/sh' },
+          'deployments.shellTarget': { target: 'origin', configuredUser: 'root (image default)' },
+          'deployments.shellGrant': {
+            grant: 'g'.repeat(32),
+            executable: '/bin/sh',
+            configuredUser: 'root (image default)',
+          },
         };
         response.setHeader('content-type', 'application/json');
         response.end(JSON.stringify({ result: { data: superjson.serialize(outputs[path]) } }));
@@ -127,6 +139,7 @@ for (const [mode, image] of [
                 if (socket.readyState === WebSocket.OPEN)
                   socket.send(Buffer.concat([Buffer.from([0]), data]));
               });
+              socket.send(control({ type: 'ready' }));
               socket.send(Buffer.concat([Buffer.from([0]), Buffer.from('SENV_SHELL_READY\n')]));
               timer = setInterval(async () => {
                 if (exitSent || !execution || socket.readyState !== WebSocket.OPEN) return;

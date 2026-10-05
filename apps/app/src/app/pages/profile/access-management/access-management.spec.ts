@@ -1,3 +1,4 @@
+import { Router } from '@angular/router';
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideTanStackQuery, QueryClient } from '@tanstack/angular-query';
@@ -6,11 +7,18 @@ import { AUTH_CLIENT } from '../../../auth/auth-client';
 import { TrpcService } from '../../../trpc/trpc.service';
 import { AccessManagement } from './access-management';
 
-const session = signal({ data: { session: { id: 'browser' } } });
+const session = signal<{
+  data: { session: { id: string } } | null;
+  refetch?: () => Promise<void>;
+}>({ data: { session: { id: 'browser' } } });
 const sessions = vi.fn();
 const tokens = vi.fn();
 const createToken = vi.fn();
 const revokeSession = vi.fn();
+const revokeOthers = vi.fn();
+const signOut = vi.fn();
+const navigate = vi.fn();
+const refetch = vi.fn(async () => session.set({ data: null }));
 let queries: QueryClient;
 beforeEach(() => {
   vi.resetAllMocks();
@@ -38,10 +46,18 @@ beforeEach(() => {
   tokens.mockResolvedValue([]);
   createToken.mockResolvedValue({ secret: 'one-time-secret' });
   revokeSession.mockResolvedValue({ success: true });
+  revokeOthers.mockResolvedValue({ success: true });
+  signOut.mockResolvedValue({ data: { success: true }, error: null });
+  navigate.mockResolvedValue(true);
+  refetch.mockImplementation(async () => session.set({ data: null }));
   TestBed.configureTestingModule({
     providers: [
       provideTanStackQuery(() => queries),
-      { provide: AUTH_CLIENT, useValue: { useSession: () => session } },
+      {
+        provide: AUTH_CLIENT,
+        useValue: { useSession: () => session, signOut },
+      },
+      { provide: Router, useValue: { navigate } },
       {
         provide: TrpcService,
         useValue: {
@@ -68,6 +84,7 @@ beforeEach(() => {
                 query: vi.fn().mockResolvedValue({ id: 'immutable-project' }),
               },
               revokeSession: { mutate: revokeSession },
+              revokeOtherSessions: { mutate: revokeOthers },
             },
           },
         },
@@ -232,4 +249,40 @@ test('project combobox filters by slug and accepts a keyboard selection', async 
     'immutable-project',
   );
   expect(input.value).toBe('Marketing site (website)');
+});
+
+test('revoking the current session clears query caches and redirects to login', async () => {
+  session.set({ data: { session: { id: 'browser' } }, refetch });
+  const fixture = TestBed.createComponent(AccessManagement);
+  await vi.waitFor(() =>
+    expect(fixture.componentInstance.sessions.isSuccess()).toBe(true),
+  );
+  queries.setQueryData(['private-account-data'], { secret: 'private' });
+  await fixture.componentInstance.revokeSession('browser');
+  expect(signOut).toHaveBeenCalledOnce();
+  expect(revokeSession).not.toHaveBeenCalled();
+  expect(queries.getQueryData(['private-account-data'])).toBeUndefined();
+  expect(navigate).toHaveBeenCalledWith(
+    ['/login'],
+    expect.objectContaining({ replaceUrl: true }),
+  );
+});
+
+test('revoke others refetches access metadata and expired tokens have safe project labels', async () => {
+  const fixture = TestBed.createComponent(AccessManagement);
+  await vi.waitFor(() =>
+    expect(fixture.componentInstance.sessions.isSuccess()).toBe(true),
+  );
+  await vi.waitFor(() =>
+    expect(fixture.componentInstance.projects.isSuccess()).toBe(true),
+  );
+  const previous = sessions.mock.calls.length;
+  await fixture.componentInstance.revokeOthers();
+  expect(revokeOthers).toHaveBeenCalledOnce();
+  expect(sessions.mock.calls.length).toBeGreaterThan(previous);
+  expect(fixture.componentInstance.projectLabel('immutable-project')).toContain(
+    'Marketing site',
+  );
+  expect(fixture.componentInstance.tokenExpired(new Date(0))).toBe(true);
+  expect(fixture.componentInstance.tokenExpired(null)).toBe(false);
 });

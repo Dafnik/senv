@@ -1,5 +1,7 @@
+import { rateLimit } from '../../infrastructure/rate-limit';
+import { closeShells } from '../deployments/services/shell-registry';
 import { TRPCError } from '@trpc/server';
-import { and, desc, eq, gt, ne } from 'drizzle-orm';
+import { and, desc, eq, gt, ne, isNull } from 'drizzle-orm';
 import { randomBytes, randomUUID } from 'node:crypto';
 import * as z from 'zod';
 import {
@@ -13,28 +15,48 @@ import { db } from '../../infrastructure/db';
 import env from '../../infrastructure/env';
 import { authedProcedure, publicProcedure, router } from '../../trpc/trpc';
 import { assertProjectAccess } from '../projects/services/access';
-import { findProjectByPreviewSlug } from '../projects/repositories/projects';
+import {
+  findProject,
+  findProjectByPreviewSlug,
+  findProjectMembership,
+} from '../projects/repositories/projects';
 import { hashToken, requirePersonal } from './services/request-principal';
 
+function effectiveProjectPermission(
+  projectId: string,
+  actor: { id: string; role?: string | null },
+) {
+  assertProjectAccess(projectId, actor);
+  const role = actor.role === 'admin' ? 'admin' : findProjectMembership(projectId, actor.id)!.role;
+  return role === 'admin'
+    ? ('admin' as const)
+    : role === 'developer'
+      ? ('manage' as const)
+      : ('read' as const);
+}
 const idInput = z.object({ id: z.string().min(1) });
 export const cliRouter = router({
-  access: authedProcedure.query(({ ctx }) =>
-    ctx.automation
-      ? {
-          kind: 'automation' as const,
-          projectId: ctx.automation.projectId,
-          permission: ctx.automation.permission,
-          impersonated: false,
-          sessionId: null,
-        }
-      : {
-          kind: 'personal' as const,
-          projectId: null,
-          permission: null,
-          impersonated: Boolean(ctx.session?.impersonatedBy),
-          sessionId: ctx.session?.id ?? null,
-        },
-  ),
+  access: authedProcedure
+    .input(z.object({ projectId: z.string().min(1) }).optional())
+    .query(({ ctx, input }) =>
+      ctx.automation
+        ? {
+            kind: 'automation' as const,
+            projectId: ctx.automation.projectId,
+            permission: ctx.automation.permission,
+            impersonated: false,
+            sessionId: null,
+          }
+        : {
+            kind: 'personal' as const,
+            projectId: input?.projectId ?? null,
+            permission: input?.projectId
+              ? effectiveProjectPermission(input.projectId, ctx.user)
+              : null,
+            impersonated: Boolean(ctx.session?.impersonatedBy),
+            sessionId: ctx.session?.id ?? null,
+          },
+    ),
   instance: publicProcedure.query(() => ({
     apiUrl: env.API_URL,
     appUrl: env.APP_URL,
@@ -43,16 +65,38 @@ export const cliRouter = router({
   project: authedProcedure
     .input(z.object({ project: z.string().min(1) }))
     .query(({ ctx, input }) => {
-      const id = findProjectByPreviewSlug(input.project)?.id ?? input.project;
+      const id =
+        findProject(input.project)?.id ??
+        findProjectByPreviewSlug(input.project)?.id ??
+        input.project;
       if (ctx.automation && id !== ctx.automation.projectId)
         throw new TRPCError({ code: 'FORBIDDEN' });
       const project = assertProjectAccess(id, ctx.user);
-      return { id: project.id, name: project.name, previewSlug: project.previewSlug };
+      const role = ctx.automation
+        ? ctx.automation.permission === 'manage'
+          ? 'developer'
+          : 'viewer'
+        : ctx.user.role === 'admin'
+          ? 'admin'
+          : findProjectMembership(id, ctx.user.id)!.role;
+      return {
+        id: project.id,
+        name: project.name,
+        previewSlug: project.previewSlug,
+        role,
+        permission:
+          role === 'admin'
+            ? ('admin' as const)
+            : role === 'developer'
+              ? ('manage' as const)
+              : ('read' as const),
+      };
     }),
   device: authedProcedure
     .input(z.object({ userCode: z.string().trim().min(1) }))
     .query(({ ctx, input }) => {
       requirePersonal(ctx);
+      rateLimit(`device:${ctx.user.id}`, 20, 60_000);
       const code = db
         .select()
         .from(deviceCode)
@@ -111,7 +155,7 @@ export const cliRouter = router({
         current: row.id === current.id,
       }));
   }),
-  revokeSession: authedProcedure.input(idInput).mutation(({ ctx, input }) => {
+  revokeSession: authedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
     requirePersonal(ctx);
     const removed = db
       .delete(session)
@@ -119,13 +163,17 @@ export const cliRouter = router({
       .returning({ id: session.id })
       .get();
     if (!removed) throw new TRPCError({ code: 'NOT_FOUND' });
+    await closeShells({ sessionId: input.id }, 'session_revoked');
     return { success: true };
   }),
-  revokeOtherSessions: authedProcedure.mutation(({ ctx }) => {
+  revokeOtherSessions: authedProcedure.mutation(async ({ ctx }) => {
     const current = requirePersonal(ctx);
-    db.delete(session)
+    const removed = db
+      .delete(session)
       .where(and(eq(session.userId, ctx.user.id), ne(session.id, current.id)))
-      .run();
+      .returning({ id: session.id })
+      .all();
+    await Promise.all(removed.map((row) => closeShells({ sessionId: row.id }, 'session_revoked')));
     return { success: true };
   }),
   tokens: authedProcedure.query(({ ctx }) => {
@@ -191,7 +239,13 @@ export const cliRouter = router({
     const removed = db
       .update(automationToken)
       .set({ revokedAt: new Date() })
-      .where(and(eq(automationToken.id, input.id), eq(automationToken.userId, ctx.user.id)))
+      .where(
+        and(
+          eq(automationToken.id, input.id),
+          eq(automationToken.userId, ctx.user.id),
+          isNull(automationToken.revokedAt),
+        ),
+      )
       .returning({ id: automationToken.id })
       .get();
     if (!removed) throw new TRPCError({ code: 'NOT_FOUND' });

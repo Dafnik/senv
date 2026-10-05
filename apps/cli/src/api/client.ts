@@ -1,3 +1,4 @@
+import { sleep } from '../services/timing.ts';
 import { createTRPCClient, httpLink } from '@trpc/client';
 import superjson from 'superjson';
 import type { Command } from 'commander';
@@ -12,16 +13,32 @@ export const apiClient = (apiUrl: string, token?: string, signal?: AbortSignal) 
         url: `${apiUrl}/api/trpc`,
         transformer: superjson,
         headers: () => (token ? { authorization: `Bearer ${token}` } : {}),
-        fetch: (url, options) =>
-          fetch(url, {
-            ...options,
-            redirect: 'error',
-            signal: AbortSignal.any([
-              AbortSignal.timeout(30_000),
-              ...(signal ? [signal] : []),
-              ...(options?.signal ? [options.signal] : []),
-            ]),
-          }),
+        fetch: async (url, options) => {
+          const read = !options?.method || options.method === 'GET';
+          for (let attempt = 0; ; attempt++) {
+            try {
+              const response = await fetch(url, {
+                ...options,
+                redirect: 'error',
+                signal: AbortSignal.any([
+                  AbortSignal.timeout(30_000),
+                  ...(signal ? [signal] : []),
+                  ...(options?.signal ? [options.signal] : []),
+                ]),
+              });
+              if (!read || attempt >= 3 || ![429, 502, 503, 504].includes(response.status))
+                return response;
+              await response.body?.cancel();
+            } catch (error) {
+              if (signal?.aborted || options?.signal?.aborted) throw error;
+              if (!read || attempt >= 3)
+                throw new CliError(
+                  `Request to ${apiUrl} failed: ${error instanceof Error ? error.message : 'network failure'}${error instanceof Error && error.cause instanceof Error ? ` (${error.cause.message})` : ''}`,
+                );
+            }
+            await sleep(Math.min(250 * 2 ** attempt, 2000), signal);
+          }
+        },
       }),
     ],
   });
@@ -31,7 +48,11 @@ export function context(command: Command, authentication = true) {
   return resolveContext(command.optsWithGlobals(), authentication);
 }
 
-export async function resolveContext(options: ContextOptions = {}, authentication = true) {
+export async function resolveContext(
+  options: ContextOptions = {},
+  authentication = true,
+  credential = true,
+) {
   const configuration = await readConfiguration();
   const local = await localProject();
   const name = String(
@@ -44,10 +65,10 @@ export async function resolveContext(options: ContextOptions = {}, authenticatio
   const profile = configuration.profiles[name];
   if (!profile)
     throw new CliError(
-      `Unknown instance ${name}. Run senv auth login --api-url <url> --instance ${name}.`,
+      `Unknown instance ${name}${!options.instance && !process.env['SENV_INSTANCE'] && local?.instance === name ? ` selected by ${local.path}` : ''}. Run senv auth login --api-url <url> --instance ${name}.`,
       2,
     );
-  const token = await getCredential(configuration, name, profile);
+  const token = credential ? await getCredential(configuration, name, profile) : undefined;
   if (authentication && !token)
     throw new CliError('Sign in with senv auth login, or set SENV_TOKEN.', 3);
   const client = apiClient(profile.apiUrl, token, options.signal);
@@ -91,6 +112,11 @@ export async function authRequest<T>(
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     redirect: 'error',
     signal: AbortSignal.any([AbortSignal.timeout(30_000), ...(signal ? [signal] : [])]),
+  }).catch((error) => {
+    if (signal?.aborted) throw error;
+    throw new CliError(
+      `Request to ${apiUrl} failed: ${error instanceof Error ? error.message : 'network failure'}${error instanceof Error && error.cause instanceof Error ? ` (${error.cause.message})` : ''}`,
+    );
   });
   const value = (await response.json().catch(() => ({}))) as {
     message?: string;
@@ -100,15 +126,19 @@ export async function authRequest<T>(
   if (!response.ok) {
     const error = new CliError(
       value.message ?? value.error_description ?? 'Authentication request failed.',
-      response.status === 401
-        ? 3
-        : response.status === 403
-          ? 4
-          : response.status === 404
-            ? 5
-            : response.status === 400
-              ? 2
-              : 1,
+      value.error === 'access_denied'
+        ? 4
+        : value.error === 'expired_token'
+          ? 3
+          : response.status === 401
+            ? 3
+            : response.status === 403
+              ? 4
+              : response.status === 404
+                ? 5
+                : response.status === 400
+                  ? 2
+                  : 1,
     );
     Object.assign(error, { authError: value.error });
     throw error;

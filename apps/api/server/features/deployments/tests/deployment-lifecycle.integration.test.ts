@@ -8,6 +8,7 @@ import { createDatabase } from '../../../../../../drizzle/database.ts';
 import type { PublicDeployment } from '../../../../shared/deployments.ts';
 import { DockerEngine } from '../../../infrastructure/docker-engine.ts';
 import { registerPublicationScenarios } from './deployment-lifecycle-publication.scenarios.ts';
+import { registerShellScenarios } from './deployment-lifecycle-shell.scenarios';
 import { registerRecoveryScenarios } from './deployment-lifecycle-recovery.scenarios.ts';
 import { registerRoutingScenarios } from './deployment-lifecycle-routing.scenarios.ts';
 import { freePort, waitFor } from './deployment-lifecycle.integration-network.ts';
@@ -137,5 +138,6 @@ describe.runIf(process.env['SENV_DOCKER_TESTS'] === 'true')('live deployment lif
   }, 60_000);
   registerPublicationScenarios(harness);
   registerRoutingScenarios(harness);
+  registerShellScenarios(harness);
   registerRecoveryScenarios(harness);
 });

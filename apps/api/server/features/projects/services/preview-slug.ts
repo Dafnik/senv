@@ -18,6 +18,11 @@ export async function updateProjectPreviewSlug(projectId: string, slug: string) 
         message:
           'Preview slugs must be lowercase DNS labels with letters, digits, and internal hyphens.',
       });
+    if (findProject(slug))
+      throw new TRPCError({
+        code: 'CONFLICT',
+        message: 'Preview slugs cannot match a project ID.',
+      });
     const conflict = findProjectByPreviewSlug(slug, projectId);
     if (conflict)
       throw new TRPCError({ code: 'CONFLICT', message: 'That preview slug is already in use.' });

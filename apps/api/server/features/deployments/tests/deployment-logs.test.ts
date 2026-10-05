@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { lte, eq } from 'drizzle-orm';
 import { beforeAll, expect, test, vi } from 'vite-plus/test';
 import { deployment, deploymentLog } from '../../../../../../drizzle/schema.ts';
 
@@ -37,6 +37,12 @@ test('forward log polling handles multiple pages and detects retention gaps with
   expect(third.hasMore).toBe(false);
   expect(forwardDeploymentLogs(target.id, 'origin', 2, third.afterSequence).logs).toEqual([]);
   db.delete(deploymentLog).where(eq(deploymentLog.sequence, initial.afterSequence)).run();
+  expect(forwardDeploymentLogs(target.id, 'origin', 2, initial.afterSequence).retentionGap).toBe(
+    false,
+  );
+  db.delete(deploymentLog)
+    .where(lte(deploymentLog.sequence, initial.afterSequence + 1))
+    .run();
   expect(forwardDeploymentLogs(target.id, 'origin', 2, initial.afterSequence).retentionGap).toBe(
     true,
   );

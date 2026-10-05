@@ -53,6 +53,12 @@ http {
     default_type application/octet-stream;
     map $http_upgrade $connection_upgrade { default upgrade; '' close; }
     map "$http_authorization:$http_cookie" $request_has_identity { default 1; ":" 0; }
+    # Root-domain auth cookies must never reach deployment-controlled origins.
+    # Drop the whole Cookie header when one is present, including duplicate/chunked cookies.
+    map $http_cookie $preview_cookie {
+        default $http_cookie;
+        "~(?:^|;\\s*)(?:__Secure-)?better-auth\\.(?:session_token|session_data|account_data)(?:\\.[0-9]+)?=" "";
+    }
     ${compressionMap.replaceAll('\n', '\n    ')}
     proxy_cache_path /var/cache/nginx/${safeToken(deploymentId)} keys_zone=deployment_cache:10m max_size=128m inactive=1h use_temp_path=off;
     server {
@@ -105,6 +111,7 @@ function proxyBlock(
     ? `\n            proxy_intercept_errors on;\n            error_page 404 =200 /index.html;`
     : '';
   return `            proxy_set_header Host ${host};
+            proxy_set_header Cookie $preview_cookie;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
