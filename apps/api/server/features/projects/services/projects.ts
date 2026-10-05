@@ -6,6 +6,7 @@ import { db } from '../../../infrastructure/db';
 import { suggestUniquePreviewSlug } from '../auth-options';
 import { initializeProjectDeploymentSettings } from '../repositories/deployment-settings';
 import {
+  findProject,
   findProjectByPreviewSlug,
   insertProject,
   insertProjectAdmin,
@@ -28,6 +29,8 @@ function validatePreviewSlug(value: unknown, name: string) {
         'Preview slugs must be lowercase DNS labels with letters, digits, and internal hyphens.',
     });
   const slug = parsed.data;
+  if (findProject(slug))
+    throw new TRPCError({ code: 'CONFLICT', message: 'Preview slugs cannot match a project ID.' });
   if (value !== undefined && findProjectByPreviewSlug(slug))
     throw new TRPCError({ code: 'CONFLICT', message: 'That preview slug is already in use.' });
   if (

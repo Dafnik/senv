@@ -25,6 +25,24 @@ export default defineHandler(async (event) => {
     !(event.req.headers.get('content-type') ?? '').toLowerCase().startsWith('multipart/form-data;')
   )
     throw new HTTPError({ status: 415, message: 'Artifact uploads must use multipart/form-data.' });
+  const selectedProject = event.req.headers.get('x-senv-project-id');
+  if (
+    principal.automation &&
+    (principal.automation.permission !== 'manage' ||
+      selectedProject !== principal.automation.projectId)
+  )
+    throw new HTTPError({
+      status: 403,
+      message: 'A matching project header and manage token are required for uploads.',
+    });
+  if (selectedProject) {
+    try {
+      authorizeOperation(principal, 'artifacts.upload', { projectId: selectedProject });
+      assertCanPublishProject(principal.user.id, selectedProject);
+    } catch {
+      throw new HTTPError({ status: 403, message: 'You cannot publish to this project.' });
+    }
+  }
   const maxBytes = getInstanceDeploymentDefaults().uploadLimitBytes;
   const contentLength = Number(event.req.headers.get('content-length'));
   if (!Number.isSafeInteger(contentLength) || contentLength < 1)
@@ -41,6 +59,11 @@ export default defineHandler(async (event) => {
   try {
     staged = await stageArtifactUpload(event.req, deploymentStorageRoot(), maxBytes);
     const projectId = staged.fields.get('projectId')?.trim();
+    if (selectedProject && selectedProject !== projectId)
+      throw new HTTPError({
+        status: 403,
+        message: 'Upload project does not match the authorized header.',
+      });
     if (!projectId) throw new HTTPError({ status: 400, message: 'projectId is required.' });
     try {
       authorizeOperation(principal, 'artifacts.upload', { projectId });

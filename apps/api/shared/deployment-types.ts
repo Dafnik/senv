@@ -54,6 +54,7 @@ export type PublicDeployment = {
   configurationOutdated: boolean;
   configurationChanges: string[];
   previewUrl: string;
+  addresses?: { fixed: string; branch: string | null; tags: { name: string; url: string }[] };
   desiredState: 'running' | 'stopped';
   pinned: boolean;
   artifactId: string | null;

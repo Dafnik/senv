@@ -1,7 +1,10 @@
+import { matchesShell, registerGrantInvalidator } from './shell-registry';
+import { rateLimit } from '../../../infrastructure/rate-limit';
 import { TRPCError } from '@trpc/server';
 import { randomBytes } from 'node:crypto';
 import * as z from 'zod';
 import { db } from '../../../infrastructure/db';
+import { ensureShellRecovery } from '../runtime/shell-exec';
 import { DockerEngine } from '../../../infrastructure/docker-engine';
 import { requirePersonal, type Principal } from '../../auth/services/request-principal';
 import { accessibleDeployment } from './access';
@@ -19,8 +22,18 @@ export const shellInput = z.strictObject({
     .regex(/^\/[A-Za-z0-9_./-]+$/)
     .max(512)
     .optional(),
-  cols: z.number().int().min(1).max(1000).default(80),
-  rows: z.number().int().min(1).max(1000).default(24),
+  cols: z
+    .number()
+    .int()
+    .min(1)
+    .transform((value) => Math.min(value, 1000))
+    .default(80),
+  rows: z
+    .number()
+    .int()
+    .min(1)
+    .transform((value) => Math.min(value, 1000))
+    .default(24),
   term: z
     .string()
     .regex(/^[A-Za-z0-9_-]+$/)
@@ -35,6 +48,32 @@ export type ShellGrant = z.infer<typeof shellInput> & {
   expiresAt: number;
 };
 const grants = new Map<string, ShellGrant>();
+const probing = new Map<string, number>();
+const usedGrants = new Map<string, ShellGrant>();
+function deniedGrant(principal: Principal, grant: ShellGrant | undefined, reason: string) {
+  if (!rateLimit(`shell-denial:${principal.user.id}`, 1, 10_000, false)) return;
+  if (grant?.userId === principal.user.id && grant.sessionId === principal.session?.id) {
+    try {
+      accessibleDeployment(grant.projectId, grant.deploymentId, principal.user);
+      shellAudit(principal, grant, 'shell.denied', reason);
+    } catch {
+      /* Access already revoked. */
+    }
+  } else
+    console.warn(
+      '[shell] audit',
+      JSON.stringify({
+        event: 'shell.denied',
+        userId: principal.user.id,
+        sessionId: principal.session?.id,
+        impersonatedBy: principal.session?.impersonatedBy ?? null,
+        reason,
+      }),
+    );
+}
+registerGrantInvalidator((selector) => {
+  for (const [secret, grant] of grants) if (matchesShell(grant, selector)) grants.delete(secret);
+});
 
 export async function inspectShellContainer(
   principal: Principal,
@@ -73,7 +112,19 @@ export async function inspectShellContainer(
 
 export async function createShellGrant(principal: Principal, input: z.infer<typeof shellInput>) {
   const engine = new DockerEngine();
+  requirePersonal(principal);
+  rateLimit(`shell:${principal.user.id}`, 12, 60_000);
+  rateLimit(`shell:${principal.user.id}:${input.deploymentId}`, 6, 60_000);
+  for (const [key, grant] of grants) if (grant.expiresAt <= Date.now()) grants.delete(key);
+  const pending = probing.get(principal.user.id) ?? 0;
+  if (
+    pending + [...grants.values()].filter((grant) => grant.userId === principal.user.id).length >=
+    8
+  )
+    throw new TRPCError({ code: 'TOO_MANY_REQUESTS' });
+  probing.set(principal.user.id, pending + 1);
   try {
+    await ensureShellRecovery();
     const personal = requirePersonal(principal);
     const container = await inspectShellContainer(principal, input, engine);
     let executable: string | undefined;
@@ -129,36 +180,58 @@ export async function createShellGrant(principal: Principal, input: z.infer<type
       userId: principal.user.id,
       expiresAt: Date.now() + 30_000,
     });
-    return { grant: secret, executable, expiresIn: 30 };
+    return {
+      grant: secret,
+      executable,
+      configuredUser: container.Config?.User || 'image default',
+      expiresIn: 30,
+    };
   } catch (error) {
     // Audit only accessible deployments; do not let an invalid ID create audit rows.
     try {
       accessibleDeployment(input.projectId, input.deploymentId, principal.user);
-      shellAudit(principal, input, 'shell.denied');
+      if (rateLimit(`shell-denial:${principal.user.id}`, 1, 10_000, false))
+        shellAudit(principal, input, 'shell.denied', 'grant_rejected');
     } catch {
       /* inaccessible */
     }
     throw error;
+  } finally {
+    const count = (probing.get(principal.user.id) ?? 1) - 1;
+    if (count) probing.set(principal.user.id, count);
+    else probing.delete(principal.user.id);
   }
 }
 export async function consumeShellGrant(principal: Principal, secret: string) {
   const grant = grants.get(secret);
   grants.delete(secret);
-  if (
-    !grant ||
-    grant.expiresAt < Date.now() ||
-    grant.sessionId !== requirePersonal(principal).id ||
-    grant.userId !== principal.user.id
-  )
-    throw new TRPCError({ code: 'FORBIDDEN', message: 'Invalid or expired shell grant.' });
-  const container = await inspectShellContainer(principal, grant);
-  if (container.Id !== grant.containerId)
-    throw new TRPCError({
-      code: 'PRECONDITION_FAILED',
-      message: 'Deployment container was replaced. Open a new shell.',
-    });
-  return grant;
+  for (const [key, used] of usedGrants)
+    if (used.expiresAt + 60_000 <= Date.now()) usedGrants.delete(key);
+  if (grant) {
+    if (usedGrants.size >= 256) usedGrants.delete(usedGrants.keys().next().value!);
+    usedGrants.set(secret, grant);
+  }
+  try {
+    if (
+      !grant ||
+      grant.expiresAt <= Date.now() ||
+      grant.sessionId !== requirePersonal(principal).id ||
+      grant.userId !== principal.user.id
+    )
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'Invalid or expired shell grant.' });
+    const container = await inspectShellContainer(principal, grant);
+    if (container.Id !== grant.containerId)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'Deployment container was replaced. Open a new shell.',
+      });
+    return grant;
+  } catch (error) {
+    deniedGrant(principal, grant ?? usedGrants.get(secret), 'grant_rejected');
+    throw error;
+  }
 }
+
 export function shellAudit(
   principal: Principal,
   input: Pick<ShellGrant, 'projectId' | 'deploymentId'>,
@@ -170,7 +243,11 @@ export function shellAudit(
     input.projectId,
     input.deploymentId,
     name,
-    { containerRole: 'origin', ...(reason ? { reason } : {}) },
+    {
+      containerRole: 'origin',
+      impersonatedBy: principal.session?.impersonatedBy ?? null,
+      ...(reason ? { reason } : {}),
+    },
     new Date(),
     principal.user,
   );

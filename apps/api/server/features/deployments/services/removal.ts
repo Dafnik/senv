@@ -1,3 +1,4 @@
+import { closeShells } from './shell-registry';
 import { TRPCError } from '@trpc/server';
 import { deployment } from '../../../../../../drizzle/schema';
 import type { DeploymentActor } from '../../../../shared/deployments';
@@ -72,6 +73,7 @@ async function completeRemoval(
     });
   }
   try {
+    await closeShells({ deploymentId: row.id }, 'deployment_stopped');
     await removeResources(row.id, row.projectId);
   } catch (error) {
     throw new TRPCError({

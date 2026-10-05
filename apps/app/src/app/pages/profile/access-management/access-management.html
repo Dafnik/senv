@@ -303,8 +303,8 @@
               autocomplete="off"
             ></textarea>
             <p hlmFieldDescription>
-              Store it in your CI secret store as SENV_TOKEN. It will not be
-              shown again.
+              Store it in your CI secret store as SENV_TOKEN and set
+              SENV_INSTANCE to its instance profile. It will not be shown again.
             </p>
             <button hlmBtn variant="outline" (click)="secret.set('')">
               Hide secret
@@ -327,15 +327,24 @@
               ><span hlmBadge variant="secondary">{{ token.permission }}</span>
               @if (token.revokedAt) {
                 <span hlmBadge variant="outline">Revoked</span>
+              } @else if (tokenExpired(token.expiresAt)) {
+                <span hlmBadge variant="outline">Expired</span>
               }
             </div>
             <p class="text-muted-foreground text-sm">
-              {{ token.prefix }}… · Project {{ token.projectId }} · Expires
+              {{ token.prefix }}… · Project
+              {{ projectLabel(token.projectId) }} · Expires
               {{
                 token.expiresAt ? (token.expiresAt | date: 'medium') : 'Never'
               }}
             </p>
-            @if (!token.revokedAt) {
+            <p class="text-muted-foreground text-sm">
+              Created {{ token.createdAt | date: 'medium' }} · Last used
+              {{
+                token.lastUsedAt ? (token.lastUsedAt | date: 'medium') : 'Never'
+              }}
+            </p>
+            @if (!token.revokedAt && !tokenExpired(token.expiresAt)) {
               <hlm-alert-dialog
                 ><button
                   hlmBtn

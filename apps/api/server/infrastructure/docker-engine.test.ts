@@ -85,3 +85,19 @@ test('reports JSON stream errors from a successful HTTP image-pull response', as
     'Docker image pull failed: denied',
   );
 });
+
+test('Docker 200 hijack streams preserve output and have early error protection', async () => {
+  const { engine } = await engineFixture((request, response) => {
+    expect(request.url).toBe('/v1.45/exec/example/start');
+    response.writeHead(200, { 'content-type': 'application/vnd.docker.raw-stream' });
+    response.write('ready');
+  });
+  const stream = await engine.attachExec('example');
+  const chunks: Buffer[] = [];
+  stream.on('data', (bytes) => chunks.push(Buffer.from(bytes)));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(Buffer.concat(chunks).toString()).toBe('ready');
+  expect(stream.listenerCount('error')).toBeGreaterThan(0);
+  stream.destroy(new Error('early Docker failure'));
+  await once(stream, 'close').catch(() => {});
+});

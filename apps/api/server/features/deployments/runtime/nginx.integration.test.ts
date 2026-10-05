@@ -32,7 +32,7 @@ const server = http.createServer((req, res) => {
   if (req.url === '/missing' || req.url === '/app/dashboard' || req.url === '/missing.js') {
     res.writeHead(404); res.end('missing'); return;
   }
-  const body = JSON.stringify({ path: req.url, host: req.headers.host, forwardedFor: req.headers['x-forwarded-for'], count, padding: 'a'.repeat(512) });
+  const body = JSON.stringify({ path: req.url, host: req.headers.host, forwardedFor: req.headers['x-forwarded-for'], cookie: req.headers.cookie ?? '', count, padding: 'a'.repeat(512) });
   const headers = { 'Content-Type': req.url.endsWith('.html') ? 'text/html' : 'text/plain', 'Content-Length': Buffer.byteLength(body), 'X-Origin-Count': String(count) };
   if (req.url.includes('private')) headers['Cache-Control'] = 'private, max-age=60';
   if (req.url.includes('no-store')) headers['Cache-Control'] = 'no-store';

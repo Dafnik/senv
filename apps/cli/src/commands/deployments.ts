@@ -1,9 +1,11 @@
+import { waitForPublication } from '../services/publication-wait.ts';
+import { terminalText } from '../tui/safety.ts';
 import { Command } from 'commander';
 import { context } from '../api/client.ts';
 import { publish } from '../services/publication.ts';
 import { withAddresses } from '../api/addresses.ts';
 import { CliError } from '../errors.ts';
-import { confirm, delay, integer, output } from '../output.ts';
+import { confirm, delay, integer, offset, output } from '../output.ts';
 
 export function deploymentCommands(program: Command) {
   const deployments = program.command('deployments');
@@ -34,9 +36,9 @@ export function deploymentCommands(program: Command) {
     .command('publish [path]')
     .option('--image <image>', 'Container image tag or digest')
     .option('--reuse <id>', 'Reuse a retained deployment artifact/image')
-    .option('--kind <kind>', 'Required for --reuse: static or container')
+    .option('--kind <kind>', 'Override retained source kind: static or container')
     .option('--registry-credential <id>', 'Existing registry credential ID')
-    .option('--port <port>', 'Application port', integer, 80)
+    .option('--port <port>', 'Application port (default: retained port or 80)', integer)
     .option('--pin', 'Pin against retention')
     .option('--branch <branch>')
     .option('--commit <commit>')
@@ -51,26 +53,27 @@ export function deploymentCommands(program: Command) {
         return;
       }
       process.stderr.write(`Deployment ${result.id} submitted. Waiting for publication.\n`);
-      const expires = Date.now() + options.timeout * 1000;
-      while (Date.now() < expires) {
-        const detail = await value.client.deployments.detail.query({
-          projectId,
-          deploymentId: result.id,
-        });
-        if (detail.status === 'healthy') {
-          output(withAddresses(detail), command);
-          return;
-        }
-        if (['failed', 'stopped', 'deleted', 'cleaned'].includes(detail.status)) {
-          output(withAddresses(detail), command);
-          throw new CliError(`Deployment ${result.id} ended with status ${detail.status}.`);
-        }
-        await delay(1000);
+      let outcome;
+      try {
+        outcome = await waitForPublication(value, projectId, result.id, options.timeout);
+      } catch (error) {
+        output({ id: result.id, status: 'unknown' }, command);
+        throw error;
       }
-      output({ id: result.id, status: 'timeout' }, command);
-      throw new CliError(
-        `Timed out waiting for ${result.id}. Inspect it with deployments show; do not republish automatically.`,
+      if (outcome.status === 'timeout') {
+        output(outcome, command);
+        throw new CliError(
+          `Timed out waiting for ${result.id}. Inspect it with deployments show; do not republish automatically.`,
+        );
+      }
+      output(
+        withAddresses(
+          await value.client.deployments.detail.query({ projectId, deploymentId: result.id }),
+        ),
+        command,
       );
+      if (outcome.status !== 'healthy')
+        throw new CliError(`Deployment ${result.id} ended with status ${outcome.status}.`);
     });
   for (const operation of ['stop', 'restart', 'delete'] as const)
     deployments
@@ -132,6 +135,7 @@ export function deploymentCommands(program: Command) {
       const value = await context(command);
       const projectId = await value.project();
       let afterSequence: number | undefined;
+      let gapCursor: number | undefined;
       do {
         const page = await value.client.deployments.logsForward.query({
           projectId,
@@ -140,11 +144,22 @@ export function deploymentCommands(program: Command) {
           limit: options.limit,
           afterSequence,
         });
-        if (page.retentionGap)
+        if (page.retentionGap && gapCursor !== afterSequence) {
+          gapCursor = afterSequence;
           process.stderr.write('Older log entries expired before they could be read.\n');
+          if (options.follow && command.optsWithGlobals().json)
+            output({ type: 'gap', afterSequence }, command);
+        }
+        if (!options.follow && command.optsWithGlobals().json) {
+          output(page, command);
+          break;
+        }
         for (const entry of page.logs) {
           if (command.optsWithGlobals().json) output(entry, command);
-          else process.stdout.write(`${entry.content}${entry.content.endsWith('\n') ? '' : '\n'}`);
+          else
+            process.stdout.write(
+              `${terminalText(entry.content)}${entry.content.endsWith('\n') ? '' : '\n'}`,
+            );
         }
         afterSequence = page.afterSequence;
         if (!options.follow) break;
@@ -185,19 +200,25 @@ export function deploymentCommands(program: Command) {
     .command('history')
     .alias('audit')
     .option('--deployment <id>')
-    .option('--offset <count>', 'Result offset', '0')
+    .option('--all', 'Read every history page')
+    .option('--offset <count>', 'Result offset', offset, 0)
     .option('--limit <count>', 'History count', integer, 100)
     .action(async (options, command: Command) => {
       const value = await context(command);
-      output(
-        await value.client.deployments.history.query({
+      const entries = [];
+      let resultOffset = options.offset;
+      let page;
+      do {
+        page = await value.client.deployments.history.query({
           projectId: await value.project(),
           limit: options.limit,
           deploymentId: options.deployment,
-          offset: Number(options.offset),
-        }),
-        command,
-      );
+          offset: resultOffset,
+        });
+        entries.push(...page.entries);
+        resultOffset += page.entries.length;
+      } while (options.all && resultOffset < page.total && page.entries.length);
+      output(options.all ? entries : page, command);
     });
   history
     .command('remove <id>')

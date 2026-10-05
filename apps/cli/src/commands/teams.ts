@@ -1,6 +1,8 @@
+import { userOperation } from '../services/users.ts';
+import { decideInvitation } from '../services/invitations.ts';
 import { Command } from 'commander';
 import { authRequest, context } from '../api/client.ts';
-import { confirm, integer, output } from '../output.ts';
+import { confirm, integer, offset, output } from '../output.ts';
 import { CliError } from '../errors.ts';
 const projectRole = (value: string): 'viewer' | 'developer' | 'admin' => {
   if (!['viewer', 'developer', 'admin'].includes(value))
@@ -45,17 +47,23 @@ export function teamCommands(program: Command) {
   invitations
     .command('list')
     .option('--limit <count>', 'Page size', integer, 100)
-    .option('--offset <count>', 'Result offset', '0')
+    .option('--all', 'Read every page')
+    .option('--offset <count>', 'Result offset', offset, 0)
     .action(async (options, command: Command) => {
       const value = await context(command);
-      output(
-        await value.client.projects.invitations.query({
+      const invitations = [];
+      let resultOffset = options.offset;
+      let page;
+      do {
+        page = await value.client.projects.invitations.query({
           projectId: await value.project(),
           limit: options.limit,
-          offset: Number(options.offset),
-        }),
-        command,
-      );
+          offset: resultOffset,
+        });
+        invitations.push(...page.invitations);
+        resultOffset += page.invitations.length;
+      } while (options.all && resultOffset < page.total && page.invitations.length);
+      output(options.all ? invitations : page, command);
     });
   invitations
     .command('show <id>')
@@ -91,20 +99,12 @@ export function teamCommands(program: Command) {
         command,
       );
     });
-  for (const operation of ['accept', 'reject'])
+  for (const operation of ['accept', 'reject'] as const)
     invitations
       .command(`${operation} <id>`)
       .action(async (invitationId: string, _options, command: Command) => {
         const value = await context(command);
-        output(
-          await authRequest(
-            value.profile.apiUrl,
-            `organization/${operation}-invitation`,
-            value.token,
-            { invitationId },
-          ),
-          command,
-        );
+        output(await decideInvitation(value, invitationId, operation), command);
       });
 }
 export function userCommands(program: Command) {
@@ -112,7 +112,7 @@ export function userCommands(program: Command) {
   users
     .command('list')
     .option('--limit <count>', 'Page size', integer, 100)
-    .option('--offset <count>', 'Result offset', '0')
+    .option('--offset <count>', 'Result offset', offset, 0)
     .action(async (options, command: Command) => {
       const value = await context(command);
       output(
@@ -140,7 +140,7 @@ export function userCommands(program: Command) {
     .action(async (name: string, email: string, _options, command: Command) => {
       const value = await context(command);
       output(
-        await authRequest(value.profile.apiUrl, 'admin/create-user', value.token, {
+        await userOperation(value, 'create', {
           name,
           email,
           role: 'user',
@@ -153,18 +153,12 @@ export function userCommands(program: Command) {
     .action(async (userId: string, role: string, _options, command: Command) => {
       if (!['user', 'admin'].includes(role)) throw new CliError('Choose user or admin.', 2);
       const value = await context(command);
-      output(
-        await authRequest(value.profile.apiUrl, 'admin/set-role', value.token, { userId, role }),
-        command,
-      );
+      output(await userOperation(value, 'role', { userId, role }), command);
     });
   users.command('delete <id>').action(async (userId: string, _options, command: Command) => {
     await confirm(command, 'Delete this user?');
     const value = await context(command);
-    output(
-      await authRequest(value.profile.apiUrl, 'admin/remove-user', value.token, { userId }),
-      command,
-    );
+    output(await userOperation(value, 'delete', { userId }), command);
   });
   for (const [name, endpoint] of [
     ['resend-signup', 'account-signup/resend'],

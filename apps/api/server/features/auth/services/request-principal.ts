@@ -11,11 +11,13 @@ export type Principal = {
   session: typeof session.$inferSelect | null;
   automation: typeof automationToken.$inferSelect | null;
 };
+export const accountBanned = (account: { banned?: boolean | null; banExpires?: Date | null }) =>
+  Boolean(account.banned && (!account.banExpires || account.banExpires > new Date()));
 export const hashToken = (value: string) => createHash('sha256').update(value).digest('hex');
 
 export async function resolvePrincipal(headers: Headers): Promise<Principal> {
   const authorization = headers.get('authorization');
-  if (authorization && !/^Bearer \S+$/i.test(authorization))
+  if (authorization !== null && !/^Bearer \S+$/i.test(authorization))
     throw new TRPCError({ code: 'UNAUTHORIZED' });
   const credential = authorization?.slice(7);
   if (credential?.startsWith('senv_at_')) {
@@ -27,7 +29,7 @@ export async function resolvePrincipal(headers: Headers): Promise<Principal> {
     if (!token || token.revokedAt || (token.expiresAt && token.expiresAt <= new Date()))
       throw new TRPCError({ code: 'UNAUTHORIZED' });
     const account = db.select().from(user).where(eq(user.id, token.userId)).get();
-    if (!account || account.banned) throw new TRPCError({ code: 'UNAUTHORIZED' });
+    if (!account || accountBanned(account)) throw new TRPCError({ code: 'UNAUTHORIZED' });
     assertProjectAccess(token.projectId, account, token.permission);
     if (!token.lastUsedAt || token.lastUsedAt.getTime() < Date.now() - 60_000)
       db.update(automationToken)
@@ -36,11 +38,16 @@ export async function resolvePrincipal(headers: Headers): Promise<Principal> {
         .run();
     return { user: account, session: null, automation: token };
   }
-  const resolved = await auth.api.getSession({ headers, query: { disableCookieCache: true } });
+  const sessionHeaders = new Headers(headers);
+  if (authorization !== null) sessionHeaders.delete('cookie');
+  const resolved = await auth.api.getSession({
+    headers: sessionHeaders,
+    query: { disableCookieCache: true },
+  });
   if (!resolved) throw new TRPCError({ code: 'UNAUTHORIZED' });
   const current = db.select().from(session).where(eq(session.id, resolved.session.id)).get();
   const account = current && db.select().from(user).where(eq(user.id, current.userId)).get();
-  if (!current || current.expiresAt <= new Date() || !account || account.banned)
+  if (!current || current.expiresAt <= new Date() || !account || accountBanned(account))
     throw new TRPCError({ code: 'UNAUTHORIZED' });
   const metadata = db.select().from(cliSession).where(eq(cliSession.id, current.id)).get();
   if (metadata && metadata.lastActivityAt.getTime() < Date.now() - 60_000)
@@ -64,6 +71,7 @@ const readOperations = new Set([
   'cli.project',
   'deployments.list',
   'deployments.detail',
+  'deployments.status',
   'deployments.logs',
   'deployments.logsForward',
   'deployments.resources',

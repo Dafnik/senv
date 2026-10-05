@@ -16,6 +16,23 @@ type NginxScenarioContext = {
 };
 
 export function registerNginxScenarios(context: NginxScenarioContext): void {
+  test('auth cookies never reach deployment origins while ordinary preview cookies still work', async () => {
+    for (const cookie of [
+      'better-auth.session_token=secret',
+      'theme=dark; __Secure-better-auth.session_token=secret; app=value',
+      'better-auth.session_token=a; better-auth.session_token=b',
+      'better-auth.session_data.0=secret',
+    ]) {
+      expect(
+        JSON.parse((await context.request(0, '/api/cookies', { Cookie: cookie })).body).cookie,
+      ).toBe('');
+    }
+    expect(
+      JSON.parse(
+        (await context.request(0, '/api/cookies', { Cookie: 'app=value; theme=dark' })).body,
+      ).cookie,
+    ).toBe('app=value; theme=dark');
+  });
   test('specific routes rewrite paths and bypass matching file cache rules', async () => {
     const first = await context.request(0, '/api/app.js');
     const second = await context.request(0, '/api/app.js');

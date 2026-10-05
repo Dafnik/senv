@@ -1,7 +1,7 @@
-import { writeFile } from 'node:fs/promises';
+import { linkProject } from '../services/link.ts';
 import { Command } from 'commander';
 import { context } from '../api/client.ts';
-import { output } from '../output.ts';
+import { confirm, output } from '../output.ts';
 
 export function projectCommands(program: Command) {
   const projects = program.command('projects');
@@ -52,15 +52,12 @@ export function projectCommands(program: Command) {
     });
   projects
     .command('link')
-    .description('Save the selected instance and immutable project ID in .senv.json')
-    .action(async (_options, command: Command) => {
+    .description('Save the selected instance and immutable project ID in the nearest .senv.json')
+    .option('--replace', 'Replace the nearest existing link after confirmation')
+    .action(async (options, command: Command) => {
       const value = await context(command);
       const projectId = await value.project();
-      await writeFile(
-        '.senv.json',
-        `${JSON.stringify({ instance: value.name, projectId }, null, 2)}\n`,
-        { flag: 'wx' },
-      );
-      output({ instance: value.name, projectId }, command);
+      if (options.replace) await confirm(command, 'Replace the nearest existing project link?');
+      output(await linkProject(value.name, projectId, options.replace), command);
     });
 }

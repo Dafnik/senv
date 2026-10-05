@@ -1,3 +1,4 @@
+import { closeShells } from '../deployments/services/shell-registry';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
@@ -13,7 +14,8 @@ import { instanceSetup } from './services/setup-options';
 import { accountSignup, sendAccountSignupInvitation } from './services/signup-options';
 import { beforeCliAuth, afterCliAuth } from './services/cli-auth-options';
 
-export const auth = betterAuth({
+const authInstance = betterAuth({
+  disabledPaths: ['/list-sessions', '/revoke-session', '/admin/list-user-sessions'],
   baseURL: env.API_URL,
   secret: env.BETTER_AUTH_SECRET,
   trustedOrigins: [env.APP_URL],
@@ -29,6 +31,28 @@ export const auth = betterAuth({
     provider: 'sqlite',
     schema,
   }),
+  databaseHooks: {
+    session: {
+      delete: {
+        after: async (removed) => {
+          await closeShells({ sessionId: removed.id }, 'session_revoked');
+        },
+      },
+    },
+    user: {
+      delete: {
+        after: async (removed) => {
+          await closeShells({ userId: removed.id }, 'session_revoked');
+        },
+      },
+      update: {
+        after: async (updated, context) => {
+          if (context?.path === '/admin/set-role' || context?.path === '/admin/ban-user')
+            await closeShells({ userId: updated.id }, 'permission_lost');
+        },
+      },
+    },
+  },
   emailAndPassword: { enabled: true, disableSignUp: true, revokeSessionsOnPasswordReset: true },
   emailVerification: {
     expiresIn: 60 * 60,
@@ -37,12 +61,14 @@ export const auth = betterAuth({
     },
   },
   rateLimit: {
+    enabled: true,
     customRules: {
       '/instance/setup': { window: 60, max: 5 },
       '/account-signup/complete': { window: 60, max: 5 },
       '/account-signup/resend': { window: 60, max: 5 },
       '/account-password/request': { window: 60, max: 5 },
       '/account-password/admin-reset': { window: 60, max: 5 },
+      '/device': { window: 60, max: 20 },
       '/device/code': { window: 60, max: 10 },
       '/device/token': { window: 60, max: 30 },
       '/device/approve': { window: 60, max: 10 },
@@ -100,4 +126,53 @@ export const auth = betterAuth({
   ],
 });
 
+// Keep the internal session API available, but never publish session bearer material
+// to browser JavaScript. Device redemption is the sole bearer issuance endpoint.
+export const auth = {
+  ...authInstance,
+  handler: async (request: Request) => {
+    const authorization = request.headers.get('authorization');
+    if (authorization !== null) {
+      if (!/^Bearer \S+$/i.test(authorization))
+        return new Response('Invalid bearer credential.', { status: 401 });
+      const headers = new Headers(request.headers);
+      headers.delete('cookie');
+      request = new Request(request, { headers });
+    }
+    const response = await authInstance.handler(request);
+    const headers = new Headers(response.headers);
+    headers.delete('set-auth-token');
+    const exposed = headers
+      .get('access-control-expose-headers')
+      ?.split(',')
+      .map((v) => v.trim())
+      .filter((v) => v.toLowerCase() !== 'set-auth-token');
+    if (exposed?.length) headers.set('access-control-expose-headers', exposed.join(', '));
+    else headers.delete('access-control-expose-headers');
+    if (
+      !new URL(request.url).pathname.endsWith('/device/token') &&
+      headers.get('content-type')?.includes('application/json')
+    ) {
+      const redact = (value: unknown): unknown => {
+        if (Array.isArray(value)) return value.map(redact);
+        if (value && typeof value === 'object')
+          return Object.fromEntries(
+            Object.entries(value)
+              .filter(([key]) => key !== 'token')
+              .map(([key, item]) => [key, redact(item)]),
+          );
+        return value;
+      };
+      const value = await response
+        .clone()
+        .json()
+        .catch(() => undefined);
+      if (value === undefined)
+        return new Response(response.body, { status: response.status, headers });
+      headers.delete('content-length');
+      return new Response(JSON.stringify(redact(value)), { status: response.status, headers });
+    }
+    return new Response(response.body, { status: response.status, headers });
+  },
+};
 export default { fetch: auth.handler };

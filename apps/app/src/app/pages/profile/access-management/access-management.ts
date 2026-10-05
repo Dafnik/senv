@@ -121,6 +121,15 @@ export class AccessManagement {
         })),
       ) ?? [],
   );
+  projectLabel(id: string) {
+    return (
+      this.projectOptions().find((project) => project.value === id)?.label ??
+      `Unavailable project (${id})`
+    );
+  }
+  tokenExpired(expiresAt: Date | null) {
+    return expiresAt !== null && new Date(expiresAt).getTime() <= Date.now();
+  }
   readonly selectedProject = computed(() =>
     this.projectOptions().find(
       (project) => project.value === this.tokenModel().project,

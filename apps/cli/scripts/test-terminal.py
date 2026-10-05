@@ -35,6 +35,9 @@ def run_case(mode):
             for key in ("SENV_TOKEN", "SENV_INSTANCE", "SENV_PROJECT", "CI"):
                 environment.pop(key, None)
             environment.update(SENV_CONFIG_DIR=directory, TERM="xterm-256color", NO_COLOR="1")
+            if mode == "ascii":
+                environment.update(SENV_ASCII="1", LC_ALL="C")
+            os.chdir(directory)
             os.execve(sys.argv[1], [sys.argv[1], sys.argv[2], "tui", *(["--project", "project"] if mode.startswith("shell-") or mode == "navigation" else [])], environment)
         output = bytearray()
 
@@ -187,17 +190,21 @@ def run_case(mode):
                     os.kill(pid, signal.SIGWINCH)
                     read_until(b"Resize to at least")
                     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 120, 0, 0))
+                    output.clear()
                     os.kill(pid, signal.SIGWINCH)
-                if mode == "signal":
-                    os.kill(pid, signal.SIGTERM)
+                    read_until(b"Browser-approved login")
+                if mode in ("signal", "hangup"):
+                    os.kill(pid, signal.SIGHUP if mode == "hangup" else signal.SIGTERM)
                 else:
+                    os.write(master, b"edited")
+                    time.sleep(0.05)
                     os.write(master, b"\x1b")
                     read_until(b"Discard this draft")
                     os.write(master, b"\x1b[C")
                     read_until(b"> Confirm")
                     output.clear()
                     os.write(master, b"\r")
-                    read_until(b"Use a to log in")
+                    read_until(b"Account")
                     os.write(master, b"q")
             deadline = time.monotonic() + 8
             status = None
@@ -221,9 +228,10 @@ def run_case(mode):
                     output.extend(chunk)
                 except OSError:
                     break
-            assert os.waitstatus_to_exitcode(status) == (130 if mode == "signal" else 0), bytes(output)[-4000:]
+            assert os.waitstatus_to_exitcode(status) == (130 if mode in ("signal", "hangup") else 0), bytes(output)[-4000:]
             after = termios.tcgetattr(slave)
             assert after[3] & (termios.ICANON | termios.ECHO) == before[3] & (termios.ICANON | termios.ECHO)
+            assert b"\x1b]52;" not in output
             assert entered and b"\x1b[?1049l" in output
             assert b"\x1b[?25h" in output
         finally:

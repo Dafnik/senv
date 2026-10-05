@@ -56,3 +56,6 @@ data/
 *.sqlite-*
 *.db
 *.db-*
+
+# Local CLI project selection
+.senv.json

@@ -28,7 +28,7 @@ test('invalid source combinations and cancelled preparation cannot submit a publ
     publish(value, 'project', 'path', { image: 'nginx:alpine', port: 80 }),
   ).rejects.toMatchObject({ exitCode: 2 });
   await expect(
-    publish(value, 'project', undefined, { reuse: 'id', port: 80 }),
+    publish(value, 'project', undefined, { reuse: 'id', kind: 'invalid' as 'static', port: 80 }),
   ).rejects.toMatchObject({ exitCode: 2 });
   await expect(
     publish(value, 'project', undefined, {
@@ -46,4 +46,17 @@ test('lost mutation responses are propagated without retrying', async () => {
     'response lost',
   );
   expect(mutate).toHaveBeenCalledOnce();
+});
+
+test('retained sources preserve original kind and port unless explicitly overridden', async () => {
+  const { value, mutate } = context();
+  Object.assign(value.client.deployments, {
+    detail: { query: vi.fn(async () => ({ kind: 'container', config: { port: 8080 } })) },
+  });
+  await publish(value, 'project', undefined, { reuse: 'retained' });
+  expect(mutate).toHaveBeenLastCalledWith(
+    expect.objectContaining({ kind: 'container', port: 8080, reuseDeploymentId: 'retained' }),
+  );
+  await publish(value, 'project', undefined, { reuse: 'retained', kind: 'static', port: 9000 });
+  expect(mutate).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'static', port: 9000 }));
 });

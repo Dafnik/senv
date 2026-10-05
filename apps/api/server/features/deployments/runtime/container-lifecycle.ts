@@ -10,7 +10,7 @@ import { containerName } from './preview-routes';
 export type ContainerInspect = {
   Id: string;
   State: { Running: boolean; Status: string; ExitCode?: number };
-  Config?: { Image?: string; Labels?: Record<string, string> };
+  Config?: { User?: string; Image?: string; Labels?: Record<string, string> };
   NetworkSettings?: { Networks?: Record<string, { IPAddress?: string }> };
 };
 

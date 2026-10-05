@@ -1,3 +1,4 @@
+import { eq } from 'drizzle-orm';
 import { H3 } from 'nitro/h3';
 import { beforeAll, expect, test } from 'vite-plus/test';
 import { member, organization } from '../../../../../../drizzle/schema';
@@ -250,4 +251,156 @@ test('streaming upload route registers source metadata, enforces roles, and clea
     commit: 'abc',
   });
   expect(await readdir(join(deploymentStorageRoot(), 'tmp'))).toEqual([]);
+});
+
+test('automation uploads reject read and wrong-project credentials before reading the body', async () => {
+  const { automationToken } = await import('../../../../../../drizzle/schema');
+  const { hashToken } = await import('../../auth/services/request-principal');
+  const { default: upload } = await import('../../../routes/api/deployments/artifacts.post');
+  const app = new H3().post('/api/deployments/artifacts', upload);
+  const owner = await caller('automation-uploader@example.com');
+  db.insert(member)
+    .values({
+      id: 'automation-uploader-membership',
+      organizationId: projectId,
+      userId: owner.id,
+      role: 'developer',
+    })
+    .run();
+  for (const [permission, header] of [
+    ['read', projectId],
+    ['manage', 'wrong-project'],
+  ] as const) {
+    const secret = `senv_at_${permission}`;
+    db.insert(automationToken)
+      .values({
+        id: secret,
+        tokenHash: hashToken(secret),
+        prefix: secret,
+        name: 'Uploader',
+        userId: owner.id,
+        projectId,
+        permission,
+        expiresAt: null,
+      })
+      .run();
+    let reads = 0;
+    const body = new ReadableStream(
+      {
+        pull(controller) {
+          reads++;
+          controller.enqueue(new Uint8Array([1]));
+          controller.close();
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    const response = await app.fetch(
+      new Request('http://localhost:3000/api/deployments/artifacts', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${secret}`,
+          'x-senv-project-id': header,
+          'content-type': 'multipart/form-data; boundary=test',
+          'content-length': '1',
+        },
+        body,
+        duplex: 'half',
+      } as RequestInit),
+    );
+    expect(response.status).toBe(403);
+    expect(reads).toBe(0);
+  }
+  const secret = 'senv_at_matching-manage';
+  db.insert(automationToken)
+    .values({
+      id: secret,
+      tokenHash: hashToken(secret),
+      prefix: secret,
+      name: 'Manage',
+      userId: owner.id,
+      projectId,
+      permission: 'manage',
+      expiresAt: null,
+    })
+    .run();
+  const form = new FormData();
+  form.set('projectId', projectId);
+  form.set('files', new File(['<html>'], 'index.html'));
+  const encoded = new Request('http://localhost:3000/api/deployments/artifacts', {
+    method: 'POST',
+    body: form,
+  });
+  const bytes = await encoded.arrayBuffer();
+  const response = await app.fetch(
+    new Request(encoded.url, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${secret}`,
+        'x-senv-project-id': projectId,
+        'content-type': encoded.headers.get('content-type')!,
+        'content-length': String(bytes.byteLength),
+      },
+      body: bytes,
+    }),
+  );
+  expect(response.status).toBe(200);
+});
+
+test('automation owners are rechecked after demotion, removal, timed bans and deletion', async () => {
+  const { automationToken, user } = await import('../../../../../../drizzle/schema');
+  const { hashToken, resolvePrincipal } = await import('../../auth/services/request-principal');
+  const owner = await caller('token-owner@example.com');
+  db.insert(member)
+    .values({
+      id: 'token-owner-membership',
+      organizationId: projectId,
+      userId: owner.id,
+      role: 'developer',
+    })
+    .run();
+  const secret = 'senv_at_owner-access';
+  db.insert(automationToken)
+    .values({
+      id: secret,
+      tokenHash: hashToken(secret),
+      prefix: secret,
+      name: 'CI',
+      userId: owner.id,
+      projectId,
+      permission: 'manage',
+      expiresAt: null,
+    })
+    .run();
+  const headers = new Headers({ authorization: `Bearer ${secret}` });
+  expect((await resolvePrincipal(headers)).user.id).toBe(owner.id);
+  const { appRouter } = await import('../../../trpc/routers');
+  const tokenCaller = appRouter.createCaller({
+    req: new Request('http://localhost/api/trpc', { headers }),
+  });
+  await expect(tokenCaller.projects.create({ name: 'Forbidden' })).rejects.toMatchObject({
+    code: 'FORBIDDEN',
+  });
+  await expect(
+    tokenCaller.cli.createToken({ name: 'Nested', projectId, permission: 'manage' }),
+  ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  expect(
+    (
+      await auth.handler(
+        new Request('http://localhost:3000/api/auth/admin/list-users', { headers }),
+      )
+    ).status,
+  ).toBe(401);
+  db.update(user)
+    .set({ banned: true, banExpires: new Date(Date.now() - 1000) })
+    .where(eq(user.id, owner.id))
+    .run();
+  expect((await resolvePrincipal(headers)).user.id).toBe(owner.id);
+  db.update(user).set({ banned: false }).where(eq(user.id, owner.id)).run();
+  db.update(member).set({ role: 'viewer' }).where(eq(member.id, 'token-owner-membership')).run();
+  await expect(resolvePrincipal(headers)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  db.delete(member).where(eq(member.id, 'token-owner-membership')).run();
+  await expect(resolvePrincipal(headers)).rejects.toThrow();
+  db.delete(user).where(eq(user.id, owner.id)).run();
+  await expect(resolvePrincipal(headers)).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
 });

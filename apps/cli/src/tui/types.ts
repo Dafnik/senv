@@ -33,6 +33,7 @@ export type Field = {
   key: string;
   label: string;
   value: string;
+  initialValue?: string;
   choices?: string[];
   required?: boolean;
 };
@@ -51,7 +52,15 @@ export type Modal =
     }
   | { kind: 'confirm'; title: string; lines: string[]; index: number }
   | { kind: 'message'; title: string; lines: string[]; secret?: boolean }
-  | { kind: 'login'; title: string; url: string; code: string; expiresAt: number };
+  | {
+      kind: 'login';
+      title: string;
+      url: string;
+      code: string;
+      expiresAt: number;
+      label?: string;
+      state?: 'pending' | 'approved' | 'denied';
+    };
 export type State = {
   revision: number;
   screen: Screen;

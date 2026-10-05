@@ -1,5 +1,7 @@
+import { buildActions } from './actions/index.ts';
 import { hostname } from 'node:os';
-import { writeFile } from 'node:fs/promises';
+import { linkProject, nearestLink } from '../services/link.ts';
+
 import open from 'open';
 import {
   apiClient,
@@ -8,32 +10,23 @@ import {
   type ClientContext,
   type ContextOptions,
 } from '../api/client.ts';
-import {
-  readConfiguration,
-  removeCredential,
-  validateApiUrl,
-  writeConfiguration,
-} from '../profiles.ts';
+import { readConfiguration, validateApiUrl, writeConfiguration } from '../profiles.ts';
 import { CliError, errorCode } from '../errors.ts';
 import { login, logout } from '../services/auth.ts';
+import { waitForPublication } from '../services/publication-wait.ts';
+import { unknownOutcome } from '../errors.ts';
 import { publish } from '../services/publication.ts';
 import { runShell } from '../services/shell.ts';
-import { sleep } from '../services/timing.ts';
+
 import { detailLines, safeText, terminalText } from './safety.ts';
 import { detailViewport } from './viewport.ts';
 import { dateLabel, detailDocument, logsDocument } from './deployment-detail.ts';
 import { destination, destinations, projectScreens, sectionTabs } from './navigation.ts';
-import {
-  deploymentTabs,
-  type Action,
-  type Field,
-  type Row,
-  type Screen,
-  type State,
-} from './types.ts';
+import { deploymentTabs, type Field, type Row, type Screen, type State } from './types.ts';
 import {
   loadDeployment,
   loadScreen,
+  instanceRows,
   row,
   selectProject,
   type Access,
@@ -118,6 +111,15 @@ export class TuiController {
   private afterSequence?: number;
   private olderCursor?: { sequence: number } | null;
   private mutationSent = false;
+  private identityValidatedAt = 0;
+  private failures = 0;
+  private secretLines: string[] = [];
+  private deferredAccountFailure?: string;
+  private previewTarget?: { projectId: string; deploymentId: string };
+  private gapSequences = new Set<number>();
+  revealLines() {
+    return this.state.modal?.kind === 'message' && this.state.modal.secret ? this.secretLines : [];
+  }
   private selectedDeployment?: Row;
   private profileHint?: { name: string; apiUrl: string };
   onQuit: (code: number) => void = () => {};
@@ -138,6 +140,9 @@ export class TuiController {
   };
   private update(patch: Partial<State>) {
     if (this.disposed) return;
+    if (patch.modal !== undefined && !(patch.modal.kind === 'message' && patch.modal.secret))
+      this.secretLines = [];
+    if ('modal' in patch && !patch.modal) this.secretLines = [];
     const next = { ...this.state, ...patch, revision: this.state.revision + 1 };
     if (next.detail && !next.modal)
       next.scroll = detailViewport(next, this.viewport.columns, this.viewport.rows).start;
@@ -151,16 +156,12 @@ export class TuiController {
     return this.access?.kind === 'personal' && !this.access.impersonated;
   }
   private manage() {
-    return Boolean(
-      this.project &&
-      (this.access?.kind === 'automation'
-        ? this.access.permission === 'manage'
-        : ['developer', 'admin'].includes(this.project.role)),
-    );
+    return Boolean(this.project && ['manage', 'admin'].includes(this.project.permission));
   }
   private admin() {
-    return this.personal() && this.project?.role === 'admin';
+    return this.personal() && this.project?.permission === 'admin';
   }
+
   private requireContext() {
     if (!this.context || !this.identity || !this.access) throw new CliError('Sign in first.', 3);
     return this.context;
@@ -234,6 +235,7 @@ export class TuiController {
       };
       this.identity = identity;
       this.access = access;
+      this.identityValidatedAt = Date.now();
       this.project = project;
       const screen: Screen = project ? 'Deployments' : 'Projects';
       this.update({
@@ -254,29 +256,53 @@ export class TuiController {
         status: selectionError ? `${selectionError} Select a project in Projects.` : 'Connected',
         page: 0,
       });
-      await this.refresh();
+      await this.refresh(false);
     } catch (error) {
       if (epoch !== this.epoch || read.signal.aborted) return;
-      this.clearAccount(this.text(error instanceof Error ? error.message : 'Could not connect.'));
+      const message = this.text(error instanceof Error ? error.message : 'Could not connect.');
+      this.clearAccount(message);
       await this.showInstances();
       this.navigate('Account');
       if (!process.env['SENV_TOKEN'] && [2, 3].includes(errorCode(error))) this.loginForm();
+      this.update({ error: message });
     }
   }
   private clearAccount(message: string) {
     this.stopReads();
+    if (this.state.modal?.kind === 'message' && this.state.modal.secret) {
+      this.deferredAccountFailure = message;
+      this.update({ error: message, status: 'Save the displayed token before closing this view.' });
+      return;
+    }
+    this.secretLines = [];
+    this.identityValidatedAt = 0;
+    this.afterSequence = undefined;
+    this.olderCursor = undefined;
+    this.gapSequences.clear();
+    this.cursors.clear();
     this.context = undefined;
     this.identity = undefined;
     this.access = undefined;
     this.project = undefined;
     this.selectedDeployment = undefined;
     this.logs = [];
+    this.gapSequences.clear();
     this.formTask = undefined;
     this.reviewNotice = undefined;
     this.restoreDraft = undefined;
     this.afterDiscard = undefined;
     this.confirmation = undefined;
     this.update({
+      query: '',
+      searching: false,
+      tab: 'Overview',
+      page: 0,
+      selected: 0,
+      scroll: 0,
+      source: 'origin',
+      deploymentFilter: '',
+      historyEvent: '',
+      historyActor: '',
       account: 'signed out',
       project: 'select a project',
       projectId: undefined,
@@ -297,6 +323,8 @@ export class TuiController {
     });
   }
   dispose() {
+    this.secretLines = [];
+    this.deferredAccountFailure = undefined;
     this.stopReads();
     this.operation?.abort();
     this.formTask = undefined;
@@ -305,6 +333,7 @@ export class TuiController {
     this.afterDiscard = undefined;
     this.confirmation = undefined;
     this.logs = [];
+    this.gapSequences.clear();
     this.context = undefined;
     this.state = { ...initialState(), status: 'Closed' };
     this.disposed = true;
@@ -327,8 +356,9 @@ export class TuiController {
       return;
     const liveLogs = this.state.detail && this.state.tab === 'Logs' && this.state.follow;
     const resources = this.state.detail && this.state.tab === 'Resources' && this.state.watch;
+    this.failures = failed ? this.failures + 1 : 0;
     const interval = failed
-      ? 30_000
+      ? Math.min(1000 * 2 ** (this.failures - 1), 30_000)
       : liveLogs
         ? this.logBacklog
           ? 0
@@ -338,10 +368,10 @@ export class TuiController {
           : 30_000;
     if (this.context)
       this.timer = setTimeout(() => {
-        void this.refresh();
+        void this.refresh(false);
       }, interval);
   }
-  async refresh() {
+  async refresh(revalidate = true) {
     if (this.disposed || this.state.busy || this.state.suspended) return;
     if (!this.context) {
       if (this.state.screen === 'Instances') await this.showInstances();
@@ -360,15 +390,20 @@ export class TuiController {
     const value = this.requestContext(read.signal);
     this.update({ loading: true });
     try {
-      const [identity, access] = await Promise.all([
-        value.client.me.query(),
-        value.client.cli.access.query(),
-      ]);
+      let identity = this.identity!;
+      let access = this.access!;
+      let project = this.project;
+      if (revalidate || Date.now() - this.identityValidatedAt >= 30_000) {
+        [identity, access] = await Promise.all([
+          value.client.me.query(),
+          value.client.cli.access.query(),
+        ]);
+        if (project) project = await this.deps.selectProject(value, project.id, identity, access);
+        this.identityValidatedAt = Date.now();
+      }
       if (epoch !== this.epoch || read.signal.aborted) return;
       this.identity = identity;
       this.access = access;
-      let project = this.project;
-      if (project) project = await this.deps.selectProject(value, project.id, identity, access);
       if (epoch !== this.epoch || read.signal.aborted) return;
       const allowed = this.allowedScreens();
       if (!allowed.includes(state.screen)) {
@@ -387,6 +422,15 @@ export class TuiController {
           status: 'Select a project in Projects.',
         });
         return;
+      }
+      if (this.previewTarget) {
+        const preview = await value.client.deployments.previewStatus.query(this.previewTarget);
+        if (epoch !== this.epoch || read.signal.aborted) return;
+        this.message('Public preview status (r refreshes)', [
+          preview.error ?? `HTTP ${preview.statusCode} response in ${preview.responseTimeMs} ms`,
+          preview.url,
+          `Checked ${dateLabel(preview.checkedAt)}`,
+        ]);
       }
       let detail = state.detail;
       let page;
@@ -471,6 +515,7 @@ export class TuiController {
       this.schedule();
     } catch (error) {
       if (epoch !== this.epoch || read.signal.aborted) return;
+      this.identityValidatedAt = 0;
       const code = errorCode(error);
       if (code === 3) {
         this.clearAccount('Session expired or revoked. Log in again.');
@@ -483,7 +528,15 @@ export class TuiController {
         this.update({
           rows: [],
           detail: undefined,
-          modal: undefined,
+          modal:
+            this.state.modal?.kind === 'form'
+              ? {
+                  ...this.state.modal,
+                  changed: true,
+                  error:
+                    'Permission changed. This draft is preserved; select an accessible project and review again.',
+                }
+              : undefined,
           loading: false,
           error: this.text(error instanceof Error ? error.message : 'Permission denied.'),
           follow: false,
@@ -504,6 +557,11 @@ export class TuiController {
       });
       this.schedule(true);
     }
+  }
+  private resetLogs() {
+    this.logs = [];
+    this.gapSequences.clear();
+    this.logBacklog = false;
   }
   private async loadLogs(value: ClientContext, signal: AbortSignal) {
     if (this.logs.length && !this.state.follow && this.state.detail) return this.state.detail;
@@ -540,21 +598,29 @@ export class TuiController {
     this.logs = entries;
     this.afterSequence = after;
     this.olderCursor = entries.length ? { sequence: entries[0]!.sequence } : null;
-    const lines = entries
-      .flatMap((e) => [`${e.createdAt.toISOString()} #${e.sequence}`, ...e.content.split('\n')])
-      .slice(-5000);
-    if (gap) this.update({ status: 'Retention gap: some unread log entries expired.' });
+    if (gap && after !== undefined) this.gapSequences.add(after);
     const detail = detailDocument(
       row(
         input.deploymentId,
         `Logs for ${input.deploymentId}`,
         `${input.source} | ${this.state.follow ? 'following' : 'paused'} | ${this.state.autoScroll ? 'latest' : 'scroll paused'}`,
         {},
-        lines,
+        [],
       ),
-      logsDocument(entries),
+      [
+        ...(this.gapSequences.size
+          ? [
+              {
+                kind: 'text' as const,
+                text: 'Retention gap: some unread log entries expired.',
+                tone: 'warning' as const,
+              },
+            ]
+          : []),
+        ...logsDocument(entries),
+      ],
     );
-    return { ...detail, lines };
+    return detail;
   }
   private async olderLogs() {
     if (!this.context || !this.project || !this.selectedDeployment || !this.olderCursor) return;
@@ -604,9 +670,7 @@ export class TuiController {
     try {
       const config = await this.deps.readConfiguration();
       this.update({
-        rows: Object.entries(config.profiles).map(([name, p]) =>
-          row(name, name, p.apiUrl, { name, apiUrl: p.apiUrl, appUrl: p.appUrl }),
-        ),
+        rows: instanceRows(config.profiles, this.context?.name),
         loading: false,
       });
     } catch (error) {
@@ -617,6 +681,10 @@ export class TuiController {
   }
   navigate(screen: Screen) {
     if (this.state.busy || !this.state.screens.includes(screen)) return;
+    if (screen === 'Instances' && process.env['SENV_TOKEN']) {
+      this.message('Instance is fixed', ['Unset SENV_TOKEN before switching or adding instances.']);
+      return;
+    }
     if (projectScreens.includes(screen) && screen !== 'Invitations' && !this.project) {
       this.navigate('Projects');
       return;
@@ -628,6 +696,7 @@ export class TuiController {
     this.stopReads();
     this.cursors.clear();
     this.logs = [];
+    this.gapSequences.clear();
     this.afterSequence = undefined;
     this.olderCursor = undefined;
     this.selectedDeployment = undefined;
@@ -850,6 +919,7 @@ export class TuiController {
     const tab =
       deploymentTabs[(index + direction + deploymentTabs.length) % deploymentTabs.length]!;
     this.logs = [];
+    this.gapSequences.clear();
     this.afterSequence = undefined;
     this.olderCursor = undefined;
     this.update({
@@ -865,7 +935,10 @@ export class TuiController {
     await this.refresh();
   }
   private dirty() {
-    return this.state.modal?.kind === 'form' && this.state.modal.fields.some((f) => f.value !== '');
+    return (
+      this.state.modal?.kind === 'form' &&
+      this.state.modal.fields.some((f) => f.value !== (f.initialValue ?? ''))
+    );
   }
   private discard(next: () => void) {
     this.restoreDraft = this.state.modal;
@@ -928,10 +1001,21 @@ export class TuiController {
         ? 'Request cancelled locally. Remote outcome is unknown; inspect before retrying.'
         : this.state.submittedDeploymentId
           ? `Observation cancelled. Deployment ${this.state.submittedDeploymentId} continues on the server.`
-          : 'Cancelling local work. Submitted deployments continue on the server.',
+          : this.state.modal?.kind === 'login'
+            ? 'Cancelling login. No credential will be saved.'
+            : 'Cancelling local work.',
     });
   }
   closeModal() {
+    this.previewTarget = undefined;
+    if (this.deferredAccountFailure) {
+      const message = this.deferredAccountFailure;
+      this.deferredAccountFailure = undefined;
+      this.secretLines = [];
+      this.update({ modal: undefined });
+      this.clearAccount(message);
+      return;
+    }
     if (this.restoreDraft) {
       const modal = this.restoreDraft;
       this.restoreDraft = undefined;
@@ -946,12 +1030,13 @@ export class TuiController {
     if (!this.state.busy) void this.refresh();
   }
   message(title: string, lines: string[], secret = false) {
+    this.secretLines = secret ? lines.map(terminalText) : [];
     this.update({
       scroll: 0,
       modal: {
         kind: 'message',
         title,
-        lines: lines.map((line) => (secret ? terminalText(line) : this.text(line))),
+        lines: secret ? [] : lines.map((line) => this.text(line)),
         secret,
       },
     });
@@ -1094,7 +1179,7 @@ export class TuiController {
       modal: {
         kind: 'form',
         title,
-        fields,
+        fields: fields.map((field) => ({ ...field, initialValue: field.value })),
         index: 0,
         review: false,
         notice: Array.isArray(notice) ? notice : undefined,
@@ -1108,19 +1193,21 @@ export class TuiController {
     this.operation = controller;
     this.mutationSent = mutation;
     this.update({ busy: true, loading: false, status: label, error: undefined });
+    let ambiguous = false;
     try {
       await task(controller.signal);
       if (!controller.signal.aborted) this.update({ status: `${label} completed.` });
     } catch (error) {
       if (!controller.signal.aborted) {
         const code = errorCode(error);
+        ambiguous = this.mutationSent && unknownOutcome(error);
         if (code === 3) this.clearAccount('Session expired or revoked. Log in again.');
         else
           this.update({
             ...(this.state.modal?.kind === 'login' ? { modal: undefined } : {}),
             error: this.text(error instanceof Error ? error.message : 'Operation failed.'),
             status:
-              this.mutationSent && code === 1
+              this.mutationSent && unknownOutcome(error)
                 ? 'Remote outcome may be unknown. Inspect existing records before retrying.'
                 : code === 4
                   ? 'Permission denied. Refresh access before trying another action.'
@@ -1128,11 +1215,22 @@ export class TuiController {
           });
       }
     } finally {
+      const inspect = ambiguous && Boolean(this.state.error);
+      const operationError = this.state.error;
+      this.mutationSent = false;
+      this.identityValidatedAt = 0;
       this.operation = undefined;
       this.update({ busy: false });
       if (this.context && !this.state.modal && !controller.signal.aborted && !this.state.error)
         await this.refresh();
-      else this.schedule();
+      else if (inspect && this.context) {
+        await this.refresh();
+        this.update({
+          error: operationError,
+          status:
+            'Remote outcome may be unknown. Server state refreshed. Inspect the selected record or use actions before retrying.',
+        });
+      } else this.schedule();
     }
   }
   private mutation(
@@ -1193,7 +1291,7 @@ export class TuiController {
           ...values,
           browser: values.browser === 'yes',
           signal,
-          onCode: ({ url, code, expiresAt }) =>
+          onCode: ({ url, code, expiresAt, label }) =>
             this.update({
               modal: {
                 kind: 'login',
@@ -1201,8 +1299,14 @@ export class TuiController {
                 url,
                 code,
                 expiresAt,
+                label,
+                state: 'pending',
               },
             }),
+          onState: (state) => {
+            if (this.state.modal?.kind === 'login')
+              this.update({ modal: { ...this.state.modal, state } });
+          },
           onWarning: (message) => this.update({ status: this.text(message) }),
         });
         if (signal.aborted) return;
@@ -1223,13 +1327,16 @@ export class TuiController {
     );
   }
   private async switchInstance(name: string) {
+    if (process.env['SENV_TOKEN']) {
+      this.message('Instance is fixed', ['Unset SENV_TOKEN before switching instances.']);
+      return;
+    }
     await this.perform(
       'Switch instance',
       async () => {
         const config = await this.deps.readConfiguration();
         if (!config.profiles[name]) throw new CliError('Unknown instance.', 2);
-        config.active = name;
-        await this.deps.writeConfiguration(config);
+
         this.clearAccount('');
         this.options = { instance: name };
         this.update({ instance: name });
@@ -1238,742 +1345,124 @@ export class TuiController {
       false,
     );
   }
+  private actionHost() {
+    // Getters keep action callbacks tied to current state after async refreshes.
+    // eslint-disable-next-line typescript/no-this-alias
+    const controller = this;
+    return {
+      get access() {
+        return controller.access;
+      },
+      activate: controller.activate.bind(controller),
+      admin: controller.admin.bind(controller),
+      get afterSequence() {
+        return controller.afterSequence;
+      },
+      set afterSequence(value: number | undefined) {
+        controller.afterSequence = value;
+      },
+      clearAccount: controller.clearAccount.bind(controller),
+      confirm: controller.confirm.bind(controller),
+      connect: controller.connect.bind(controller),
+      get context() {
+        return controller.context;
+      },
+      get deps() {
+        return controller.deps;
+      },
+      form: controller.form.bind(controller),
+      get identity() {
+        return controller.identity;
+      },
+      jump: controller.jump.bind(controller),
+      loginForm: controller.loginForm.bind(controller),
+      get logs() {
+        return controller.logs;
+      },
+      set logs(value: LogEntry[]) {
+        controller.logs = value;
+      },
+      manage: controller.manage.bind(controller),
+      message: controller.message.bind(controller),
+      mutation: controller.mutation.bind(controller),
+      navigate: controller.navigate.bind(controller),
+      get olderCursor() {
+        return controller.olderCursor;
+      },
+      set olderCursor(value: { sequence: number } | null | undefined) {
+        controller.olderCursor = value;
+      },
+      olderLogs: controller.olderLogs.bind(controller),
+      openProfile: controller.openProfile.bind(controller),
+      openUrl: controller.openUrl.bind(controller),
+      page: controller.page.bind(controller),
+      perform: controller.perform.bind(controller),
+      personal: controller.personal.bind(controller),
+      prepareLink: controller.prepareLink.bind(controller),
+      preparePublication: controller.preparePublication.bind(controller),
+      prepareTag: controller.prepareTag.bind(controller),
+      get previewTarget() {
+        return controller.previewTarget;
+      },
+      set previewTarget(value: { projectId: string; deploymentId: string } | undefined) {
+        controller.previewTarget = value;
+      },
+      get project() {
+        return controller.project;
+      },
+      set project(value: Project | undefined) {
+        controller.project = value;
+      },
+      refresh: controller.refresh.bind(controller),
+      requestContext: controller.requestContext.bind(controller),
+      requireContext: controller.requireContext.bind(controller),
+      get selectedDeployment() {
+        return controller.selectedDeployment;
+      },
+      selectedRow: controller.selectedRow.bind(controller),
+      shell: controller.shell.bind(controller),
+      showInstances: controller.showInstances.bind(controller),
+      resetLogs: controller.resetLogs.bind(controller),
+      get state() {
+        return controller.state;
+      },
+      switchInstance: controller.switchInstance.bind(controller),
+      tab: controller.tab.bind(controller),
+      text: controller.text.bind(controller),
+      update: controller.update.bind(controller),
+    };
+  }
   actions() {
-    if (this.state.busy) return;
-    const selected = this.state.detail ?? this.selectedRow();
-    const actions: Action[] = [];
-    const add = (label: string, run: () => void, disabled?: string) =>
-      actions.push({ label, run, disabled });
-    const field = (
-      key: string,
-      label: string,
-      value = '',
-      choices?: string[],
-      required = true,
-    ): Field => ({ key, label, value, choices, required });
-    const unavailable = this.manage() ? undefined : 'Deployment manage permission required';
-    const adminOnly = this.admin() ? undefined : 'Project admin required';
-    const personalOnly = this.personal() ? undefined : 'Personal non-impersonated session required';
-    if (this.state.detail && this.selectedDeployment) {
-      for (const tab of deploymentTabs)
-        add(tab, () => {
-          void this.tab(deploymentTabs.indexOf(tab) - deploymentTabs.indexOf(this.state.tab));
-        });
-      if (this.state.tab === 'Logs') {
-        add(this.state.follow ? 'Pause follow' : 'Follow logs', () => {
-          this.update({ follow: !this.state.follow });
-          void this.refresh();
-        });
-        add(`Switch log source to ${this.state.source === 'origin' ? 'proxy' : 'origin'}`, () => {
-          this.logs = [];
-          this.afterSequence = undefined;
-          this.olderCursor = undefined;
-          this.update({
-            source: this.state.source === 'origin' ? 'proxy' : 'origin',
-            detail: row(this.selectedDeployment!.id, 'Logs', '', {}, []),
-            scroll: 0,
-          });
-          void this.refresh();
-        });
-        add(
-          'Load older logs',
-          () => {
-            void this.olderLogs();
-          },
-          this.olderCursor === null ? 'No older entries' : undefined,
-        );
-        add('Scroll to latest', () => this.jump(true));
-      }
-      if (this.state.tab === 'Resources') {
-        add(this.state.watch ? 'Pause resource watch' : 'Watch resources', () => {
-          this.update({ watch: !this.state.watch });
-          void this.refresh();
-        });
-      }
-    }
-    if (
-      this.state.screen === 'History' ||
-      (this.selectedDeployment && this.state.tab === 'History')
-    ) {
-      add('Filter history events and actors', () =>
-        this.form(
-          'History filters',
-          [
-            field('event', 'Event (optional)', this.state.historyEvent, undefined, false),
-            field(
-              'actor',
-              'Actor ID or system (optional)',
-              this.state.historyActor,
-              undefined,
-              false,
-            ),
-          ],
-          async (v) => {
-            this.update({
-              historyEvent: v.event!,
-              historyActor: v.actor!,
-              page: 0,
-              rows: [],
-              scroll: 0,
-              ...(this.selectedDeployment && this.state.detail
-                ? {
-                    detail: {
-                      ...this.state.detail,
-                      data: { ...this.state.detail.data, offset: 0 },
-                    },
-                  }
-                : {}),
-            });
-          },
-          false,
-        ),
-      );
-    }
-    switch (this.state.screen) {
-      case 'Account':
-        if (!this.context)
-          add('Retry connection', () => {
-            void this.connect();
-          });
-        add(
-          'Log in / switch account',
-          () => this.loginForm(),
-          process.env['SENV_TOKEN'] ? 'Unset SENV_TOKEN first' : undefined,
-        );
-        if (this.context) {
-          for (const localOnly of [false, true])
-            add(
-              localOnly
-                ? 'Local-only logout (server session stays active)'
-                : 'Logout and revoke session',
-              () => {
-                this.confirm(
-                  'Sign out?',
-                  [
-                    localOnly
-                      ? 'Only the local credential will be removed. The server session remains active.'
-                      : 'The current CLI session will be revoked on the server.',
-                  ],
-                  () => {
-                    void this.perform('Logout', async () => {
-                      await this.deps.logout(this.requireContext(), localOnly);
-                      this.clearAccount('Signed out.');
-                    });
-                  },
-                );
-              },
-              process.env['SENV_TOKEN'] ? 'Unset or revoke SENV_TOKEN instead' : personalOnly,
-            );
-          add('Open browser profile / password recovery', () => {
-            void this.openProfile();
-          });
-        }
-        break;
-      case 'Instances':
-        add('Add instance profile', () =>
-          this.form(
-            'Add instance profile',
-            [field('name', 'Profile name'), field('apiUrl', 'API origin', 'http://localhost:3000')],
-            async (v, signal) => {
-              const config = await this.deps.readConfiguration();
-              if (config.profiles[v.name!]) throw new CliError('Instance already exists.', 2);
-              const apiUrl = validateApiUrl(v.apiUrl!);
-              const instance = await apiClient(apiUrl, undefined, signal).cli.instance.query();
-              config.profiles[v.name!] = { apiUrl, appUrl: validateApiUrl(instance.appUrl) };
-              config.active ??= v.name;
-              await this.deps.writeConfiguration(config);
-              await this.showInstances();
-            },
-            false,
-          ),
-        );
-        if (selected)
-          add('Use this instance', () => {
-            void this.switchInstance(selected.id);
-          });
-        add('Login to an instance', () => this.loginForm());
-        break;
-      case 'Projects':
-        if (this.personal())
-          add('Invitations / look up invitation ID', () => this.navigate('Invitations'));
-        add(
-          'Create project',
-          () =>
-            this.form(
-              'Create project',
-              [
-                field('name', 'Project name'),
-                field('slug', 'Preview slug (optional)', '', undefined, false),
-              ],
-              async (v, signal) => {
-                const result = await this.requestContext(signal).client.projects.create.mutate({
-                  name: v.name!,
-                  previewSlug: v.slug || undefined,
-                });
-                this.message('Project created', detailLines(result));
-              },
-            ),
-          personalOnly,
-        );
-        if (selected)
-          add('Show project identity', () => this.update({ detail: selected, scroll: 0 }));
-        break;
-      case 'Deployments': {
-        add(
-          'Publish deployment',
-          () => {
-            void this.preparePublication();
-          },
-          unavailable,
-        );
-        add('Filter by lifecycle status', () =>
-          this.form(
-            'Filter deployments',
-            [
-              field('status', 'Status', this.state.deploymentFilter || 'all', [
-                'all',
-                'queued',
-                'starting',
-                'healthy',
-                'unhealthy',
-                'failed',
-                'stopped',
-                'deleted',
-                'cleaned',
-              ]),
-            ],
-            async (v) => {
-              this.update({
-                deploymentFilter: v.status === 'all' ? '' : v.status,
-                page: 0,
-                rows: [],
-              });
-            },
-            false,
-          ),
-        );
-        const deployment = this.selectedDeployment ?? selected;
-        if (!deployment) break;
-        const input = { projectId: this.project!.id, deploymentId: deployment.id };
-        const removed =
-          Boolean(deployment.data.removalPending) ||
-          ['deleted', 'cleaned'].includes(String(deployment.data.status));
-        for (const operation of ['stop', 'restart', 'delete'] as const)
-          add(
-            `${operation[0]!.toUpperCase()}${operation.slice(1)} deployment`,
-            () =>
-              this.mutation(
-                `${operation} deployment`,
-                (v) => v.client.deployments[operation].mutate(input),
-                operation === 'delete'
-                  ? [
-                      `Deployment: ${deployment.id}`,
-                      'The server will delete the deployment and its runtime. This cannot be undone.',
-                    ]
-                  : undefined,
-              ),
-            unavailable ?? (removed ? 'Deployment removed or removal pending' : undefined),
-          );
-        add(
-          deployment.data.pinned ? 'Unpin deployment' : 'Pin deployment',
-          () =>
-            this.mutation('Change pinning', (v) =>
-              v.client.deployments.setPinned.mutate({ ...input, pinned: !deployment.data.pinned }),
-            ),
-          unavailable ?? (removed ? 'Deployment removed or removal pending' : undefined),
-        );
-        add(
-          'Assign / move preview tag',
-          () => {
-            void this.prepareTag(input);
-          },
-          unavailable ?? (removed ? 'Deployment removed' : undefined),
-        );
-        const tags = Array.isArray(deployment.data.tags) ? deployment.data.tags.map(String) : [];
-        add(
-          'Remove preview tag',
-          () =>
-            this.form(
-              'Remove preview tag',
-              [field('name', 'Tag', tags[0] ?? '', tags.length ? tags : undefined)],
-              async (v, signal) => {
-                await this.requestContext(signal).client.deployments.removeTag.mutate({
-                  projectId: input.projectId,
-                  name: v.name!,
-                });
-              },
-            ),
-          unavailable ?? (!tags.length ? 'No tags on this deployment' : undefined),
-        );
-        add('Check public preview status', () => {
-          void this.perform(
-            'Preview status',
-            async (signal) => {
-              const preview =
-                await this.requestContext(signal).client.deployments.previewStatus.query(input);
-              this.message('Public preview status', [
-                preview.error ??
-                  `HTTP ${preview.statusCode} response in ${preview.responseTimeMs} ms`,
-                '',
-                'Address',
-                preview.url,
-                '',
-                `Checked ${dateLabel(preview.checkedAt)}`,
-              ]);
-            },
-            false,
-          );
-        });
-        add('Open fixed preview URL', () => {
-          void this.openUrl(String(deployment.data.previewUrl));
-        });
-        const addresses = deployment.data.addresses as
-          | { branch?: string; tags?: { name: string; url: string }[] }
-          | undefined;
-        if (addresses?.branch)
-          add('Open branch preview URL', () => {
-            void this.openUrl(addresses.branch!);
-          });
-        for (const tag of addresses?.tags ?? [])
-          add(`Open tag ${this.text(tag.name)}`, () => {
-            void this.openUrl(tag.url);
-          });
-        add(
-          'Open origin shell',
-          () =>
-            this.form(
-              'Open origin shell',
-              [field('shell', 'Absolute shell path (optional)', '', undefined, false)],
-              async (v, signal) => {
-                if (v.shell && !v.shell.startsWith('/'))
-                  throw new CliError('Shell path must be absolute.', 2);
-                await this.shell(deployment.id, v.shell || undefined, signal);
-              },
-              false,
-            ),
-          personalOnly ??
-            unavailable ??
-            (!['healthy', 'unhealthy', 'starting'].includes(String(deployment.data.status))
-              ? 'Origin must be running'
-              : undefined),
-        );
-        add(
-          'Publish using this retained source',
-          () => {
-            void this.preparePublication(deployment);
-          },
-          (unavailable ??
-            (deployment.data.kind === 'static'
-              ? !deployment.data.artifactId
-              : !deployment.data.imageDigest))
-            ? (unavailable ?? 'No retained source available')
-            : undefined,
-        );
-        break;
-      }
-      case 'History':
-        if (selected)
-          add(
-            'Remove deployment history permanently',
-            () =>
-              this.mutation(
-                'Remove deployment history',
-                (v) =>
-                  v.client.deployments.removeHistory.mutate({
-                    projectId: this.project!.id,
-                    deploymentId: String(selected.data.deploymentId),
-                  }),
-                [
-                  `Deployment: ${selected.data.deploymentId}`,
-                  'Only deleted/cleaned deployments with no retained artifact can be removed. This deletes their history record permanently.',
-                ],
-              ),
-            adminOnly,
-          );
-        break;
-      case 'Members':
-        if (selected) {
-          add(
-            'Change member role',
-            () =>
-              this.form(
-                'Change project role',
-                [
-                  field('role', 'Project role', String(selected.data.role), [
-                    'viewer',
-                    'developer',
-                    'admin',
-                  ]),
-                ],
-                async (v, signal) => {
-                  await this.requestContext(signal).client.projects.changeMemberRole.mutate({
-                    projectId: this.project!.id,
-                    memberId: selected.id,
-                    role: v.role as 'viewer' | 'developer' | 'admin',
-                  });
-                },
-              ),
-            adminOnly,
-          );
-          add(
-            'Remove member',
-            () =>
-              this.mutation(
-                'Remove project member',
-                (v) =>
-                  v.client.projects.removeMember.mutate({
-                    projectId: this.project!.id,
-                    memberId: selected.id,
-                  }),
-                [
-                  `Member: ${selected.title} (${selected.id})`,
-                  'This account will lose project membership.',
-                ],
-              ),
-            adminOnly,
-          );
-        }
-        break;
-      case 'Invitations':
-        add('Look up invitation ID', () =>
-          this.form(
-            'Inspect invitation',
-            [field('id', 'Invitation ID')],
-            async (v, signal) => {
-              const result = await this.requestContext(signal).client.projects.invitation.query({
-                invitationId: v.id!,
-              });
-              const invitation = row(
-                v.id!,
-                result.organizationName,
-                `Invited role: ${result.role}`,
-                { ...result, recipient: true },
-              );
-              this.update({ detail: invitation, scroll: 0 });
-            },
-            false,
-          ),
-        );
-        add(
-          'Create project invitation',
-          () =>
-            this.form(
-              'Create project invitation',
-              [
-                field('email', 'Email address'),
-                field('role', 'Project role', 'viewer', ['viewer', 'developer', 'admin']),
-              ],
-              async (v, signal) => {
-                const result = await this.requestContext(signal).client.projects.invite.mutate({
-                  projectId: this.project!.id,
-                  email: v.email!,
-                  role: v.role as 'viewer' | 'developer' | 'admin',
-                });
-                this.message('Invitation result', detailLines(result));
-              },
-            ),
-          adminOnly,
-        );
-        if (selected) {
-          if (selected.data.recipient)
-            for (const operation of ['accept', 'reject'] as const)
-              add(`${operation} invitation`, () =>
-                this.mutation(`${operation} invitation`, (v, signal) =>
-                  authRequest(
-                    v.profile.apiUrl,
-                    `organization/${operation}-invitation`,
-                    v.token,
-                    { invitationId: selected.id },
-                    {},
-                    signal,
-                  ),
-                ),
-              );
-          else
-            add(
-              'Cancel invitation',
-              () =>
-                this.mutation(
-                  'Cancel invitation',
-                  (v) =>
-                    v.client.projects.cancelInvitation.mutate({
-                      projectId: this.project!.id,
-                      invitationId: selected.id,
-                    }),
-                  [`Invitation: ${selected.title} (${selected.id})`],
-                ),
-              adminOnly,
-            );
-        }
-        if (!this.identity?.emailVerified)
-          add('Open browser for email verification', () => {
-            void this.openProfile();
-          });
-        break;
-      case 'Sessions':
-        if (selected)
-          add(
-            'Revoke this session',
-            () =>
-              this.confirm(
-                'Revoke session?',
-                [
-                  `${selected.title} (${selected.id})`,
-                  selected.data.current
-                    ? 'This is the current session. You will be signed out.'
-                    : 'That browser or terminal will lose access.',
-                ],
-                () => {
-                  void this.perform('Revoke session', async (signal) => {
-                    await this.requestContext(signal).client.cli.revokeSession.mutate({
-                      id: selected.id,
-                    });
-                    if (selected.data.current) {
-                      const ctx = this.requireContext();
-                      if (!process.env['SENV_TOKEN'])
-                        await removeCredential(ctx.configuration, ctx.name, ctx.profile);
-                      this.clearAccount('Current session revoked.');
-                    }
-                  });
-                },
-              ),
-            personalOnly,
-          );
-        add(
-          'Revoke all other sessions',
-          () =>
-            this.mutation(
-              'Revoke other sessions',
-              (v) => v.client.cli.revokeOtherSessions.mutate(),
-              ['All other browser and CLI sessions for this account will be signed out.'],
-            ),
-          personalOnly,
-        );
-        break;
-      case 'Automation tokens':
-        add(
-          'Create project token',
-          () =>
-            this.form(
-              'Create project token',
-              [
-                field('name', 'Token name'),
-                field('project', 'Project slug or ID', this.project?.id ?? ''),
-                field('permission', 'Deployment permission', 'read', ['read', 'manage']),
-                field('duration', 'Lifetime (empty means never expires)', '30', undefined, false),
-                field('unit', 'Lifetime unit', 'days', ['seconds', 'days', 'months', 'years']),
-              ],
-              async (v, signal) => {
-                const multiplier = { seconds: 1, days: 86400, months: 2592000, years: 31536000 }[
-                  v.unit as 'seconds' | 'days' | 'months' | 'years'
-                ]!;
-                const seconds = v.duration ? Number(v.duration) * multiplier : null;
-                if (
-                  seconds !== null &&
-                  (!Number.isSafeInteger(seconds) ||
-                    seconds <= 0 ||
-                    !Number.isFinite(new Date(Date.now() + seconds * 1000).getTime()))
-                )
-                  throw new CliError(
-                    'Choose a positive duration in whole seconds, or leave it empty.',
-                    2,
-                  );
-                const ctx = this.requestContext(signal);
-                const project = await ctx.client.cli.project.query({ project: v.project! });
-                const result = await ctx.client.cli.createToken.mutate({
-                  projectId: project.id,
-                  name: v.name!,
-                  permission: v.permission as 'read' | 'manage',
-                  expiresInSeconds: seconds,
-                });
-                this.message(
-                  'Save this token now. It will not be shown again.',
-                  [
-                    result.secret,
-                    `ID: ${result.id}`,
-                    `Expires: ${result.expiresAt?.toISOString() ?? 'Never'}`,
-                    'Leaving this view clears the secret.',
-                  ],
-                  true,
-                );
-              },
-            ),
-          personalOnly,
-        );
-        if (selected)
-          add(
-            'Revoke token',
-            () =>
-              this.mutation(
-                'Revoke automation token',
-                (v) => v.client.cli.revokeToken.mutate({ id: selected.id }),
-                [
-                  `Token: ${selected.title} (${selected.id})`,
-                  'New requests using this token will fail immediately.',
-                ],
-              ),
-            selected.data.revokedAt ? 'Already revoked' : personalOnly,
-          );
-        break;
-      case 'Users':
-        add('Create user and send signup email', () =>
-          this.form(
-            'Create user',
-            [field('name', 'Name'), field('email', 'Email address')],
-            async (v, signal) => {
-              const ctx = this.requireContext();
-              const result = await authRequest(
-                ctx.profile.apiUrl,
-                'admin/create-user',
-                ctx.token,
-                { name: v.name, email: v.email, role: 'user' },
-                {},
-                signal,
-              );
-              this.message('Account creation / email result', detailLines(result));
-            },
-          ),
-        );
-        if (selected) {
-          add('Change instance role', () =>
-            this.form(
-              'Change instance role',
-              [
-                field('role', 'Instance role', String(selected.data.role ?? 'user'), [
-                  'user',
-                  'admin',
-                ]),
-              ],
-              async (v, signal) => {
-                const ctx = this.requireContext();
-                await authRequest(
-                  ctx.profile.apiUrl,
-                  'admin/set-role',
-                  ctx.token,
-                  { userId: selected.id, role: v.role },
-                  {},
-                  signal,
-                );
-              },
-            ),
-          );
-          add('Delete user', () =>
-            this.mutation(
-              'Delete user',
-              (v, signal) =>
-                authRequest(
-                  v.profile.apiUrl,
-                  'admin/remove-user',
-                  v.token,
-                  { userId: selected.id },
-                  {},
-                  signal,
-                ),
-              [
-                `User: ${selected.title} (${selected.id})`,
-                'This permanently removes the account. Server admin safeguards still apply.',
-              ],
-            ),
-          );
-          for (const [label, endpoint] of [
-            ['Resend signup email', 'account-signup/resend'],
-            ['Send password reset email', 'account-password/admin-reset'],
-          ] as const)
-            add(label, () =>
-              this.mutation(label, (v, signal) =>
-                authRequest(
-                  v.profile.apiUrl,
-                  endpoint,
-                  v.token,
-                  { userId: selected.id },
-                  {},
-                  signal,
-                ),
-              ),
-            );
-        }
-        break;
-      case 'Instance statistics':
-        break;
-    }
-    if (
-      this.project &&
-      (this.state.screen === 'Projects' || projectScreens.includes(this.state.screen))
-    ) {
-      add(
-        'Rename current project',
-        () =>
-          this.form(
-            'Rename project',
-            [field('name', 'Project name', this.project!.name)],
-            async (v, signal) => {
-              await this.requestContext(signal).client.projects.rename.mutate({
-                projectId: this.project!.id,
-                name: v.name!,
-              });
-              this.project = { ...this.project!, name: v.name! };
-              this.update({ project: v.name });
-            },
-          ),
-        adminOnly,
-      );
-      add(
-        'Change current project preview slug',
-        () =>
-          this.form(
-            'Change preview slug (preview URLs will change)',
-            [field('slug', 'Preview slug', this.project!.previewSlug)],
-            async (v, signal) => {
-              await this.requestContext(signal).client.projects.updatePreviewSlug.mutate({
-                projectId: this.project!.id,
-                previewSlug: v.slug!,
-              });
-              this.project = { ...this.project!, previewSlug: v.slug! };
-            },
-          ),
-        adminOnly,
-      );
-      add('Link working directory to current project', () =>
+    buildActions.call(this.actionHost());
+  }
+  private async prepareLink() {
+    await this.perform(
+      'Inspect project link',
+      async () => {
+        const existing = await nearestLink();
         this.confirm(
-          'Write .senv.json?',
+          existing ? 'Replace existing project link?' : 'Write .senv.json?',
           [
-            `Directory: ${process.cwd()}`,
-            `Instance: ${this.state.instance}`,
-            `Project ID: ${this.project!.id}`,
-            'An existing link will not be overwritten. No credentials or remote settings are saved.',
+            existing ? `Existing link: ${existing.path}` : `Directory: ${process.cwd()}`,
+            existing
+              ? `Currently selects: ${existing.instance}/${existing.projectId}`
+              : 'No existing link.',
+            `New selection: ${this.context!.name}/${this.project!.id}`,
+            'Cancel keeps the existing link. Confirm replaces it at the displayed path.',
           ],
           () => {
             void this.perform(
               'Link project',
               async () => {
-                await writeFile(
-                  '.senv.json',
-                  `${JSON.stringify({ instance: this.context!.name, projectId: this.project!.id }, null, 2)}\n`,
-                  { flag: 'wx' },
-                );
+                await linkProject(this.context!.name, this.project!.id, Boolean(existing));
               },
               false,
             );
           },
-        ),
-      );
-    }
-    if (this.state.hasNext || this.state.detail?.data.hasNext)
-      add('Next page', () => {
-        void this.page(1);
-      });
-    if (this.state.page > 0 || Number(this.state.detail?.data.offset ?? 0) > 0)
-      add('Previous page', () => {
-        void this.page(-1);
-      });
-    add('Refresh', () => {
-      void this.refresh();
-    });
-    add('Switch instance', () => this.navigate('Instances'));
-    if (this.access) add('Select project', () => this.navigate('Projects'));
-    this.update({
-      modal: { kind: 'menu', title: `${this.state.screen} actions`, actions, index: 0 },
-    });
+        );
+      },
+      false,
+    );
   }
   private async preparePublication(retained?: Row) {
     await this.perform(
@@ -2044,7 +1533,11 @@ export class TuiController {
           value: retained?.data.kind === 'container' ? 'container' : 'static',
           choices: ['static', 'container'],
         },
-        { key: 'port', label: 'Application port', value: '80', required: true },
+        {
+          key: 'port',
+          label: 'Application port (empty preserves retained port)',
+          value: retained ? '' : '80',
+        },
         { key: 'credential', label: 'Existing registry credential ID (optional)', value: '' },
         { key: 'branch', label: 'Source branch (optional)', value: '' },
         { key: 'commit', label: 'Source commit (optional)', value: '' },
@@ -2055,12 +1548,10 @@ export class TuiController {
       async (v, signal) => {
         this.update({ submittedDeploymentId: undefined });
         const projectId = this.project!.id;
-        const port = Number(v.port),
+        const port = v.port ? Number(v.port) : undefined,
           timeout = Number(v.timeout);
         if (
-          !Number.isInteger(port) ||
-          port < 1 ||
-          port > 65535 ||
+          (port !== undefined && (!Number.isInteger(port) || port < 1 || port > 65535)) ||
           !Number.isInteger(timeout) ||
           timeout < 1 ||
           timeout > 3600
@@ -2086,7 +1577,8 @@ export class TuiController {
           {
             image: v.source === 'image' ? v.input : undefined,
             reuse: v.source === 'reuse' ? v.input : undefined,
-            kind: v.kind as 'static' | 'container',
+            kind:
+              v.source === 'reuse' && !retained ? undefined : (v.kind as 'static' | 'container'),
             port,
             registryCredential: v.credential || undefined,
             branch: v.branch || undefined,
@@ -2110,26 +1602,16 @@ export class TuiController {
           status: `Deployment ${id} submitted. Cancelling now only stops observation.`,
         });
         if (v.wait === 'yes') {
-          const until = Date.now() + timeout * 1000;
-          while (Date.now() < until) {
-            const detail = await value.client.deployments.detail.query({
-              projectId,
-              deploymentId: id,
-            });
-            if (['healthy', 'failed', 'stopped', 'deleted', 'cleaned'].includes(detail.status)) {
-              this.message('Publication outcome', [
-                `Deployment ID: ${id}`,
-                `Status: ${detail.status}`,
-                detail.failureReason ?? '',
-              ]);
-              return;
-            }
-            await sleep(1000, signal);
-          }
-          this.message('Publication wait timed out', [
-            `Deployment ID: ${id}`,
-            'Inspect this deployment. Do not republish automatically.',
-          ]);
+          const outcome = await waitForPublication(value, projectId, id, timeout, signal);
+          this.message(
+            outcome.status === 'timeout' ? 'Publication wait timed out' : 'Publication outcome',
+            [
+              `Deployment ID: ${id}`,
+              `Status: ${outcome.status}`,
+              outcome.failureReason ?? '',
+              'Inspect this deployment before retrying publication.',
+            ],
+          );
         } else
           this.message('Deployment submitted', [
             `Deployment ID: ${id}`,
@@ -2212,3 +1694,5 @@ export class TuiController {
     ]);
   }
 }
+
+export type ActionHost = ReturnType<TuiController['actionHost']>;

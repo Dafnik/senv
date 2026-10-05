@@ -102,6 +102,7 @@ export class DockerEngine {
       req.once('upgrade', (_response, socket, head) => {
         req.setTimeout(0);
         socket.setTimeout(0);
+        socket.on('error', () => {});
         if (head.length) socket.unshift(head);
         resolve(socket);
       });
@@ -113,7 +114,9 @@ export class DockerEngine {
           return;
         }
         response.socket.setTimeout(0);
-        resolve(Duplex.from({ readable: response, writable: response.socket }));
+        const stream = Duplex.from({ readable: response, writable: response.socket });
+        stream.on('error', () => {});
+        resolve(stream);
       });
       req.end(payload);
     });

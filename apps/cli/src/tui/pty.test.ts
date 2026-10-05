@@ -26,7 +26,7 @@ beforeAll(async () => {
 afterAll(async () => {
   if (buildDirectory) await rm(buildDirectory, { recursive: true, force: true });
 });
-for (const mode of ['quit', 'resize', 'signal', 'suspend'])
+for (const mode of ['quit', 'resize', 'signal', 'hangup', 'ascii', 'suspend'])
   test.skipIf(!python || process.platform === 'win32')(
     `built TUI restores terminal state after ${mode}`,
     async () => {
@@ -49,7 +49,14 @@ test.skipIf(!python || process.platform === 'win32')(
   'built TUI navigates project and account tabs across wide and narrow terminal layouts',
   async () => {
     const requests: string[] = [];
-    const project = { id: 'project', name: 'Website', previewSlug: 'website', members: [] };
+    const project = {
+      id: 'project',
+      name: 'Website 界🙂 \x1b]52;c;dGVzdA==\x07',
+      previewSlug: 'website',
+      role: 'admin',
+      permission: 'admin',
+      members: [],
+    };
     const deployment = {
       id: 'deployment',
       projectId: 'project',
@@ -210,3 +217,9 @@ test.skipIf(!python || process.platform === 'win32')(
   },
   30_000,
 );
+
+test('built TUI rejects a non-TTY launch before enabling terminal ownership', async () => {
+  await expect(
+    execute(process.execPath, [join(buildDirectory, 'senv.js'), 'tui'], { timeout: 5000 }),
+  ).rejects.toMatchObject({ code: 2, stderr: expect.stringContaining('terminal') });
+});

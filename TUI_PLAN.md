@@ -4,15 +4,15 @@
 
 Add a full-screen terminal interface launched with `senv tui`. Cover the functionality in [the CLI implementation plan](PLAN.md) through searchable lists, detail views, forms, and explicit actions. Reuse the CLI's typed clients, instance profiles, credential storage, authorization, uploads, and shell transport.
 
-The CLI implementation is complete. The TUI consumes its shared services and typed backend contracts. `PLAN.md` remains the authority for feature scope and backend rules. This document records the TUI requirements and implementation approach.
+The CLI commands and TUI workflows are implemented. Local regression checks are recorded below; production acceptance remains conditional on the operator checks. The TUI consumes its shared services and typed backend contracts. `PLAN.md` remains the authority for feature scope and backend rules. This document records the TUI requirements and implementation approach.
 
 ### Implementation
 
 `apps/cli/src/tui` implements navigation, forms, confirmation, diagnostics, and permission-aware actions. Ink 8 with React renders the full-screen interface and owns alternate-screen lifecycle, resize, and terminal suspension. Commander loads it only for `senv tui`. Shared context, login/logout, publication/upload, and origin-shell workflows live outside the renderer; ordinary CLI commands keep their output and exit behavior.
 
-The only additional backend query, `cli.access`, returns safe principal kind, project scope, permission, impersonation state, and current session ID. It uses the existing personal/automation authorization and never returns a credential. No schema migration is needed for the TUI.
+The backend queries `cli.access`, `deployments.status`, and `deployments.shellTarget` support effective permissions, lightweight wait polling, and shell target review. `cli.access` returns safe principal kind, project scope, permission, impersonation state, and current session ID. It uses the existing personal/automation authorization and never returns a credential. No schema migration is needed for the TUI.
 
-Controller tests cover stale responses, drafts, confirmation, duplicate and ambiguous submissions, revocation, automation restrictions, bounded log follow, and publication review. Real HTTP-handler tests exercise TUI account and project workflows. Built-executable PTY tests cover exit, signal cleanup, resize, and real Docker shell handoff through a local authenticated bridge. Deployment-specific ingress remains an operator verification step. See [the CLI guide](apps/cli/README.md) for usage and checks.
+Controller tests cover stale responses, preserved drafts, confirmation, duplicate and ambiguous submissions, identity caching, revocation, one-time secrets, automation restrictions, bounded log follow, and publication review. HTTP-handler tests exercise account and project workflows. Built-executable PTY tests cover exit, signals, resize, ASCII/Unicode output, control-sequence sanitization, and real Docker shell handoff through an authenticated local bridge. A separate test runs the built Nitro WebSocket route against Docker; the bridge tests do not stand in for route authorization. Deployment-specific production ingress remains an operator verification step. See [the CLI guide](apps/cli/README.md) and [the remediation record](FINDINGS.md).
 
 Keep existing commands available for scripting, JSON output, and unattended use. Launching `senv` without a subcommand keeps its current behavior. The TUI requires an interactive terminal and does not add server configuration management.
 
@@ -91,9 +91,9 @@ Select the Node-compatible full-screen rendering library during the terminal spi
 
 Use a persistent header with instance, account or credential kind, selected project, connection state, and last successful refresh. The body has a navigation column and a content pane. A footer shows shortcuts for the focused screen and a concise operation status.
 
-Navigation contains Projects, Deployments, History, Audit, Members, Invitations, Account, Sessions, Automation tokens, Users, and Instance statistics. Project sections require a selected project. Only show Users and Instance statistics when the current principal has access. Account-level invitation lookup must remain usable without membership in the invited project.
+History and Audit are intentionally merged into History, using the shared `deployments.history` endpoint with event and actor filters. Administration groups Users and Instance statistics. Navigation contains Projects, Deployments, History, Members, Invitations, Account, Sessions, Automation tokens, Users, and Instance statistics. Project sections require a selected project. Only show Users and Instance statistics when the current principal has access. Account-level invitation lookup must remain usable without membership in the invited project.
 
-Deployment details provide Overview, Addresses, Logs, Resources, History, and Audit views. Publication and identity changes open forms. Confirmations and the action menu appear as modal views with their own focus.
+Deployment details provide Overview, Addresses, Logs, Resources, and History views. History includes audit events. Publication and identity changes open forms. Confirmations and the action menu appear as modal views with their own focus.
 
 Example layout:
 
@@ -103,7 +103,7 @@ senv | production | alex@example.com | docs | connected
 | Projects          | Deployments                          / search       |
 | > Deployments     | ID         Source        Status      Pinned         |
 | History           | ab12cd     static        healthy     yes            |
-| Audit             | ef34gh     app:release   stopped     no             |
+|                   | ef34gh     app:release   stopped     no             |
 | Members           |                                                    |
 | Invitations       | Selected: ab12cd                                    |
 | Account           | Fixed URL: https://...                              |
@@ -272,3 +272,11 @@ Reuse the backend contracts delivered by the CLI work. Report missing CLI-plan f
 - Run relevant API/CLI/frontend tests, builds, typechecks, formatting, and workspace checks. Include TUI tests in CLI and root tasks, and verify the packed package loads no server runtime or Angular dependencies.
 
 Completion means the TUI covers the CLI plan's authorized workflows with reliable keyboard navigation, shared credentials and backend rules, safe live diagnostics, and a working origin-shell handoff. No project-configuration or instance-default management is added.
+
+## Verification record — 2026-10-05
+
+The FINDINGS.md remediation adds auth/device/session isolation, upload authorization before body reads, project-ID precedence, shell readiness and quotas, immediate revocation, durable recovery, credential cleanup, read retries, shared publication waits and action services, safe linking, terminal cleanup, and frontend access metadata. The automated suites exercise the corresponding regressions and legitimate controls. The workspace build and typechecks cover API, CLI, and Angular contracts. Packaging CI installs an isolated archive without automatic peers and exercises it against HTTP handlers.
+
+Local Docker checks cover generated Nginx cookie isolation and routing, the deployment lifecycle, the built Nitro shell upgrade, and marked-process restart recovery. PTY shell tests use real Docker with a local bridge. Shell-less images and bash/explicit-path selection are also checked at the grant boundary.
+
+Remaining operator acceptance: run `senv shell <deployment-id>` and the TUI shell through the deployed HTTPS API ingress, verify upgrade authentication, input/resize, heartbeat loss, remote exit, stop/replacement/revocation, and terminal restoration. No deployed API origin or production ingress configuration was provided in this workspace, so local checks do not establish production ingress acceptance.

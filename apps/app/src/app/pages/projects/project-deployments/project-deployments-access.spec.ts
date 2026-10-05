@@ -70,9 +70,7 @@ test('terminal container snapshots remain inspectable without lifecycle actions'
 
     const details = article.querySelector('a[href$="/cleaned-container"]');
     expect(details).not.toBeNull();
-    expect(
-      article.querySelector('a[href$="/cleaned-container/logs"]'),
-    ).not.toBeNull();
+    expect(article.textContent).toContain('View details');
   } finally {
     deployments.pop();
   }
@@ -106,7 +104,8 @@ test('removal-pending deployments show their pending state and hide unavailable 
     expect(article.textContent).not.toContain('Assign tag');
     expect(article.querySelector('#tag-pending-removal')).toBeNull();
     expect(article.querySelector('a[target="_blank"]')).toBeNull();
-    expect(article.textContent).toContain('View logs');
+    expect(article.querySelector('a[href$="/pending-removal"]')).not.toBeNull();
+    expect(article.textContent).toContain('View details');
     expect(mock.stop).not.toHaveBeenCalled();
     expect(mock.restart).not.toHaveBeenCalled();
     expect(mock.remove).not.toHaveBeenCalled();

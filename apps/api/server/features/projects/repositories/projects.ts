@@ -1,3 +1,4 @@
+import { closeShells } from '../../deployments/services/shell-registry';
 import { and, desc, eq, exists, lt, ne, or } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { member, organization, user } from '../../../../../../drizzle/schema';
@@ -125,6 +126,8 @@ export function renameProject(projectId: string, name: string) {
     .get();
 }
 export function changeProjectMemberRole(projectId: string, memberId: string, role: string) {
+  const target = findProjectMember(projectId, memberId);
+  if (target) void closeShells({ userId: target.userId, projectId }, 'permission_lost');
   return db
     .update(member)
     .set({ role })
@@ -133,6 +136,8 @@ export function changeProjectMemberRole(projectId: string, memberId: string, rol
     .get();
 }
 export function deleteProjectMember(projectId: string, memberId: string) {
+  const target = findProjectMember(projectId, memberId);
+  if (target) void closeShells({ userId: target.userId, projectId }, 'permission_lost');
   db.delete(member)
     .where(and(eq(member.id, memberId), eq(member.organizationId, projectId)))
     .run();

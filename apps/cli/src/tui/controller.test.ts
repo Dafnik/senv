@@ -24,6 +24,7 @@ function setup(
     impersonated: false,
     sessionId: 'session',
   },
+  overrides: ConstructorParameters<typeof TuiController>[1] = {},
 ) {
   const identity = {
     id: 'user',
@@ -32,12 +33,20 @@ function setup(
     role: 'admin',
     emailVerified: true,
   } as Identity;
-  const project = { id: 'project', name: 'Project', previewSlug: 'project', role: 'admin' };
+  const project = {
+    id: 'project',
+    name: 'Project',
+    previewSlug: 'project',
+    role: 'admin',
+    permission: access.kind === 'automation' ? access.permission! : ('admin' as const),
+  };
   const client = {
     me: { query: vi.fn(async () => identity) },
     cli: {
       access: { query: vi.fn(async () => access) },
       project: { query: vi.fn(async () => project) },
+      revokeSession: { mutate: vi.fn(async () => ({ success: true })) },
+      revokeOtherSessions: { mutate: vi.fn(async () => ({ success: true })) },
       createToken: {
         mutate: vi.fn(async () => ({
           id: 'new-token',
@@ -84,6 +93,7 @@ function setup(
       selectProject,
       loadScreen,
       loadDeployment,
+      ...overrides,
     },
   );
   controllers.push(c);
@@ -187,7 +197,8 @@ test('one-time token secrets exist only in the reveal modal and clear on leaving
   c.modalActivate();
   await idle(c);
   expect(c.snapshot().modal).toMatchObject({ kind: 'message', secret: true });
-  expect(JSON.stringify(c.snapshot())).toContain('senv_at_one_time_secret');
+  expect(JSON.stringify(c.snapshot())).not.toContain('senv_at_one_time_secret');
+  expect(c.revealLines()).toContain('senv_at_one_time_secret');
   c.closeModal();
   await idle(c);
   expect(JSON.stringify(c.snapshot())).not.toContain('senv_at_one_time_secret');
@@ -251,9 +262,13 @@ test('log follow drains forward pages, deduplicates entries and reports retentio
       retentionGap: true,
     });
   await c.tab(2);
-  expect(c.snapshot().detail?.lines.filter((line) => line === 'one')).toHaveLength(1);
-  expect(c.snapshot().detail?.lines).toContain('two');
-  expect(c.snapshot().status).toContain('Retention gap');
+  expect(
+    c
+      .snapshot()
+      .detail?.document?.filter((block) => block.kind === 'log' && block.content === 'one'),
+  ).toHaveLength(1);
+  expect(c.snapshot().detail?.lines.join('\n')).toContain('two');
+  expect(c.snapshot().detail?.lines.join('\n')).toContain('Retention gap');
   expect(client.deployments.logsForward.query).toHaveBeenNthCalledWith(
     2,
     expect.objectContaining({ afterSequence: 1 }),
@@ -368,7 +383,7 @@ test('empty automation duration submits no expiry and the reveal view renders Ne
     permission: 'read',
     expiresInSeconds: null,
   });
-  expect(JSON.stringify(c.snapshot().modal)).toContain('Never');
+  expect(c.revealLines().join('\n')).toContain('Never');
 });
 
 test('project and account tabs share a small sidebar and clear view state when switching', async () => {
@@ -621,4 +636,247 @@ test('history search returns to its first page and retains event and actor filte
     historyActor: 'system',
   });
   expect(c.snapshot().detail?.data.offset).toBe(0);
+});
+
+test('automatic polls cache identity while manual refresh revalidates it', async () => {
+  const { c, client } = setup();
+  await c.start();
+  const first = vi.mocked(client.me.query).mock.calls.length;
+  await c.refresh(false);
+  await c.refresh(false);
+  expect(client.me.query).toHaveBeenCalledTimes(first);
+  await c.refresh();
+  expect(client.me.query).toHaveBeenCalledTimes(first + 1);
+});
+
+test('definite mutation rejection is never relabeled as an unknown outcome', async () => {
+  const { TRPCClientError } = await import('@trpc/client');
+  const { c, client } = setup();
+  await c.start();
+  c.navigate('Projects');
+  await idle(c);
+  vi.mocked(client.projects.create.mutate).mockRejectedValueOnce(
+    TRPCClientError.from({
+      error: {
+        message: 'Duplicate project',
+        code: -32009,
+        data: { code: 'CONFLICT', httpStatus: 409 },
+      },
+    }),
+  );
+  action(c, 'Create project');
+  c.editField('Existing');
+  c.modalActivate();
+  c.modalActivate();
+  await idle(c);
+  expect(c.snapshot().status).not.toContain('unknown');
+  expect(c.snapshot().error).toContain('Duplicate');
+  expect(client.projects.create.mutate).toHaveBeenCalledTimes(1);
+});
+
+test('untouched prefilled login forms do not count as unsaved drafts', async () => {
+  const { c } = setup();
+  await c.start();
+  c.navigate('Account');
+  await idle(c);
+  action(c, 'Log in / switch account');
+  c.back();
+  expect(c.snapshot().modal).toBeUndefined();
+});
+
+test('permission loss preserves an edited form as stale and account loss waits for one-time secret dismissal', async () => {
+  const { c, client } = setup();
+  await c.start();
+  c.navigate('Projects');
+  await idle(c);
+  action(c, 'Create project');
+  c.editField('Draft');
+  vi.mocked(client.me.query).mockRejectedValueOnce(new CliError('permission changed', 4));
+  await c.refresh();
+  expect(c.snapshot().modal).toMatchObject({ kind: 'form', changed: true });
+  const draft = c.snapshot().modal;
+  if (draft?.kind === 'form') expect(draft.fields[0]?.value).toBe('Draft');
+  const second = setup();
+  await second.c.start();
+  second.c.navigate('Automation tokens');
+  await idle(second.c);
+  action(second.c, 'Create project token');
+  second.c.editField('CI');
+  second.c.modalActivate();
+  second.c.modalActivate();
+  await idle(second.c);
+  vi.mocked(second.client.me.query).mockRejectedValueOnce(new CliError('session revoked', 3));
+  await second.c.refresh();
+  expect(second.c.revealLines()).toContain('senv_at_one_time_secret');
+  expect(second.c.snapshot().modal).toMatchObject({ secret: true });
+  second.c.closeModal();
+  expect(second.c.revealLines()).toEqual([]);
+  expect(second.c.snapshot().account).toBe('signed out');
+});
+
+test('switching log source resets its cursor and retention markers; logout stops following', async () => {
+  const { c, client } = setup();
+  await c.start();
+  await c.activate();
+  vi.mocked(client.deployments.logsForward.query).mockResolvedValueOnce({
+    logs: [{ id: 'old', sequence: 1, content: 'old log', createdAt: new Date() }],
+    afterSequence: 1,
+    retentionGap: true,
+    hasMore: false,
+  } as Awaited<ReturnType<typeof client.deployments.logsForward.query>>);
+  await c.tab(2);
+  expect(c.snapshot().detail?.lines.join('\n')).toContain('Retention gap');
+  action(c, 'Switch log source to proxy');
+  await idle(c);
+  expect(client.deployments.logsForward.query).toHaveBeenLastCalledWith(
+    expect.objectContaining({ source: 'proxy', afterSequence: undefined }),
+  );
+  expect(c.snapshot().detail?.lines.join('\n')).not.toContain('Retention gap');
+  vi.mocked(client.me.query).mockRejectedValueOnce(new CliError('revoked', 3));
+  await c.refresh();
+  expect(c.snapshot().follow).toBe(false);
+});
+
+test('current-session revocation clears account state and revoke-others refreshes metadata', async () => {
+  const { c, client, loadScreen } = setup();
+  await c.start();
+  c.navigate('Sessions');
+  await idle(c);
+  action(c, 'Revoke all other sessions');
+  c.modalMove(1);
+  c.modalActivate();
+  await idle(c);
+  expect(client.cli.revokeOtherSessions.mutate).toHaveBeenCalledOnce();
+  expect(loadScreen.mock.calls.length).toBeGreaterThan(1);
+  vi.stubEnv('SENV_TOKEN', 'environment-session');
+  loadScreen.mockResolvedValueOnce({
+    rows: [row('session', 'Current', '', { current: true })],
+    hasNext: false,
+  });
+  await c.refresh();
+  action(c, 'Revoke this session');
+  c.modalMove(1);
+  c.modalActivate();
+  await idle(c);
+  expect(client.cli.revokeSession.mutate).toHaveBeenCalledWith({ id: 'session' });
+  expect(c.snapshot().account).toBe('signed out');
+  expect(c.snapshot().rows).toEqual([]);
+  expect(c.snapshot().follow).toBe(false);
+});
+
+test('failed grants resume the renderer and keep shell target review visible', async () => {
+  const runShell = vi
+    .fn()
+    .mockRejectedValue(new CliError('This image has no supported POSIX shell.', 1));
+  const { c, client, loadScreen } = setup(undefined, { runShell });
+  Object.assign(client.deployments, {
+    shellTarget: { query: vi.fn(async () => ({ target: 'origin', configuredUser: '1000' })) },
+  });
+  loadScreen.mockResolvedValue({
+    rows: [row('origin', 'Origin', '', { status: 'healthy', kind: 'container' })],
+    hasNext: false,
+  });
+  await c.start();
+  action(c, 'Open origin shell');
+  await idle(c);
+  expect(c.snapshot().modal?.kind).toBe('form');
+  c.modalActivate();
+  const review = c.snapshot().modal;
+  if (review?.kind === 'form') expect(review.notice?.join(' ')).toContain('1000');
+  c.modalActivate();
+  await idle(c);
+  expect(runShell).toHaveBeenCalledOnce();
+  expect(c.snapshot().suspended).toBe(false);
+  expect(c.snapshot().error).toContain('no supported POSIX shell');
+});
+
+test('forward and older log pages stay bounded and pause following while older entries are inspected', async () => {
+  const { c, client } = setup();
+  await c.start();
+  await c.activate();
+  const log = (sequence: number) => ({
+    id: String(sequence),
+    sequence,
+    deploymentId: 'first',
+    source: 'origin' as const,
+    content: `line ${sequence}`,
+    createdAt: new Date(),
+  });
+  vi.mocked(client.deployments.logsForward.query).mockImplementation(
+    async ({ afterSequence = 0 }) => ({
+      logs: Array.from({ length: 100 }, (_, index) => log(afterSequence + index + 1)),
+      afterSequence: afterSequence + 100,
+      hasMore: afterSequence < 1900,
+      retentionGap: false,
+    }),
+  );
+  await c.tab(2);
+  expect(c.snapshot().detail?.document?.filter((block) => block.kind === 'log')).toHaveLength(1000);
+  const older = vi.fn(async () => ({
+    logs: Array.from({ length: 100 }, (_, index) => log(index + 1)),
+    nextCursor: null,
+  }));
+  Object.assign(client.deployments, { logs: { query: older } });
+  action(c, 'Load older logs');
+  await idle(c);
+  expect(older).toHaveBeenCalled();
+  expect(c.snapshot().follow).toBe(false);
+  expect(c.snapshot().detail?.document?.filter((block) => block.kind === 'log')).toHaveLength(1000);
+});
+
+test('member and invitation actions use shared project permissions and report delivery failures', async () => {
+  const { c, client, loadScreen } = setup();
+  const change = vi.fn(async () => ({ success: true }));
+  const invite = vi.fn(async () => ({ invitationId: 'invitation', emailSent: false }));
+  Object.assign(client.projects, {
+    changeMemberRole: { mutate: change },
+    invite: { mutate: invite },
+  });
+  loadScreen.mockResolvedValue({
+    rows: [row('member', 'Member', '', { role: 'viewer' })],
+    hasNext: false,
+  });
+  await c.start();
+  c.navigate('Members');
+  await idle(c);
+  action(c, 'Change member role');
+  c.editField('', false, 1);
+  c.modalActivate();
+  c.modalActivate();
+  await idle(c);
+  expect(change).toHaveBeenCalledWith({
+    projectId: 'project',
+    memberId: 'member',
+    role: 'developer',
+  });
+  c.navigate('Invitations');
+  await idle(c);
+  action(c, 'Create project invitation');
+  c.editField('invite@example.com');
+  c.modalActivate();
+  c.modalActivate();
+  await idle(c);
+  expect(invite).toHaveBeenCalledWith({
+    projectId: 'project',
+    email: 'invite@example.com',
+    role: 'viewer',
+  });
+  expect(c.snapshot().modal).toMatchObject({ kind: 'message', title: 'Invitation result' });
+  const result = c.snapshot().modal;
+  if (result?.kind === 'message') expect(result.lines.join(' ')).toContain('false');
+});
+
+test('local-only logout calls the shared service without a server mutation', async () => {
+  const logout = vi.fn(async () => ({ loggedOut: true, serverRevoked: false }));
+  const { c, client } = setup(undefined, { logout });
+  await c.start();
+  c.navigate('Account');
+  await idle(c);
+  action(c, 'Local-only logout (server session stays active)');
+  c.modalMove(1);
+  c.modalActivate();
+  await idle(c);
+  expect(logout).toHaveBeenCalledWith(expect.objectContaining({ name: 'test' }), true);
+  expect(client.cli.revokeSession.mutate).not.toHaveBeenCalled();
+  expect(c.snapshot().account).toBe('signed out');
 });
