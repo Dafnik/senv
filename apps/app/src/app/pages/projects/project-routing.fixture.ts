@@ -77,13 +77,13 @@ export const deploymentData = {
     queryFn: async () => [],
     refetchInterval: false,
   }),
-  audit: vi.fn(
+  history: vi.fn(
     (
       sessionId: string,
       input: { projectId: string; deploymentId?: string },
     ) => ({
       queryKey: [
-        'audit',
+        'history',
         sessionId,
         input.projectId,
         input.deploymentId ?? null,

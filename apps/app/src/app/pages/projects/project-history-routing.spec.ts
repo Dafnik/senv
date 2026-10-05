@@ -9,7 +9,7 @@ import {
 setupProjectRoutingTests();
 test('deployment history has a direct project tab and is absent from the deployments list', async () => {
   const harness = await createProjectHarness();
-  const audit = vi.spyOn(deploymentData, 'audit');
+  const historySpy = vi.spyOn(deploymentData, 'history');
   await harness.navigateByUrl(
     '/projects/project-preview/deployments',
     ProjectPage,
@@ -20,9 +20,9 @@ test('deployment history has a direct project tab and is absent from the deploym
     ).not.toBeNull(),
   );
   expect(
-    harness.routeNativeElement?.querySelector('#deployment-audit'),
+    harness.routeNativeElement?.querySelector('#deployment-history'),
   ).toBeNull();
-  expect(audit).not.toHaveBeenCalled();
+  expect(historySpy).not.toHaveBeenCalled();
   const history = [
     ...harness.routeNativeElement!.querySelectorAll<HTMLButtonElement>(
       '[role="tab"]',
@@ -36,7 +36,7 @@ test('deployment history has a direct project tab and is absent from the deploym
       ),
     ).not.toBeNull(),
   );
-  expect(audit).toHaveBeenCalledWith(
+  expect(historySpy).toHaveBeenCalledWith(
     'admin-session',
     expect.objectContaining({ projectId: 'project-id', offset: 0, limit: 20 }),
   );

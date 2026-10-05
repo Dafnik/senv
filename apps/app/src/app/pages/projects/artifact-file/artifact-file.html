@@ -1,0 +1,135 @@
+<div class="mx-auto grid w-full max-w-6xl min-w-0 gap-6 p-4 md:p-8">
+  <app-breadcrumbs [items]="breadcrumbs()" />
+  <a
+    hlmBtn
+    variant="ghost"
+    class="justify-self-start"
+    [routerLink]="artifactLink()"
+    [queryParams]="parentPath() ? { path: parentPath() } : {}"
+    ><ng-icon name="lucideArrowLeft" />Back to folder</a
+  >
+  @if (!path()) {
+    <p role="alert">Choose a file from the artifact browser.</p>
+  } @else if (project.isPending() || file.isPending()) {
+    <hlm-spinner aria-label="Loading file" />
+  } @else if (project.isError() || file.isError()) {
+    <p role="alert">{{ project.error()?.message || file.error()?.message }}</p>
+  } @else if (file.data(); as entry) {
+    <header class="flex flex-wrap items-start justify-between gap-4">
+      <div class="flex min-w-0 items-center gap-3">
+        <app-artifact-file-icon [name]="entry.name" />
+        <h1 class="text-xl font-semibold break-all">{{ entry.name }}</h1>
+      </div>
+      <a hlmBtn variant="outline" [href]="downloadUrl()"
+        ><ng-icon name="lucideDownload" />Download file</a
+      >
+    </header>
+    <section hlmCard>
+      <div hlmCardHeader>
+        <h2 hlmCardTitle>File details</h2>
+        <p hlmCardDescription>Stored in artifact {{ artifactId() }}</p>
+      </div>
+      <dl hlmCardContent class="grid gap-4 text-sm sm:grid-cols-3">
+        <div class="sm:col-span-2">
+          <dt class="text-muted-foreground">Path</dt>
+          <dd class="mt-1 flex items-start gap-2">
+            <span class="min-w-0 font-mono break-all">{{ entry.path }}</span
+            ><button
+              hlmBtn
+              size="icon-xs"
+              variant="ghost"
+              aria-label="Copy file path"
+              (click)="copyPath()"
+            >
+              <ng-icon name="lucideCopy" />
+            </button>
+          </dd>
+        </div>
+        <div>
+          <dt class="text-muted-foreground">Size</dt>
+          <dd class="mt-1 tabular-nums">{{ formatBytes(entry.size) }}</dd>
+        </div>
+        <div>
+          <dt class="text-muted-foreground">Name</dt>
+          <dd class="mt-1 break-all">{{ entry.name }}</dd>
+        </div>
+        <div>
+          <dt class="text-muted-foreground">Type</dt>
+          <dd class="mt-1">{{ entry.language || entry.mime }}</dd>
+        </div>
+      </dl>
+      <div
+        hlmCardFooter
+        class="text-muted-foreground text-xs"
+        aria-live="polite"
+      >
+        {{ copyStatus() }}
+      </div>
+    </section>
+    <section
+      class="min-w-0 overflow-hidden rounded-lg border"
+      aria-label="File preview"
+    >
+      <div
+        class="bg-muted/40 flex items-center justify-between border-b px-4 py-3 text-sm"
+      >
+        <h2 class="font-medium">Preview</h2>
+        <span class="text-muted-foreground">{{
+          entry.language || (entry.kind === 'image' ? 'Image' : 'File')
+        }}</span>
+      </div>
+      @if (entry.reason) {
+        <div class="grid justify-items-start gap-4 p-6">
+          <p class="text-muted-foreground text-sm">{{ entry.reason }}</p>
+          <a hlmBtn [href]="downloadUrl()"
+            ><ng-icon name="lucideDownload" />Download file</a
+          >
+        </div>
+      } @else if (entry.kind === 'image') {
+        @if (image.isLoading()) {
+          <div class="p-6"><hlm-spinner aria-label="Loading image" /></div>
+        } @else if (image.error() || imageFailed()) {
+          <p role="alert" class="p-6">
+            Unable to preview this image. Download the file to view it.
+          </p>
+        } @else if (imageUrl(); as url) {
+          <div class="image-preview flex justify-center p-6">
+            <img
+              [src]="url"
+              [alt]="entry.name"
+              (error)="imageFailed.set(true)"
+              class="max-h-[70vh] max-w-full object-contain"
+            />
+          </div>
+        }
+      } @else if (entry.kind === 'code' && entry.text !== null) {
+        @if (code.isLoading()) {
+          <div class="p-6"><hlm-spinner aria-label="Highlighting code" /></div>
+        } @else if (code.error()) {
+          <pre
+            class="overflow-auto p-4 text-xs"
+          ><code>{{entry.text}}</code></pre>
+        } @else if (code.value(); as lines) {
+          <div
+            class="code-preview max-h-[75vh] overflow-auto"
+            tabindex="0"
+            aria-label="Code contents"
+          >
+            <pre
+              class="m-0 min-w-max py-4 text-xs leading-6"
+            ><code>@for (line of lines; track $index) {<span class="code-line flex"><span class="text-muted-foreground mr-4 w-12 shrink-0 text-right select-none" aria-hidden="true">{{$index + 1}}</span><span class="pr-4">@for (token of line; track $index) {<span [style.--token-light]="token.variants['light'].color" [style.--token-dark]="token.variants['dark'].color">{{token.content}}</span>}</span></span>}</code></pre>
+          </div>
+        }
+      } @else {
+        <div class="grid justify-items-start gap-4 p-6">
+          <p class="text-muted-foreground text-sm">
+            A preview is not available for this file type.
+          </p>
+          <a hlmBtn [href]="downloadUrl()"
+            ><ng-icon name="lucideDownload" />Download file</a
+          >
+        </div>
+      }
+    </section>
+  }
+</div>

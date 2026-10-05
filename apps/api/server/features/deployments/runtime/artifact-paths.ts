@@ -1,5 +1,3 @@
-import type { StaticUploadFile } from './artifact-types';
-
 export function safeRelativePath(input: string): string {
   if (
     !input ||
@@ -17,7 +15,7 @@ export function safeRelativePath(input: string): string {
 }
 
 /** Removes the one directory prefix browsers add for a selected webkitdirectory root. */
-export function stripSelectedDirectoryRoot(files: StaticUploadFile[]): StaticUploadFile[] {
+export function stripSelectedDirectoryRoot<T extends { name: string }>(files: T[]): T[] {
   const names = files.map((file) => safeRelativePath(file.name));
   const firstSegments = new Set(names.map((name) => name.split('/')[0]));
   if (firstSegments.size !== 1 || !names.some((name) => name.includes('/')))

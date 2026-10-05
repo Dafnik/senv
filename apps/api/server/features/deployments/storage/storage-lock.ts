@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 
 const storageLocks = new Map<string, Promise<void>>();
 
-/** Serializes artifact ingestion, reference changes, and cleanup for one storage root. */
+/** Serializes artifact commits, reference changes, and cleanup for one storage root. */
 export async function withArtifactStorageLock<T>(
   root: string,
   task: () => Promise<T> | T,

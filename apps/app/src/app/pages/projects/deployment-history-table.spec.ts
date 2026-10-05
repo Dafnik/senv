@@ -2,14 +2,14 @@ import { expect, test, vi } from 'vite-plus/test';
 import {
   createHistory,
   entry,
-  queryAudit,
+  queryHistory,
   selectOption,
   setupDeploymentHistoryTests,
 } from './deployment-history.test-support';
 
 setupDeploymentHistoryTests();
 test('audit table sends scoped pages and sorting to the server', async () => {
-  queryAudit.mockResolvedValue({
+  queryHistory.mockResolvedValue({
     entries: [entry],
     total: 121,
     events: ['deleted', 'updated'],
@@ -20,12 +20,12 @@ test('audit table sends scoped pages and sorting to the server', async () => {
   });
   const fixture = createHistory('deployment-123456');
   await vi.waitFor(() =>
-    expect(fixture.componentInstance.audit.data()?.total).toBe(121),
+    expect(fixture.componentInstance.history.data()?.total).toBe(121),
   );
 
   const table = fixture.componentInstance.table;
   expect(table.getPageCount()).toBe(7);
-  expect(queryAudit.mock.lastCall?.[0]).toMatchObject({
+  expect(queryHistory.mock.lastCall?.[0]).toMatchObject({
     projectId: 'project-id',
     deploymentId: 'deployment-123456',
     offset: 0,
@@ -34,7 +34,9 @@ test('audit table sends scoped pages and sorting to the server', async () => {
     sortDirection: 'desc',
   });
   table.setPageIndex(3);
-  await vi.waitFor(() => expect(queryAudit.mock.lastCall?.[0].offset).toBe(60));
+  await vi.waitFor(() =>
+    expect(queryHistory.mock.lastCall?.[0].offset).toBe(60),
+  );
   const eventSort = Array.from(
     (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>(
       'thead button',
@@ -42,7 +44,7 @@ test('audit table sends scoped pages and sorting to the server', async () => {
   ).find((button) => button.textContent.includes('Event')) as HTMLButtonElement;
   eventSort.click();
   await vi.waitFor(() =>
-    expect(queryAudit.mock.lastCall?.[0]).toMatchObject({
+    expect(queryHistory.mock.lastCall?.[0]).toMatchObject({
       offset: 0,
       sortBy: 'event',
       sortDirection: 'asc',
@@ -55,7 +57,7 @@ test('audit table sends scoped pages and sorting to the server', async () => {
   ).find((button) => button.textContent.includes('Actor')) as HTMLButtonElement;
   actorSort.click();
   await vi.waitFor(() =>
-    expect(queryAudit.mock.lastCall?.[0]).toMatchObject({
+    expect(queryHistory.mock.lastCall?.[0]).toMatchObject({
       sortBy: 'actor',
       sortDirection: 'asc',
     }),
@@ -72,7 +74,7 @@ test('audit table sends scoped pages and sorting to the server', async () => {
 });
 
 test('search and event/actor filters reset the page and remain available for empty results', async () => {
-  queryAudit.mockResolvedValue({
+  queryHistory.mockResolvedValue({
     entries: [entry],
     total: 41,
     events: ['deleted'],
@@ -80,7 +82,7 @@ test('search and event/actor filters reset the page and remain available for emp
   });
   const fixture = createHistory();
   await vi.waitFor(() =>
-    expect(fixture.componentInstance.audit.data()?.total).toBe(41),
+    expect(fixture.componentInstance.history.data()?.total).toBe(41),
   );
   expect(
     fixture.nativeElement.querySelector(
@@ -93,9 +95,11 @@ test('search and event/actor filters reset the page and remain available for emp
     ).textContent,
   ).toContain('All actors');
   fixture.componentInstance.table.setPageIndex(2);
-  await vi.waitFor(() => expect(queryAudit.mock.lastCall?.[0].offset).toBe(40));
+  await vi.waitFor(() =>
+    expect(queryHistory.mock.lastCall?.[0].offset).toBe(40),
+  );
 
-  queryAudit.mockImplementation(
+  queryHistory.mockImplementation(
     async (input: { event?: string; actor?: string }) =>
       input.event || input.actor
         ? {
@@ -117,18 +121,18 @@ test('search and event/actor filters reset the page and remain available for emp
   search.value = 'retention';
   search.dispatchEvent(new Event('input'));
   await vi.waitFor(() =>
-    expect(queryAudit.mock.lastCall?.[0]).toMatchObject({
+    expect(queryHistory.mock.lastCall?.[0]).toMatchObject({
       offset: 0,
       search: 'retention',
     }),
   );
   await selectOption(fixture, 'event', 'deleted');
   await vi.waitFor(() =>
-    expect(queryAudit.mock.lastCall?.[0].event).toBe('deleted'),
+    expect(queryHistory.mock.lastCall?.[0].event).toBe('deleted'),
   );
   await selectOption(fixture, 'actor', 'Ada Admin');
   await vi.waitFor(() =>
-    expect(queryAudit.mock.lastCall?.[0]).toMatchObject({
+    expect(queryHistory.mock.lastCall?.[0]).toMatchObject({
       offset: 0,
       search: 'retention',
       event: 'deleted',
@@ -136,7 +140,7 @@ test('search and event/actor filters reset the page and remain available for emp
     }),
   );
   await vi.waitFor(() =>
-    expect(fixture.componentInstance.audit.data()?.total).toBe(0),
+    expect(fixture.componentInstance.history.data()?.total).toBe(0),
   );
   await fixture.whenStable();
   expect(fixture.nativeElement.textContent).toContain('No matching history');

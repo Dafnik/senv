@@ -17,7 +17,7 @@ test('deployment resources and logs have direct routes, breadcrumbs, and navigat
   const settingsSpy = vi.spyOn(deploymentData, 'settings');
   const credentialsSpy = vi.spyOn(deploymentData, 'credentials');
   const listSpy = vi.spyOn(deploymentData, 'list');
-  const auditSpy = vi.spyOn(deploymentData, 'audit');
+  const historySpy = vi.spyOn(deploymentData, 'history');
   const details = await harness.navigateByUrl(
     '/projects/project-preview/deployments/acf379',
     DeploymentDetail,
@@ -34,7 +34,7 @@ test('deployment resources and logs have direct routes, breadcrumbs, and navigat
     'project-id',
     'acf379',
   );
-  expect(auditSpy).toHaveBeenCalledWith(
+  expect(historySpy).toHaveBeenCalledWith(
     'admin-session',
     expect.objectContaining({
       projectId: 'project-id',

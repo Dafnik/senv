@@ -54,6 +54,11 @@ export async function resolvePrincipal(headers: Headers): Promise<Principal> {
 }
 
 const readOperations = new Set([
+  'artifacts.list',
+  'artifacts.detail',
+  'artifacts.directory',
+  'artifacts.file',
+  'artifacts.download',
   'me',
   'cli.access',
   'cli.project',
@@ -65,7 +70,6 @@ const readOperations = new Set([
   'deployments.resourceHistory',
   'deployments.previewStatus',
   'deployments.history',
-  'deployments.audit',
 ]);
 const manageOperations = new Set([
   'deployments.publish',

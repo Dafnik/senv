@@ -1,0 +1,162 @@
+<div class="grid gap-6">
+  <header class="flex flex-wrap items-start justify-between gap-4">
+    <div class="grid gap-1">
+      <h2 class="text-xl font-semibold tracking-tight">Artifacts</h2>
+      <p class="text-muted-foreground text-sm">
+        Browse and download the files used by static deployments.
+      </p>
+    </div>
+    @if (artifacts.data(); as page) {
+      <p class="text-muted-foreground text-sm" aria-live="polite">
+        {{ page.total }} {{ page.total === 1 ? 'artifact' : 'artifacts' }}
+      </p>
+    }
+  </header>
+  @if (artifacts.isPending()) {
+    <hlm-spinner aria-label="Loading artifacts" />
+  } @else if (artifacts.isError()) {
+    <div class="grid justify-items-start gap-3">
+      <p role="alert">{{ artifacts.error().message }}</p>
+      <button hlmBtn variant="outline" (click)="artifacts.refetch()">
+        Try again
+      </button>
+    </div>
+  } @else if (artifacts.data(); as page) {
+    @if (!page.total) {
+      <hlm-empty class="border">
+        <div hlmEmptyHeader>
+          <div hlmEmptyMedia variant="icon">
+            <ng-icon name="lucidePackage" />
+          </div>
+          <h3 hlmEmptyTitle>No artifacts yet</h3>
+          <p hlmEmptyDescription>
+            Publish a static deployment to add its uploaded files here.
+            Artifacts follow deployment cleanup.
+          </p>
+        </div>
+        <a
+          hlmBtn
+          variant="outline"
+          [routerLink]="['/projects', projectSlug(), 'deployments']"
+          >View deployments</a
+        >
+      </hlm-empty>
+    } @else if (!page.items.length) {
+      <p class="text-muted-foreground text-sm">
+        There are no artifacts on this page.
+      </p>
+    } @else {
+      <div class="overflow-x-auto rounded-lg border">
+        <table hlmTable>
+          <caption class="sr-only">
+            Uploaded artifacts for this project
+          </caption>
+          <thead hlmTHead>
+            <tr hlmTr>
+              <th hlmTh scope="col">Artifact</th>
+              <th hlmTh scope="col">Source</th>
+              <th hlmTh scope="col">Size</th>
+              <th hlmTh scope="col">Uploaded</th>
+              <th hlmTh scope="col">Deployments</th>
+              <th hlmTh scope="col"><span class="sr-only">Download</span></th>
+            </tr>
+          </thead>
+          <tbody hlmTBody>
+            @for (artifact of page.items; track artifact.id) {
+              <tr hlmTr>
+                <td hlmTd>
+                  <a
+                    class="inline-flex items-center gap-2 font-mono text-xs underline-offset-4 hover:underline"
+                    [routerLink]="[
+                      '/projects',
+                      projectSlug(),
+                      'artifacts',
+                      artifact.id,
+                    ]"
+                  >
+                    <ng-icon
+                      name="lucidePackage"
+                      class="text-muted-foreground"
+                      size="18"
+                    />{{ artifact.id
+                    }}<ng-icon name="lucideArrowUpRight" size="14" />
+                  </a>
+                </td>
+                <td hlmTd>
+                  <div class="grid gap-1">
+                    @if (artifact.source.branch) {
+                      <span
+                        class="max-w-60 truncate"
+                        [title]="artifact.source.branch"
+                        >{{ artifact.source.branch }}</span
+                      >
+                    }
+                    @if (artifact.source.commit) {
+                      <span
+                        class="text-muted-foreground font-mono text-xs"
+                        [title]="artifact.source.commit"
+                        >{{ artifact.source.commit.slice(0, 12) }}</span
+                      >
+                    }
+                    @if (!artifact.source.branch && !artifact.source.commit) {
+                      <span class="text-muted-foreground"
+                        >No source metadata</span
+                      >
+                    }
+                  </div>
+                </td>
+                <td hlmTd class="tabular-nums">
+                  {{ formatBytes(artifact.size) }}
+                </td>
+                <td hlmTd class="text-muted-foreground">
+                  {{ artifact.createdAt | date: 'medium' }}
+                </td>
+                <td hlmTd>{{ artifact.deployments.length }}</td>
+                <td hlmTd class="text-right">
+                  <app-artifact-download-menu
+                    [projectId]="projectId()"
+                    [artifactId]="artifact.id"
+                    [compact]="true"
+                  />
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+    @if (page.total > 50 || offset()) {
+      <nav
+        aria-label="Artifact pagination"
+        class="flex flex-wrap items-center justify-between gap-3"
+      >
+        <p class="text-muted-foreground text-sm">
+          {{ page.items.length ? offset() + 1 : 0 }}–{{
+            page.items.length ? offset() + page.items.length : 0
+          }}
+          of {{ page.total }}
+        </p>
+        <div class="flex gap-2">
+          <button
+            hlmBtn
+            variant="outline"
+            size="sm"
+            [disabled]="offset() === 0"
+            (click)="offset.set(offset() - 50)"
+          >
+            Previous
+          </button>
+          <button
+            hlmBtn
+            variant="outline"
+            size="sm"
+            [disabled]="offset() + 50 >= page.total"
+            (click)="offset.set(offset() + 50)"
+          >
+            Next
+          </button>
+        </div>
+      </nav>
+    }
+  }
+</div>

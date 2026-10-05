@@ -24,7 +24,10 @@ test('directory publication uploads selected files and submits the chosen port',
   await fixture.componentInstance.publish(new Event('submit'));
   await fixture.whenStable();
 
-  expect(upload.directory).toHaveBeenCalledWith('project-a', files);
+  expect(upload.directory).toHaveBeenCalledWith('project-a', files, {
+    branch: undefined,
+    commit: undefined,
+  });
   expect(mock.publish).toHaveBeenCalledWith(
     expect.objectContaining({
       projectId: 'project-a',

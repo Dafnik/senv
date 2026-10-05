@@ -2,13 +2,13 @@ import { expect, test, vi } from 'vite-plus/test';
 import {
   createHistory,
   entry,
-  queryAudit,
+  queryHistory,
   setupDeploymentHistoryTests,
 } from './deployment-history.test-support';
 
 setupDeploymentHistoryTests();
 test('project audit includes deployments without history actions', async () => {
-  queryAudit.mockResolvedValue({
+  queryHistory.mockResolvedValue({
     entries: [entry],
     total: 1,
     events: ['deleted'],
@@ -16,9 +16,9 @@ test('project audit includes deployments without history actions', async () => {
   });
   const fixture = createHistory();
   await vi.waitFor(() =>
-    expect(fixture.componentInstance.audit.data()?.entries).toHaveLength(1),
+    expect(fixture.componentInstance.history.data()?.entries).toHaveLength(1),
   );
-  expect(queryAudit.mock.lastCall?.[0]).not.toHaveProperty('deploymentId');
+  expect(queryHistory.mock.lastCall?.[0]).not.toHaveProperty('deploymentId');
   await fixture.whenStable();
   expect(
     Array.from(

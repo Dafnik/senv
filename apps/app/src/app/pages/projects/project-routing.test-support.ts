@@ -1,3 +1,5 @@
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, withComponentInputBinding } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
@@ -9,6 +11,7 @@ import { DeploymentUpload } from '../../queries/deployment-upload';
 import { DeploymentsData } from '../../queries/deployments';
 import { TrpcService } from '../../trpc/trpc.service';
 import { deploymentData } from './project-routing.fixture';
+import { artifactApi } from './artifact-routing.fixture';
 
 let queries: QueryClient;
 
@@ -41,6 +44,8 @@ export async function createProjectHarness() {
     .children!.find((candidate) => candidate.path === 'projects/:projectSlug')!;
   TestBed.configureTestingModule({
     providers: [
+      provideHttpClient(),
+      provideHttpClientTesting(),
       provideRouter([route], withComponentInputBinding()),
       provideTanStackQuery(() => queries),
       { provide: DeploymentsData, useValue: deploymentData },
@@ -63,6 +68,7 @@ export async function createProjectHarness() {
         provide: TrpcService,
         useValue: {
           client: {
+            artifacts: artifactApi,
             projects: {
               bySlug: {
                 query: vi.fn().mockResolvedValue({

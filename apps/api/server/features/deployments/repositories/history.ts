@@ -1,4 +1,6 @@
-import { and, desc, eq, lt, or } from 'drizzle-orm';
+import { deploymentHistoryQuerySchema } from '../../../../shared/deployment-history';
+import { listDeploymentHistoryPage } from './history-page';
+import { and, eq } from 'drizzle-orm';
 import { customAlphabet } from 'nanoid';
 import { deploymentHistory } from '../../../../../../drizzle/schema';
 import type { DeploymentActor } from '../../../../shared/deployments';
@@ -30,35 +32,16 @@ export function event(
     .run();
 }
 
+/** Internal callers share the same history query as the web and CLI. */
 export function listDeploymentHistory(
   projectId: string,
   limit = 100,
   cursor?: number | { createdAt: Date; id: string },
   deploymentId?: string,
 ) {
-  return db
-    .select()
-    .from(deploymentHistory)
-    .where(
-      and(
-        eq(deploymentHistory.projectId, projectId),
-        deploymentId ? eq(deploymentHistory.deploymentId, deploymentId) : undefined,
-        typeof cursor === 'number'
-          ? lt(deploymentHistory.createdAt, new Date(cursor))
-          : cursor
-            ? or(
-                lt(deploymentHistory.createdAt, cursor.createdAt),
-                and(
-                  eq(deploymentHistory.createdAt, cursor.createdAt),
-                  lt(deploymentHistory.id, cursor.id),
-                ),
-              )
-            : undefined,
-      ),
-    )
-    .orderBy(desc(deploymentHistory.createdAt), desc(deploymentHistory.id))
-    .limit(Math.min(limit, 200))
-    .all();
+  return listDeploymentHistoryPage(
+    deploymentHistoryQuerySchema.parse({ projectId, limit, cursor, deploymentId }),
+  ).entries;
 }
 
 export function deleteDeploymentEvents(

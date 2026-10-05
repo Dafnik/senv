@@ -1,5 +1,6 @@
 import { TRPCError } from '@trpc/server';
 import { customAlphabet } from 'nanoid';
+import type { DeploymentSource } from '../../../../shared/deployments';
 import { db } from '../../../infrastructure/db';
 import {
   deleteArtifactStorageKey,
@@ -20,6 +21,7 @@ export function registerUploadedArtifact(input: {
   storageKey: string;
   size: number;
   sha256: string;
+  source?: DeploymentSource;
 }) {
   if (
     !/^[a-f0-9]{64}$/.test(input.storageKey) ||

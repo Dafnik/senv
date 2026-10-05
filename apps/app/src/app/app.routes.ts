@@ -89,6 +89,22 @@ export const appRoutes: Route[] = [
         children: [
           { path: '', pathMatch: 'full', redirectTo: 'deployments' },
           {
+            path: 'artifacts/:artifactId/file',
+            loadComponent: () =>
+              import('./pages/projects/artifact-file/artifact-file').then(
+                (m) => m.ArtifactFile,
+              ),
+            title: 'Artifact file',
+          },
+          {
+            path: 'artifacts/:artifactId',
+            loadComponent: () =>
+              import('./pages/projects/artifact-detail/artifact-detail').then(
+                (m) => m.ArtifactDetail,
+              ),
+            title: 'Artifact files',
+          },
+          {
             path: 'deployments/:deploymentId/logs',
             loadComponent: () =>
               import('./pages/projects/deployment-detail').then(

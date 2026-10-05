@@ -26,7 +26,7 @@ test('authenticated actions record actor snapshots while runtime events identify
   await actor.api.deployments.restart({ projectId, deploymentId: result.id });
   await actor.api.deployments.delete({ projectId, deploymentId: result.id });
   db.update(user).set({ name: 'Renamed account' }).where(eq(user.id, actor.id)).run();
-  const entries = await actor.api.deployments.history({ projectId });
+  const { entries } = await actor.api.deployments.history({ projectId });
   for (const action of ['submitted', 'pinned', 'stopped', 'restart-requested', 'deleted']) {
     const entry = entries.find((entry) => entry.event === action)!;
     expect(entry.actorType).toBe('user');

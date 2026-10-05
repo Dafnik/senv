@@ -29,6 +29,13 @@
       "when": 1791189401053,
       "tag": "0003_automation_token_optional_expiry",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1791195592776,
+      "tag": "0004_artifact_source",
+      "breakpoints": true
     }
   ]
 }

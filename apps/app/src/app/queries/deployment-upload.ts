@@ -2,6 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
+import type { DeploymentSource } from '@senv/api/shared/deployments';
 
 export type UploadedArtifact = {
   artifactId: string;
@@ -13,21 +14,28 @@ export type UploadedArtifact = {
 export class DeploymentUpload {
   private readonly http = inject(HttpClient);
 
-  async archive(projectId: string, file: File): Promise<UploadedArtifact> {
+  async archive(
+    projectId: string,
+    file: File,
+    source?: DeploymentSource,
+  ): Promise<UploadedArtifact> {
     const body = new FormData();
     body.set('projectId', projectId);
     body.set('kind', 'static');
     body.set('file', file, file.name);
+    if (source) body.set('source', JSON.stringify(source));
     return this.send(body);
   }
 
   async directory(
     projectId: string,
     files: FileList,
+    source?: DeploymentSource,
   ): Promise<UploadedArtifact> {
     const body = new FormData();
     body.set('projectId', projectId);
     body.set('kind', 'static');
+    if (source) body.set('source', JSON.stringify(source));
     if (files.length === 0) throw new Error('The selected directory is empty.');
 
     const entries: Array<{ file: File; path: string }> = [];

@@ -85,7 +85,7 @@ test('deployment audit filters, searches, sorts, and pages snapshot history', as
       role: 'viewer',
     })
     .run();
-  const page = await viewer.api.deployments.audit({ projectId, offset: 100, limit: 100 });
+  const page = await viewer.api.deployments.history({ projectId, offset: 100, limit: 100 });
   expect(page.total).toBe(108);
   expect(page.entries).toHaveLength(8);
   expect(page.events).toEqual(['failed', 'published', 'submitted', 'tie']);
@@ -94,7 +94,7 @@ test('deployment audit filters, searches, sorts, and pages snapshot history', as
   expect(page.actors).toContainEqual({ id: snapshotUserId, name: 'Before deletion' });
   expect(JSON.stringify(page)).not.toContain('audit@example.com');
 
-  const filtered = await viewer.api.deployments.audit({
+  const filtered = await viewer.api.deployments.history({
     projectId,
     event: 'published',
     actor: 'deleted-audit-42',
@@ -107,7 +107,7 @@ test('deployment audit filters, searches, sorts, and pages snapshot history', as
   });
   expect(filtered.events).toHaveLength(4);
 
-  const ties = await viewer.api.deployments.audit({
+  const ties = await viewer.api.deployments.history({
     projectId,
     event: 'tie',
     sortBy: 'event',
@@ -115,7 +115,7 @@ test('deployment audit filters, searches, sorts, and pages snapshot history', as
   });
   expect(ties.entries.map((entry) => entry.id)).toEqual(['audit-tie-b', 'audit-tie-a']);
 
-  const deploymentScope = await viewer.api.deployments.audit({
+  const deploymentScope = await viewer.api.deployments.history({
     projectId,
     deploymentId: target.id,
   });
@@ -130,24 +130,24 @@ test('deployment audit filters, searches, sorts, and pages snapshot history', as
     { id: snapshotUserId, name: 'Before deletion' },
   ]);
 
-  const actorByName = await viewer.api.deployments.audit({
+  const actorByName = await viewer.api.deployments.history({
     projectId,
     search: 'Historical actor 42',
   });
   expect(actorByName.entries.map((entry) => entry.id)).toEqual(['audit-042']);
-  const deploymentById = await viewer.api.deployments.audit({ projectId, search: target.id });
+  const deploymentById = await viewer.api.deployments.history({ projectId, search: target.id });
   expect(deploymentById.entries.map((entry) => entry.id)).toContain('audit-000');
   expect(deploymentById.entries).toHaveLength(2);
-  const actorById = await viewer.api.deployments.audit({ projectId, search: snapshotUserId });
+  const actorById = await viewer.api.deployments.history({ projectId, search: snapshotUserId });
   expect(actorById.entries.map((entry) => entry.id)).toEqual(['audit-000']);
 
-  const createdAtAscending = await viewer.api.deployments.audit({
+  const createdAtAscending = await viewer.api.deployments.history({
     projectId,
     event: 'failed',
     sortBy: 'createdAt',
     sortDirection: 'asc',
   });
-  const createdAtDescending = await viewer.api.deployments.audit({
+  const createdAtDescending = await viewer.api.deployments.history({
     projectId,
     event: 'failed',
     sortBy: 'createdAt',
@@ -156,13 +156,13 @@ test('deployment audit filters, searches, sorts, and pages snapshot history', as
   expect(createdAtAscending.entries[0]?.id).toBe('audit-001');
   expect(createdAtDescending.entries[0]?.id).toBe('audit-103');
 
-  const deploymentAscending = await viewer.api.deployments.audit({
+  const deploymentAscending = await viewer.api.deployments.history({
     projectId,
     event: 'failed',
     sortBy: 'deploymentId',
     sortDirection: 'asc',
   });
-  const deploymentDescending = await viewer.api.deployments.audit({
+  const deploymentDescending = await viewer.api.deployments.history({
     projectId,
     event: 'failed',
     sortBy: 'deploymentId',
@@ -171,13 +171,13 @@ test('deployment audit filters, searches, sorts, and pages snapshot history', as
   expect(deploymentAscending.entries[0]?.deploymentId).toBe('dpl-1');
   expect(deploymentDescending.entries[0]?.deploymentId).toBe('dpl-99');
 
-  const actorAscending = await viewer.api.deployments.audit({
+  const actorAscending = await viewer.api.deployments.history({
     projectId,
     event: 'published',
     sortBy: 'actor',
     sortDirection: 'asc',
   });
-  const actorDescending = await viewer.api.deployments.audit({
+  const actorDescending = await viewer.api.deployments.history({
     projectId,
     event: 'published',
     sortBy: 'actor',

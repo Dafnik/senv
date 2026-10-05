@@ -1,0 +1,237 @@
+<div class="mx-auto grid w-full max-w-6xl gap-6 p-4 md:p-8">
+  <app-breadcrumbs [items]="breadcrumbs()" />
+  @if (project.isPending() || (project.isSuccess() && detail.isPending())) {
+    <hlm-spinner aria-label="Loading artifact" />
+  } @else if (project.isError() || detail.isError()) {
+    <hlm-empty class="border">
+      <div hlmEmptyHeader>
+        <div hlmEmptyMedia variant="icon"><ng-icon name="lucidePackage" /></div>
+        <h1 hlmEmptyTitle>Artifact unavailable</h1>
+        <p hlmEmptyDescription role="alert">
+          {{ project.error()?.message || detail.error()?.message }}
+        </p>
+        <p hlmEmptyDescription>
+          Artifacts follow deployment cleanup and may no longer be retained.
+        </p>
+      </div>
+      <a
+        hlmBtn
+        variant="outline"
+        [routerLink]="['/projects', projectSlug(), 'artifacts']"
+        >Back to artifacts</a
+      >
+    </hlm-empty>
+  } @else if (detail.data(); as artifact) {
+    <header class="flex flex-wrap items-start justify-between gap-4">
+      <div class="grid gap-2">
+        <h1 class="text-xl font-semibold tracking-tight">Artifact files</h1>
+        <p class="text-muted-foreground font-mono text-xs break-all">
+          {{ artifact.id }}
+        </p>
+      </div>
+      <app-artifact-download-menu
+        [projectId]="projectId()"
+        [artifactId]="artifact.id"
+      />
+    </header>
+    <section hlmCard>
+      <div hlmCardHeader>
+        <h2 hlmCardTitle>Artifact details</h2>
+        <p hlmCardDescription>
+          Fixed files and source metadata captured for this artifact.
+        </p>
+      </div>
+      <dl
+        hlmCardContent
+        class="grid gap-5 text-sm sm:grid-cols-2 lg:grid-cols-4"
+      >
+        <div>
+          <dt class="text-muted-foreground">Size</dt>
+          <dd class="mt-1 tabular-nums">{{ formatBytes(artifact.size) }}</dd>
+        </div>
+        <div>
+          <dt class="text-muted-foreground">Uploaded</dt>
+          <dd class="mt-1">{{ artifact.createdAt | date: 'medium' }}</dd>
+        </div>
+        <div>
+          <dt class="text-muted-foreground">Branch</dt>
+          <dd class="mt-1 break-all">
+            @if (sourceLinks().branch; as url) {
+              <a
+                [href]="url"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="underline underline-offset-4"
+                >{{ artifact.source.branch }}</a
+              >
+            } @else {
+              {{ artifact.source.branch || 'Not provided' }}
+            }
+          </dd>
+        </div>
+        <div>
+          <dt class="text-muted-foreground">Commit</dt>
+          <dd class="mt-1 font-mono text-xs break-all">
+            @if (sourceLinks().commit; as url) {
+              <a
+                [href]="url"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="underline underline-offset-4"
+                >{{ artifact.source.commit }}</a
+              >
+            } @else {
+              {{ artifact.source.commit || 'Not provided' }}
+            }
+          </dd>
+        </div>
+      </dl>
+      <div hlmCardFooter class="flex-col items-start gap-3 border-t pt-5">
+        <p class="text-muted-foreground font-mono text-xs break-all">
+          <span class="font-sans">SHA-256</span> {{ artifact.sha256 }}
+        </p>
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+          <span class="text-muted-foreground">Used by</span>
+          @for (deployment of artifact.deployments; track deployment.id) {
+            <a
+              [routerLink]="[
+                '/projects',
+                projectSlug(),
+                'deployments',
+                deployment.id,
+              ]"
+              class="font-mono text-xs underline underline-offset-4"
+              >{{ deployment.id }}</a
+            >
+          } @empty {
+            <span>No retained deployments</span>
+          }
+        </div>
+      </div>
+    </section>
+    <section
+      class="overflow-hidden rounded-lg border"
+      aria-label="Artifact file browser"
+    >
+      <nav
+        aria-label="Artifact folder"
+        class="bg-muted/40 flex flex-wrap items-center gap-2 border-b px-4 py-3 text-sm"
+      >
+        <a
+          [routerLink]="detailLink()"
+          [queryParams]="{}"
+          class="inline-flex items-center gap-2 underline-offset-4 hover:underline"
+          [attr.aria-current]="!path() ? 'page' : null"
+        >
+          <app-artifact-file-icon name="Files" [directory]="true" />Files
+        </a>
+        @for (folder of folders(); track folder.path; let last = $last) {
+          <ng-icon name="lucideChevronRight" size="14" aria-hidden="true" />
+          <a
+            [routerLink]="detailLink()"
+            [queryParams]="{ path: folder.path }"
+            class="max-w-full break-all underline-offset-4 hover:underline"
+            [attr.aria-current]="last ? 'page' : null"
+            >{{ folder.name }}</a
+          >
+        }
+      </nav>
+      @if (directory.isPending()) {
+        <div class="p-6"><hlm-spinner aria-label="Loading files" /></div>
+      } @else if (directory.isError()) {
+        <div class="grid justify-items-start gap-3 p-6">
+          <p role="alert">{{ directory.error().message }}</p>
+          <button hlmBtn variant="outline" (click)="directory.refetch()">
+            Try again
+          </button>
+        </div>
+      } @else if (directory.data(); as listing) {
+        <div class="overflow-x-auto">
+          <table hlmTable>
+            <caption class="sr-only">
+              Files in
+              {{
+                path() || 'artifact root'
+              }}
+            </caption>
+            <thead hlmTHead>
+              <tr hlmTr>
+                <th hlmTh scope="col">Name</th>
+                <th hlmTh scope="col">Size</th>
+                <th hlmTh scope="col"><span class="sr-only">Download</span></th>
+              </tr>
+            </thead>
+            <tbody hlmTBody>
+              @if (path()) {
+                <tr hlmTr>
+                  <td hlmTd colspan="3">
+                    <a
+                      [routerLink]="detailLink()"
+                      [queryParams]="parentPath() ? { path: parentPath() } : {}"
+                      class="inline-flex items-center gap-3 underline-offset-4 hover:underline"
+                      ><ng-icon name="lucideArrowUp" size="18" />Parent
+                      folder</a
+                    >
+                  </td>
+                </tr>
+              }
+              @for (entry of listing.entries; track entry.path) {
+                <tr hlmTr>
+                  <td hlmTd>
+                    @if (entry.kind === 'directory') {
+                      <a
+                        [routerLink]="detailLink()"
+                        [queryParams]="{ path: entry.path }"
+                        class="inline-flex items-center gap-3 underline-offset-4 hover:underline"
+                        ><app-artifact-file-icon
+                          [name]="entry.name"
+                          [directory]="true"
+                        />{{ entry.name }}</a
+                      >
+                    } @else {
+                      <a
+                        [routerLink]="[...detailLink(), 'file']"
+                        [queryParams]="{ path: entry.path }"
+                        class="inline-flex items-center gap-3 underline-offset-4 hover:underline"
+                        ><app-artifact-file-icon [name]="entry.name" />{{
+                          entry.name
+                        }}</a
+                      >
+                    }
+                  </td>
+                  <td hlmTd class="text-muted-foreground tabular-nums">
+                    {{ formatBytes(entry.size) }}
+                  </td>
+                  <td hlmTd class="text-right">
+                    @if (entry.kind === 'file') {
+                      <a
+                        hlmBtn
+                        variant="ghost"
+                        size="icon-sm"
+                        [href]="
+                          data.downloadUrl(projectId(), artifact.id, {
+                            path: entry.path,
+                          })
+                        "
+                        [attr.aria-label]="'Download ' + entry.name"
+                        ><ng-icon name="lucideDownload"
+                      /></a>
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+        @if (!listing.entries.length) {
+          <p class="text-muted-foreground p-6 text-sm">This folder is empty.</p>
+        }
+        <p class="text-muted-foreground border-t px-4 py-3 text-xs">
+          {{ formatBytes(listing.size) }} · {{ listing.entries.length }}
+          {{ listing.entries.length === 1 ? 'entry' : 'entries' }}. Select a
+          file to preview it.
+        </p>
+      }
+    </section>
+  }
+</div>

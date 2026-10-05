@@ -2,7 +2,7 @@ import { expect, test, vi } from 'vite-plus/test';
 import {
   createHistory,
   entry,
-  queryAudit,
+  queryHistory,
   queryClient,
   session,
   setupDeploymentHistoryTests,
@@ -10,7 +10,7 @@ import {
 
 setupDeploymentHistoryTests();
 test('scope changes clear search, filters, and pages and include the new session in cache keys', async () => {
-  queryAudit.mockResolvedValue({
+  queryHistory.mockResolvedValue({
     entries: [entry],
     total: 61,
     events: ['deleted'],
@@ -18,7 +18,7 @@ test('scope changes clear search, filters, and pages and include the new session
   });
   const fixture = createHistory();
   await vi.waitFor(() =>
-    expect(fixture.componentInstance.audit.data()?.total).toBe(61),
+    expect(fixture.componentInstance.history.data()?.total).toBe(61),
   );
   fixture.componentInstance.search.set('first scope');
   fixture.componentInstance.setEventFilter('deleted');
@@ -35,7 +35,7 @@ test('scope changes clear search, filters, and pages and include the new session
   expect(fixture.componentInstance.actorFilter()).toBe('');
   expect(fixture.componentInstance.pagination().pageIndex).toBe(0);
   await vi.waitFor(() =>
-    expect(queryAudit.mock.lastCall?.[0]).toMatchObject({
+    expect(queryHistory.mock.lastCall?.[0]).toMatchObject({
       projectId: 'another-project',
       deploymentId: 'another-deployment',
       offset: 0,

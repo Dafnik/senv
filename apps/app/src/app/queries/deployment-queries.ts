@@ -4,7 +4,7 @@ import type {
   DeploymentLogPage,
   DeploymentLogCursor,
 } from '@senv/api/shared/deployments';
-import type { DeploymentAuditQuery } from '@senv/api/shared/deployment-audit';
+import type { DeploymentHistoryQuery } from '@senv/api/shared/deployment-history';
 import { deploymentKeys } from './deployment-keys';
 import { injectTrpc } from '../trpc/trpc.service';
 
@@ -37,25 +37,12 @@ export class DeploymentQueries {
     };
   }
 
-  history(sessionId: string | null, projectId: string, enabled = true) {
+  history(sessionId: string | null, input: DeploymentHistoryQuery) {
     return {
-      queryKey: deploymentKeys.history(sessionId, projectId),
-      enabled: !!sessionId && !!projectId && enabled,
-      queryFn: ({ signal }: { signal: AbortSignal }) =>
-        this.trpc.client.deployments.history.query(
-          { projectId, limit: 50 },
-          { signal },
-        ),
-      refetchInterval: 10_000,
-    };
-  }
-
-  audit(sessionId: string | null, input: DeploymentAuditQuery) {
-    return {
-      queryKey: deploymentKeys.audit(sessionId, input),
+      queryKey: deploymentKeys.history(sessionId, input),
       enabled: !!sessionId && !!input.projectId,
       queryFn: ({ signal }: { signal: AbortSignal }) =>
-        this.trpc.client.deployments.audit.query(input, { signal }),
+        this.trpc.client.deployments.history.query(input, { signal }),
       refetchInterval: 10_000,
     };
   }

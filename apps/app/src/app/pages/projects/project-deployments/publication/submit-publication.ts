@@ -29,15 +29,24 @@ export async function submitPublication(
   if (options.busy()) return false;
   options.busy.set(true);
   try {
+    const source = {
+      commit: options.draft.commit.trim() || undefined,
+      branch: options.draft.branch.trim() || undefined,
+    };
     let artifactId: string | undefined;
     if (options.draft.kind === 'static' && !options.reusable) {
       options.uploading.set(true);
       const artifact = options.archiveFile
-        ? await options.upload.archive(options.projectId, options.archiveFile)
+        ? await options.upload.archive(
+            options.projectId,
+            options.archiveFile,
+            source,
+          )
         : options.directoryFiles
           ? await options.upload.directory(
               options.projectId,
               options.directoryFiles,
+              source,
             )
           : null;
       if (!artifact)
@@ -69,10 +78,7 @@ export async function submitPublication(
               registryCredentialId: credentialOverride ?? null,
             }),
       pinned: options.draft.pinned,
-      source: {
-        commit: options.draft.commit.trim() || undefined,
-        branch: options.draft.branch.trim() || undefined,
-      },
+      source,
       port: options.draft.port,
     });
     if (!isCurrent(options)) return false;

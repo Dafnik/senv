@@ -36,18 +36,19 @@ const deployment = {
     commit: '1234567890abcdef',
   },
   config: { env: { PRIVATE: 'must-not-appear' } },
-  history: [
-    {
-      id: 'event',
-      deploymentId: 'deploy-123',
-      createdAt: at,
-      event: 'tag-assigned',
-      actorType: 'user',
-      actor: { id: 'user', name: 'Dafni' },
-      details: { name: 'production' },
-    },
-  ],
 } as unknown as Deployment;
+const history: Parameters<typeof eventsDocument>[0] = [
+  {
+    id: 'event',
+    deploymentId: 'deploy-123',
+    projectId: 'project',
+    createdAt: at,
+    event: 'tag-assigned',
+    actorType: 'user',
+    actor: { id: 'user', name: 'Dafni' },
+    details: { name: 'production' },
+  },
+];
 const text = (blocks: Parameters<typeof layoutDetail>[0], width = 76, query = '') =>
   layoutDetail(blocks, width, query).map(lineText).join('\n');
 
@@ -147,7 +148,7 @@ test('historical metrics distinguish zero samples from gaps and render readable 
 test('audit entries read as events, retain actors during search, and exclude private fields', () => {
   const events = [
     {
-      ...deployment.history[0]!,
+      ...history[0]!,
       details: {
         name: 'production',
         oldTarget: 'previous',
@@ -211,12 +212,12 @@ test('structured layout keeps wrapped Unicode, tables, and terminal control char
 
 test('deployment loaders attach structured documents and preserve history pagination', async () => {
   const detail = vi.fn(async () => deployment);
-  const audit = vi.fn(async () => ({ entries: deployment.history, total: 95 }));
+  const audit = vi.fn(async () => ({ entries: history, total: 95 }));
   const context = {
     client: {
       deployments: {
         detail: { query: detail },
-        audit: { query: audit },
+        history: { query: audit },
         resources: {
           query: async () => ({
             status: 'available',

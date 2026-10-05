@@ -124,9 +124,9 @@ import { canReuseDeployment } from './deployment-presentation';
             are hidden.
           </p>
         </div>
-        <div class="border-t pt-5 grid gap-2">
+        <div class="grid gap-2 border-t pt-5">
           <div class="flex flex-wrap items-center justify-between gap-3">
-              <h3 class="text-sm font-semibold">Artifact</h3>
+            <h3 class="text-sm font-semibold">Artifact</h3>
             @if (canManage() && canReuse(deployment)) {
               <a
                 hlmBtn
@@ -142,9 +142,20 @@ import { canReuseDeployment } from './deployment-presentation';
           <p
             class="text-muted-foreground font-mono text-xs leading-5 break-all"
           >
-            {{
-              deployment.artifactId || deployment.imageDigest || 'Not available'
-            }}
+            @if (deployment.artifactId) {
+              <a
+                [routerLink]="[
+                  '/projects',
+                  projectSlug(),
+                  'artifacts',
+                  deployment.artifactId,
+                ]"
+                class="underline underline-offset-4"
+                >{{ deployment.artifactId }}</a
+              >
+            } @else {
+              {{ deployment.imageDigest || 'Not available' }}
+            }
           </p>
         </div>
         <details class="border-t pt-4">

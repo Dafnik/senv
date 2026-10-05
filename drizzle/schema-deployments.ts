@@ -18,6 +18,7 @@ export const deploymentArtifact = sqliteTable('deploymentArtifact', {
   storageKey: text('storageKey').notNull(),
   sha256: text('sha256').notNull(),
   size: integer('size').notNull(),
+  source: text('source', { mode: 'json' }).$type<DeploymentSource>(),
   publishedAt: integer('publishedAt', { mode: 'timestamp_ms' }),
   createdAt: createdAt(),
 });

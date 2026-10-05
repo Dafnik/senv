@@ -1,0 +1,24 @@
+<button
+  hlmBtn
+  variant="outline"
+  [size]="compact() ? 'sm' : 'default'"
+  [hlmDropdownMenuTrigger]="downloads"
+  align="end"
+  [attr.aria-label]="'Download artifact ' + artifactId()"
+>
+  <ng-icon name="lucideDownload" />Download<ng-icon name="lucideChevronDown" />
+</button>
+<ng-template #downloads>
+  <hlm-dropdown-menu>
+    <a
+      hlmDropdownMenuItem
+      [href]="data.downloadUrl(projectId(), artifactId(), { format: 'zip' })"
+      ><ng-icon name="lucideDownload" />Download ZIP</a
+    >
+    <a
+      hlmDropdownMenuItem
+      [href]="data.downloadUrl(projectId(), artifactId(), { format: 'tar.gz' })"
+      ><ng-icon name="lucideDownload" />Download tar.gz</a
+    >
+  </hlm-dropdown-menu>
+</ng-template>

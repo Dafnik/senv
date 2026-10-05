@@ -10,6 +10,7 @@ import { db } from '../../../infrastructure/db';
 import { findProject } from '../../projects/repositories/projects';
 import { encrypt, runtimeFingerprint } from '../domain/secrets';
 import { updateArtifact } from '../repositories/artifacts';
+import { getArtifact } from './artifacts';
 import { initializeBranchAlias } from '../repositories/branches';
 import {
   findDeploymentIdentity,
@@ -114,7 +115,12 @@ function publishDeploymentLocked(input: PublishDeploymentInput, actor?: Deployme
       snapshot,
       imageDigest: initialDigest,
     });
-    if (artifactId) updateArtifact(tx, artifactId, { publishedAt: now });
+    if (artifactId)
+      updateArtifact(tx, artifactId, {
+        publishedAt: now,
+        // Older clients send source metadata at publication rather than upload.
+        ...(getArtifact(artifactId).source === null ? { source: snapshot.source } : {}),
+      });
     if (Object.keys(runtime.secrets).length || registryAuth)
       insertDeploymentSecrets(tx, {
         deploymentId,

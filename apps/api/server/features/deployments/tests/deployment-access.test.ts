@@ -166,17 +166,17 @@ test('deployment audit authorization checks project membership and scoped deploy
     })
     .run();
   const outsider = await caller('audit-outsider@example.com');
-  expect((await viewer.api.deployments.audit({ projectId })).total).toBe(1);
-  await expect(outsider.api.deployments.audit({ projectId })).rejects.toMatchObject({
+  expect((await viewer.api.deployments.history({ projectId })).total).toBe(1);
+  await expect(outsider.api.deployments.history({ projectId })).rejects.toMatchObject({
     code: 'FORBIDDEN',
   });
   await expect(
-    viewer.api.deployments.audit({ projectId, deploymentId: 'missing-deployment' }),
+    viewer.api.deployments.history({ projectId, deploymentId: 'missing-deployment' }),
   ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   await expect(
-    viewer.api.deployments.audit({ projectId: 'missing-project' }),
+    viewer.api.deployments.history({ projectId: 'missing-project' }),
   ).rejects.toMatchObject({ code: 'NOT_FOUND' });
-  expect((await viewer.api.deployments.audit({ projectId, deploymentId: target.id })).total).toBe(
+  expect((await viewer.api.deployments.history({ projectId, deploymentId: target.id })).total).toBe(
     1,
   );
 
@@ -197,6 +197,6 @@ test('deployment audit authorization checks project membership and scoped deploy
     port: 80,
   });
   await expect(
-    viewer.api.deployments.audit({ projectId, deploymentId: foreignTarget.id }),
+    viewer.api.deployments.history({ projectId, deploymentId: foreignTarget.id }),
   ).rejects.toMatchObject({ code: 'NOT_FOUND' });
 });

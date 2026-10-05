@@ -1,4 +1,4 @@
-<div class="mx-auto grid w-full max-w-6xl gap-8 p-4 md:p-8">
+<div class="mx-auto grid w-full max-w-6xl grid-cols-1 gap-8 p-4 md:p-8">
   <app-breadcrumbs [items]="breadcrumbs()" />
   @if (project.isPending()) {
     <hlm-spinner aria-label="Loading project" />
@@ -20,12 +20,15 @@
             current.name | initials
           }}</span></hlm-avatar
         >
-        <hlm-tabs-list aria-label="Project sections">
-          <button hlmTabsTrigger="deployments">Deployments</button>
-          <button hlmTabsTrigger="history">History</button>
-          <button hlmTabsTrigger="members">Members</button>
-          <button hlmTabsTrigger="settings">Settings</button>
-        </hlm-tabs-list>
+        <div class="max-w-full min-w-0 overflow-x-auto">
+          <hlm-tabs-list aria-label="Project sections">
+            <button hlmTabsTrigger="deployments">Deployments</button>
+            <button hlmTabsTrigger="artifacts">Artifacts</button>
+            <button hlmTabsTrigger="history">History</button>
+            <button hlmTabsTrigger="members">Members</button>
+            <button hlmTabsTrigger="settings">Settings</button>
+          </hlm-tabs-list>
+        </div>
       </header>
       <div hlmTabsContent="deployments">
         <app-project-deployments
@@ -39,6 +42,14 @@
       <div hlmTabsContent="history">
         <ng-template hlmTabsContentLazy>
           <app-deployment-history [projectId]="projectId()" />
+        </ng-template>
+      </div>
+      <div hlmTabsContent="artifacts">
+        <ng-template hlmTabsContentLazy>
+          <app-project-artifacts
+            [projectId]="projectId()"
+            [projectSlug]="projectSlug()"
+          />
         </ng-template>
       </div>
       <div hlmTabsContent="members">

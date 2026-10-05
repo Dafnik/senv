@@ -9,11 +9,11 @@ import { DeploymentHistory } from './deployment-history';
 export const session = signal({
   data: { session: { id: 'session-id' }, user: { id: 'user-id' } },
 });
-export const queryAudit = vi.fn();
+export const queryHistory = vi.fn();
 export let queryClient: QueryClient;
 
 export const entry = {
-  id: 'audit-entry-1',
+  id: 'history-entry-1',
   projectId: 'project-id',
   deploymentId: 'deployment-123456',
   event: 'deleted',
@@ -51,7 +51,7 @@ export function setupDeploymentHistoryTests() {
         {
           provide: TrpcService,
           useValue: {
-            client: { deployments: { audit: { query: queryAudit } } },
+            client: { deployments: { history: { query: queryHistory } } },
           },
         },
       ],

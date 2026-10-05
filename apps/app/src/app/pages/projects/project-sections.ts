@@ -1,5 +1,6 @@
 export const projectSections = [
   'deployments',
+  'artifacts',
   'history',
   'members',
   'settings',

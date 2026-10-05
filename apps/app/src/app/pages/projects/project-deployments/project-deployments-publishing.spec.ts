@@ -27,7 +27,10 @@ test('developers can upload a ZIP, publish a fixed snapshot, and keep ordinary d
   await component.publish(new Event('submit'));
   await fixture.whenStable();
 
-  expect(upload.archive).toHaveBeenCalledWith('project-a', file);
+  expect(upload.archive).toHaveBeenCalledWith('project-a', file, {
+    branch: 'feature/ui',
+    commit: undefined,
+  });
   expect(mock.publish).toHaveBeenCalledWith(
     expect.objectContaining({
       projectId: 'project-a',
