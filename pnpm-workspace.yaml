@@ -1,4 +1,3 @@
-virtualStoreDir: .pnpm
 minimumReleaseAge: 1440
 packages:
   - 'apps/*'
