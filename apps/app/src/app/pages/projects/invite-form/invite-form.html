@@ -1,0 +1,79 @@
+@if (!open()) {
+  <button hlmBtn (click)="open.set(true)">Invite user</button>
+} @else {
+  <section hlmCard>
+    <div hlmCardHeader>
+      <h2 hlmCardTitle>Invite a project member</h2>
+      <p hlmCardDescription>
+        Choose a role and send an invitation to their email address. They need
+        an account and a verified email to accept the invitation.
+      </p>
+    </div>
+    <form
+      hlmCardContent
+      [formRoot]="inviteForm"
+      class="grid gap-4 md:grid-cols-2"
+      (submit)="invite($event)"
+    >
+      <div hlmField>
+        <label hlmFieldLabel for="invite-email">Email address</label>
+        <input
+          hlmInput
+          id="invite-email"
+          type="email"
+          autocomplete="off"
+          [formField]="inviteForm.email"
+        />
+        @if (inviteForm.email().touched()) {
+          @for (error of inviteForm.email().errors(); track error) {
+            <hlm-field-error>{{ error.message }}</hlm-field-error>
+          }
+        }
+      </div>
+      <fieldset hlmFieldSet>
+        <legend hlmFieldLegend id="role-label">Project role</legend>
+        <hlm-toggle-group
+          type="single"
+          variant="outline"
+          [nullable]="false"
+          [disabled]="busy()"
+          [value]="model().role"
+          (valueChange)="selectRole($event)"
+          aria-labelledby="role-label"
+        >
+          @for (role of roles; track role) {
+            <button
+              hlmToggleGroupItem
+              type="button"
+              [disabled]="busy()"
+              [value]="role"
+            >
+              {{ role | titlecase }}
+            </button>
+          }
+        </hlm-toggle-group>
+      </fieldset>
+      <div class="flex gap-2 md:col-span-2">
+        <button
+          hlmBtn
+          type="submit"
+          [disabled]="busy() || inviteForm().invalid()"
+        >
+          @if (busy()) {
+            <hlm-spinner />
+          }
+          Send invitation
+        </button>
+        <button
+          hlmBtn
+          type="button"
+          variant="outline"
+          [disabled]="busy()"
+          (click)="close()"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  </section>
+}

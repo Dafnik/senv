@@ -1,0 +1,155 @@
+<div class="grid gap-6">
+  @if (!canManage()) {
+    <span hlmBadge variant="secondary" class="w-fit">Read only</span>
+  }
+  @if (publishOpen() && canManage()) {
+    <section hlmCard id="publish-deployment-card">
+      <div hlmCardHeader>
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div class="grid gap-1">
+            <h2 hlmCardTitle>Publish a deployment</h2>
+            <p hlmCardDescription>
+              Upload a built site or point to an existing container image.
+            </p>
+          </div>
+          @if (!canManage()) {
+            <span hlmBadge variant="secondary">Read only</span>
+          }
+        </div>
+      </div>
+      @if (canManage()) {
+        <form
+          hlmCardContent
+          class="grid gap-5"
+          [formRoot]="publishForm"
+          (submit)="publish($event)"
+        >
+          <fieldset class="grid gap-3" [disabled]="busy()">
+            <legend class="text-sm font-medium">Deployment source</legend>
+            <hlm-toggle-group
+              type="single"
+              variant="outline"
+              [nullable]="false"
+              [disabled]="busy()"
+              [value]="model().kind"
+              (valueChange)="setKind($event)"
+              aria-label="Deployment source"
+            >
+              <button hlmToggleGroupItem type="button" value="static">
+                Static site
+              </button>
+              <button hlmToggleGroupItem type="button" value="container">
+                Container image
+              </button>
+            </hlm-toggle-group>
+          </fieldset>
+
+          @if (model().kind === 'static') {
+            <app-deployment-static-source-fields
+              [publishForm]="publishForm"
+              [busy]="busy()"
+              [archiveAccept]="archiveAccept"
+              [selectedFileLabel]="selectedFileLabel"
+              [availableArtifacts]="availableArtifacts"
+              (archiveSelected)="selectArchive($event)"
+              (directorySelected)="selectDirectory($event)"
+              (reuseSelection)="selectReusableContent($event)"
+            />
+          } @else {
+            <app-deployment-container-source-fields
+              [publishForm]="publishForm"
+              [busy]="busy()"
+              [credentials]="credentials.data"
+              [credentialsLoading]="credentials.isPending()"
+              [credentialsError]="credentials.isError()"
+              [registryCredentialId]="registryCredentialSelection"
+              [keepCapturedCredential]="keepCapturedCredential"
+              [capturedCredentialLabel]="capturedCredentialLabel"
+              (imageInput)="updateImage($event)"
+              (credentialSelection)="updateRegistryCredential($event)"
+              (retryCredentials)="credentials.refetch()"
+            />
+          }
+          <app-deployment-source-details-fields
+            [publishForm]="publishForm"
+            [projectSettings]="projectSettings.data"
+          />
+
+          <p class="text-muted-foreground text-sm">
+            Environment variables and secrets are captured from project settings
+            when you publish.
+          </p>
+          @if (formError()) {
+            <p role="alert" class="text-destructive text-sm">
+              {{ formError() }}
+            </p>
+          }
+          @if (uploading()) {
+            <p
+              role="status"
+              class="text-muted-foreground flex items-center gap-2 text-sm"
+            >
+              <hlm-spinner /> Uploading and validating website files…
+            </p>
+          }
+          <div class="flex flex-wrap items-center gap-3">
+            <button
+              hlmBtn
+              type="submit"
+              [disabled]="busy() || publishForm().invalid()"
+            >
+              @if (busy()) {
+                <hlm-spinner />
+              }
+              Publish deployment
+            </button>
+            <button
+              hlmBtn
+              type="button"
+              variant="ghost"
+              [disabled]="busy()"
+              (click)="resetDraft()"
+            >
+              Clear draft
+            </button>
+            <span class="text-muted-foreground text-xs"
+              >Draft settings are saved in this browser.</span
+            >
+          </div>
+        </form>
+      } @else {
+        <div hlmCardContent class="text-muted-foreground text-sm">
+          You can view deployments and their non-secret configuration. Ask a
+          project developer or admin to publish.
+        </div>
+      }
+    </section>
+  }
+
+  <app-deployment-list
+    [projectId]="projectId()"
+    [previewSlug]="previewSlug()"
+    [canManage]="canManage()"
+    [isAdmin]="isAdmin()"
+    [items]="deployments.data() ?? []"
+    [loading]="deployments.isPending()"
+    [refreshing]="deployments.isFetching()"
+    [error]="deployments.error()?.message ?? ''"
+    (reload)="deployments.refetch()"
+  >
+    @if (canManage()) {
+      <div deployment-list-actions>
+        <button
+          hlmBtn
+          type="button"
+          [disabled]="busy()"
+          (click)="publishOpen.set(!publishOpen())"
+          [attr.aria-expanded]="publishOpen()"
+          aria-controls="publish-deployment-card"
+        >
+          {{ publishOpen() ? 'Close publish form' : 'Publish' }}
+        </button>
+      </div>
+    }
+  </app-deployment-list>
+</div>

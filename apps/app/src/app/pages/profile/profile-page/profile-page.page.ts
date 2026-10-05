@@ -13,6 +13,7 @@ import { HlmSpinnerImports } from '@spartan-ng/helm/spinner';
 import { AccountPassword } from '../../../auth/account-password';
 import { injectAuthUser } from '../../../auth/auth-client';
 import { InitialsPipe } from '../../../ui/initials-pipe';
+import { AccessManagement } from '../access-management/access-management';
 
 @Component({
   selector: 'app-profile-page',
@@ -24,6 +25,7 @@ import { InitialsPipe } from '../../../ui/initials-pipe';
     HlmCardImports,
     HlmSpinnerImports,
     InitialsPipe,
+    AccessManagement,
   ],
   template: `
     <div class="mx-auto grid w-full max-w-2xl gap-8 p-4 md:p-8">
@@ -87,6 +89,7 @@ import { InitialsPipe } from '../../../ui/initials-pipe';
             </button>
           </div>
         </section>
+        <app-access-management />
       }
     </div>
   `,

@@ -1,0 +1,41 @@
+{
+  "name": "@senv/cli",
+  "version": "0.1.0",
+  "description": "Command-line client for senv",
+  "license": "MIT",
+  "bin": {
+    "senv": "dist/senv.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "type": "module",
+  "scripts": {
+    "dev": "vp build --watch",
+    "cli": "node dist/senv.js",
+    "build": "vp build && node scripts/executable.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vp test run"
+  },
+  "dependencies": {
+    "@trpc/client": "11.18.0",
+    "commander": "^14.0.3",
+    "ink": "^8.0.0",
+    "open": "^10.2.0",
+    "react": "19.3.0",
+    "string-width": "^8.3.0",
+    "superjson": "2.2.6",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/ws": "^8.18.1"
+  },
+  "optionalDependencies": {
+    "@napi-rs/keyring": "^1.2.0"
+  },
+  "engines": {
+    "node": ">=24.20.0"
+  }
+}

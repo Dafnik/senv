@@ -1,0 +1,396 @@
+<div class="grid gap-8">
+  @if (impersonating()) {
+    <p role="status">
+      Stop impersonating to manage your sessions and automation tokens.
+    </p>
+  } @else {
+    <section hlmCard>
+      <div hlmCardHeader>
+        <h2 hlmCardTitle>Sessions</h2>
+        <p hlmCardDescription>
+          Browser and CLI logins use separate sessions. Revoking a CLI session
+          also closes its active shells.
+        </p>
+      </div>
+      <div hlmCardContent class="grid gap-4">
+        @if (sessions.isPending()) {
+          <hlm-spinner aria-label="Loading sessions" />
+        }
+        @if (sessions.isError()) {
+          <p role="alert">Could not load sessions.</p>
+          <button hlmBtn variant="outline" (click)="sessions.refetch()">
+            Retry
+          </button>
+        }
+        <div hlmField>
+          <label hlmFieldLabel for="session-search">Search sessions</label>
+          <input
+            hlmInput
+            id="session-search"
+            type="search"
+            [value]="sessionSearch()"
+            (input)="sessionSearch.set($any($event.target).value)"
+            placeholder="Search devices, types, or session IDs"
+          />
+        </div>
+        <div hlmTableContainer>
+          <table hlmTable>
+            <caption class="sr-only">
+              Browser and CLI sessions
+            </caption>
+            <thead hlmTHead>
+              @for (group of sessionTable.getHeaderGroups(); track group.id) {
+                <tr hlmTr>
+                  @for (header of group.headers; track header.id) {
+                    <th
+                      hlmTh
+                      [attr.aria-sort]="
+                        header.column.getCanSort()
+                          ? header.column.getIsSorted() === 'asc'
+                            ? 'ascending'
+                            : header.column.getIsSorted() === 'desc'
+                              ? 'descending'
+                              : 'none'
+                          : null
+                      "
+                    >
+                      <ng-container
+                        *flexRender="
+                          header.column.columnDef.header;
+                          props: header.getContext();
+                          let content
+                        "
+                        >{{ content }}</ng-container
+                      >
+                    </th>
+                  }
+                </tr>
+              }
+            </thead>
+            <tbody hlmTBody>
+              @for (row of sessionTable.getRowModel().rows; track row.id) {
+                <tr hlmTr>
+                  @for (cell of row.getAllCells(); track cell.id) {
+                    <td hlmTd>
+                      @if (cell.column.id === 'actions') {
+                        <hlm-alert-dialog>
+                          <button
+                            hlmBtn
+                            hlmAlertDialogTrigger
+                            variant="outline"
+                            [disabled]="busy()"
+                          >
+                            {{
+                              row.original.current
+                                ? 'Sign out this browser'
+                                : 'Revoke session'
+                            }}
+                          </button>
+                          <hlm-alert-dialog-content
+                            *hlmAlertDialogPortal="let ctx"
+                          >
+                            <hlm-alert-dialog-header
+                              ><h3 hlmAlertDialogTitle>Revoke this session?</h3>
+                              <p hlmAlertDialogDescription>
+                                {{ row.original.label }} will need to sign in
+                                again. Any shells opened by this session will
+                                close.
+                              </p></hlm-alert-dialog-header
+                            >
+                            <hlm-alert-dialog-footer
+                              ><button hlmAlertDialogCancel>Cancel</button
+                              ><button
+                                hlmAlertDialogAction
+                                variant="destructive"
+                                (click)="
+                                  revokeSession(row.original.id); ctx.close()
+                                "
+                              >
+                                Revoke
+                              </button></hlm-alert-dialog-footer
+                            >
+                          </hlm-alert-dialog-content>
+                        </hlm-alert-dialog>
+                      } @else if (cell.column.id === 'kind') {
+                        <span hlmBadge variant="secondary">{{
+                          row.original.kind
+                        }}</span>
+                      } @else if (cell.column.id === 'label') {
+                        <div class="flex flex-wrap items-center gap-2">
+                          <span>{{ row.original.label }}</span>
+                          @if (row.original.current) {
+                            <span hlmBadge>Current session</span>
+                          }
+                        </div>
+                      } @else {
+                        <ng-container
+                          *flexRender="
+                            cell.column.columnDef.cell;
+                            props: cell.getContext();
+                            let content
+                          "
+                          >{{ content }}</ng-container
+                        >
+                      }
+                    </td>
+                  }
+                </tr>
+              } @empty {
+                <tr hlmTr>
+                  <td hlmTd [attr.colspan]="sessionColumns.length">
+                    {{
+                      sessions.isPending()
+                        ? 'Loading sessions…'
+                        : sessions.isError()
+                          ? 'Sessions unavailable.'
+                          : 'No sessions match your search.'
+                    }}
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+        <div [tanStackTable]="sessionTable">
+          <app-table-pagination [pageSizes]="[10, 20, 50]" />
+        </div>
+      </div>
+      <div hlmCardFooter>
+        <hlm-alert-dialog>
+          <button
+            hlmBtn
+            hlmAlertDialogTrigger
+            variant="outline"
+            [disabled]="busy()"
+          >
+            Sign out all other sessions
+          </button>
+          <hlm-alert-dialog-content *hlmAlertDialogPortal="let ctx">
+            <hlm-alert-dialog-header
+              ><h3 hlmAlertDialogTitle>Sign out all other sessions?</h3>
+              <p hlmAlertDialogDescription>
+                Other browser and CLI sessions will end. This browser stays
+                signed in. Automation tokens are managed separately below.
+              </p></hlm-alert-dialog-header
+            >
+            <hlm-alert-dialog-footer
+              ><button hlmAlertDialogCancel>Cancel</button
+              ><button
+                hlmAlertDialogAction
+                variant="destructive"
+                (click)="revokeOthers(); ctx.close()"
+              >
+                Sign out other sessions
+              </button></hlm-alert-dialog-footer
+            >
+          </hlm-alert-dialog-content>
+        </hlm-alert-dialog>
+      </div>
+    </section>
+    <section hlmCard>
+      <div hlmCardHeader>
+        <h2 hlmCardTitle>Automation tokens</h2>
+        <p hlmCardDescription>
+          Give CI access to one project's deployments. Tokens cannot open
+          shells, manage users, or edit project settings.
+        </p>
+      </div>
+      <div hlmCardContent class="grid gap-6">
+        <form
+          (submit)="$event.preventDefault(); createToken()"
+          class="grid gap-4"
+        >
+          <div hlmField>
+            <label hlmFieldLabel for="token-name">Token name</label
+            ><input hlmInput id="token-name" [formField]="tokenForm.name" />
+          </div>
+          <div hlmField>
+            <label hlmFieldLabel for="token-project">Project</label>
+            <hlm-combobox
+              [value]="selectedProject()"
+              (valueChange)="selectProject($event)"
+              [disabled]="busy() || projects.isPending()"
+            >
+              <hlm-combobox-input
+                inputId="token-project"
+                placeholder="Search projects by name or slug"
+                [showClear]="true"
+              />
+              <hlm-combobox-content *hlmComboboxPortal>
+                <hlm-combobox-empty
+                  >No matching projects in the loaded pages.</hlm-combobox-empty
+                >
+                <div hlmComboboxList>
+                  @for (project of projectOptions(); track project.value) {
+                    <hlm-combobox-item [value]="project">{{
+                      project.label
+                    }}</hlm-combobox-item>
+                  }
+                </div>
+                @if (projects.hasNextPage()) {
+                  <button
+                    hlmBtn
+                    type="button"
+                    variant="ghost"
+                    [disabled]="projects.isFetchingNextPage()"
+                    (click)="projects.fetchNextPage()"
+                  >
+                    Load more projects
+                  </button>
+                }
+              </hlm-combobox-content>
+            </hlm-combobox>
+            @if (projects.isError()) {
+              <p role="alert">Could not load projects.</p>
+              <button
+                hlmBtn
+                type="button"
+                variant="outline"
+                (click)="projects.refetch()"
+              >
+                Retry projects
+              </button>
+            }
+          </div>
+          <div hlmField>
+            <label hlmFieldLabel for="token-expiry">Expires after</label>
+            <app-duration-input
+              inputId="token-expiry"
+              label="Token lifetime"
+              defaultUnit="days"
+              [formField]="tokenForm.expiresInSeconds"
+              [allowedUnits]="['seconds', 'days', 'months', 'years']"
+            />
+            <p hlmFieldDescription>
+              Leave empty for a token that never expires. It can still be
+              revoked.
+            </p>
+          </div>
+          <fieldset hlmFieldSet>
+            <legend hlmFieldLegend>Deployment permission</legend>
+            <hlm-toggle-group
+              type="single"
+              [nullable]="false"
+              [value]="tokenModel().permission"
+              (valueChange)="changePermission($event)"
+              ><button hlmToggleGroupItem type="button" value="read">
+                Read</button
+              ><button hlmToggleGroupItem type="button" value="manage">
+                Manage
+              </button></hlm-toggle-group
+            >
+            <p hlmFieldDescription>
+              Manage also allows publishing, deleting, stopping, and restarting
+              deployments.
+            </p>
+          </fieldset>
+          <button
+            hlmBtn
+            type="submit"
+            [disabled]="busy() || tokenForm().invalid()"
+          >
+            Create automation token
+          </button>
+        </form>
+        @if (secret()) {
+          <div hlmField>
+            <label hlmFieldLabel for="token-secret">Copy this secret now</label
+            ><textarea
+              hlmInput
+              id="token-secret"
+              readonly
+              [value]="secret()"
+              autocomplete="off"
+            ></textarea>
+            <p hlmFieldDescription>
+              Store it in your CI secret store as SENV_TOKEN. It will not be
+              shown again.
+            </p>
+            <button hlmBtn variant="outline" (click)="secret.set('')">
+              Hide secret
+            </button>
+          </div>
+        }
+        @if (tokens.isPending()) {
+          <hlm-spinner aria-label="Loading automation tokens" />
+        }
+        @if (tokens.isError()) {
+          <p role="alert">Could not load automation tokens.</p>
+          <button hlmBtn variant="outline" (click)="tokens.refetch()">
+            Retry
+          </button>
+        }
+        @for (token of tokens.data(); track token.id) {
+          <div class="grid gap-2 rounded-md border p-4">
+            <div class="flex flex-wrap gap-2">
+              <span>{{ token.name }}</span
+              ><span hlmBadge variant="secondary">{{ token.permission }}</span>
+              @if (token.revokedAt) {
+                <span hlmBadge variant="outline">Revoked</span>
+              }
+            </div>
+            <p class="text-muted-foreground text-sm">
+              {{ token.prefix }}… · Project {{ token.projectId }} · Expires
+              {{
+                token.expiresAt ? (token.expiresAt | date: 'medium') : 'Never'
+              }}
+            </p>
+            @if (!token.revokedAt) {
+              <hlm-alert-dialog
+                ><button
+                  hlmBtn
+                  hlmAlertDialogTrigger
+                  variant="outline"
+                  [disabled]="busy()"
+                >
+                  Revoke token</button
+                ><hlm-alert-dialog-content *hlmAlertDialogPortal="let ctx"
+                  ><hlm-alert-dialog-header
+                    ><h3 hlmAlertDialogTitle>Revoke {{ token.name }}?</h3>
+                    <p hlmAlertDialogDescription>
+                      Automation using this token will lose access immediately.
+                    </p></hlm-alert-dialog-header
+                  ><hlm-alert-dialog-footer
+                    ><button hlmAlertDialogCancel>Cancel</button
+                    ><button
+                      hlmAlertDialogAction
+                      variant="destructive"
+                      (click)="revokeToken(token.id); ctx.close()"
+                    >
+                      Revoke
+                    </button></hlm-alert-dialog-footer
+                  ></hlm-alert-dialog-content
+                ></hlm-alert-dialog
+              >
+            }
+          </div>
+        }
+      </div>
+    </section>
+    <section hlmCard>
+      <div hlmCardHeader>
+        <h2 hlmCardTitle>Use the CLI</h2>
+        <p hlmCardDescription>
+          Install the CLI supplied by your instance operator, then authorize
+          your terminal in the browser.
+        </p>
+      </div>
+      <div hlmCardContent class="grid gap-3">
+        <code class="break-all"
+          >npm install -g /path/to/senv-cli-0.1.0.tgz</code
+        >
+        <code class="break-all">senv auth login --api-url {{ apiUrl }}</code>
+        <p class="text-muted-foreground text-sm">
+          For CI, create a project-scoped automation token above and store it as
+          SENV_TOKEN.
+        </p>
+      </div>
+    </section>
+  }
+  @if (busy()) {
+    <hlm-spinner aria-label="Updating access" />
+  }
+  @if (error()) {
+    <p role="alert">{{ error() }}</p>
+  }
+</div>

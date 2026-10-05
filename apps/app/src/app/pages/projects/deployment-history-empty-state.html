@@ -1,0 +1,25 @@
+<hlm-empty>
+  <hlm-empty-header>
+    @if (isError()) {
+      <div hlmEmptyTitle>Could not load history</div>
+      <p hlmEmptyDescription role="alert">{{ errorMessage() }}</p>
+    } @else if (isPending()) {
+      <hlm-spinner aria-label="Loading deployment history" />
+    } @else if (hasFilters()) {
+      <div hlmEmptyTitle>No matching history</div>
+      <p hlmEmptyDescription>
+        Change or clear the search and filters to see other events.
+      </p>
+    } @else {
+      <div hlmEmptyTitle>No retained history</div>
+      <p hlmEmptyDescription>
+        Deployment events will appear here when available.
+      </p>
+    }
+  </hlm-empty-header>
+  @if (isError()) {
+    <hlm-empty-content>
+      <button hlmBtn variant="outline" (click)="retry.emit()">Try again</button>
+    </hlm-empty-content>
+  }
+</hlm-empty>

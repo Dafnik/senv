@@ -1,6 +1,6 @@
 import { initTRPC, TRPCError } from '@trpc/server';
 import superjson from 'superjson';
-import { auth } from '../utils/auth';
+import { authorizeOperation, resolvePrincipal } from '../features/auth/services/request-principal';
 import type { Context } from './context';
 
 /**
@@ -11,14 +11,10 @@ const t = initTRPC.context<Context>().create({
   transformer: superjson,
 });
 
-const isAuthed = t.middleware(async ({ ctx, next }) => {
-  const session = await auth.api.getSession({
-    headers: ctx.req.headers,
-  });
-  if (!session) {
-    throw new TRPCError({ code: 'UNAUTHORIZED' });
-  }
-  return next({ ctx: { ...session } });
+const isAuthed = t.middleware(async ({ ctx, next, path, getRawInput }) => {
+  const principal = await resolvePrincipal(ctx.req.headers);
+  authorizeOperation(principal, path, await getRawInput());
+  return next({ ctx: principal });
 });
 
 const isAdmin = isAuthed.unstable_pipe(async ({ ctx, next }) => {

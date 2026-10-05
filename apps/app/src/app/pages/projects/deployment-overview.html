@@ -1,0 +1,32 @@
+@let item = deployment();
+<div class="grid gap-6">
+  <app-deployment-header
+    class="rounded-xl lg:sticky lg:top-2 lg:z-20 lg:shadow-sm"
+    [deployment]="item"
+    [projectSlug]="projectSlug()"
+    [canManage]="canManage()"
+    [isAdmin]="isAdmin()"
+    [actions]="actions"
+  />
+  <div class="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+    <div class="grid items-start gap-6">
+      <app-deployment-configuration
+        [deployment]="item"
+        [projectSlug]="projectSlug()"
+        [canManage]="canManage()"
+      />
+      <app-deployment-history
+        [projectId]="item.projectId"
+        [deploymentId]="item.id"
+        title="Audit log"
+      />
+    </div>
+    <aside aria-label="Deployment context">
+      <app-deployment-context
+        [deployment]="item"
+        [actions]="actions"
+        [canManage]="canManage()"
+      />
+    </aside>
+  </div>
+</div>

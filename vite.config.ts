@@ -1,4 +1,6 @@
 import { defineConfig } from 'vite-plus';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 export default defineConfig({
   fmt: {
@@ -16,7 +18,9 @@ export default defineConfig({
     ignorePatterns: ['dist/**', 'coverage/**', 'apps/api/.output/**', '.pnpm/**'],
   },
   test: {
-    include: ['apps/api/**/*.test.ts', 'drizzle/**/*.test.ts'],
+    // A premature database import must never fall back to the developer's .env database.
+    env: { DATABASE_URL: `file:${join(tmpdir(), `senv-test-fallback-${process.pid}.sqlite`)}` },
+    include: ['apps/api/**/*.test.ts', 'apps/cli/**/*.test.ts', 'drizzle/**/*.test.ts'],
     environment: 'node',
   },
 });

@@ -3,8 +3,10 @@ import { DatePipe } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   inject,
   input,
+  linkedSignal,
   signal,
 } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
@@ -22,6 +24,7 @@ import {
 } from '../../../auth/auth-client';
 import { ProjectsData } from '../../../queries/projects';
 import { unwrapAuthResult } from '../../../auth/auth-result';
+import { isPermanentInvitationError } from './invitation-error';
 
 @Component({
   selector: 'app-invitation-page',
@@ -34,89 +37,33 @@ import { unwrapAuthResult } from '../../../auth/auth-result';
     HlmCardImports,
     HlmSpinnerImports,
   ],
-  template: `
-    <div class="mx-auto w-full max-w-xl p-4 md:py-16">
-      <section hlmCard>
-        <div hlmCardHeader>
-          <h1 hlmCardTitle>Project invitation</h1>
-          <p hlmCardDescription>Signed in as {{ user()?.email }}</p>
-        </div>
-        <div hlmCardContent class="grid gap-4">
-          <button
-            hlmBtn
-            variant="outline"
-            [disabled]="busy()"
-            (click)="useAnotherAccount()"
-          >
-            Use another account
-          </button>
-          @if (user() && !user()?.emailVerified) {
-            <p>
-              Verify {{ user()?.email }} before accepting project invitations.
-            </p>
-            <p class="text-muted-foreground text-sm">
-              We'll send a verification link to your inbox. Use the email
-              address this invitation was sent to.
-            </p>
-            <button hlmBtn [disabled]="busy()" (click)="sendVerification()">
-              @if (busy()) {
-                <hlm-spinner />
-              }
-              {{
-                verificationSent()
-                  ? 'Send another verification email'
-                  : 'Send verification email'
-              }}
-            </button>
-            @if (verificationSent()) {
-              <p role="status" class="text-muted-foreground text-sm">
-                Check your inbox, then follow the link to return to this
-                invitation.
-              </p>
-            }
-          } @else if (invitation.isPending()) {
-            <hlm-spinner aria-label="Loading invitation" />
-          } @else if (invitation.isError()) {
-            <p role="alert">{{ invitation.error().message }}</p>
-            <p class="text-muted-foreground text-sm">
-              The link may have expired or been used. Make sure you're signed in
-              with the invited email address, or ask a project admin for a new
-              invitation.
-            </p>
-            <a hlmBtn variant="outline" routerLink="/projects"
-              >Go to projects</a
-            >
-          } @else if (invitation.data(); as invite) {
-            <p class="text-xl font-semibold">
-              Join {{ invite.organizationName }}
-            </p>
-            <p>Your project role will be {{ invite.role | titlecase }}.</p>
-            <p class="text-muted-foreground text-sm">
-              Expires {{ invite.expiresAt | date: 'medium' }}
-            </p>
-            <button hlmBtn [disabled]="busy()" (click)="accept()">
-              @if (busy()) {
-                <hlm-spinner />
-              }
-              Accept invitation
-            </button>
-            <a hlmBtn variant="ghost" routerLink="/projects">Decide later</a>
-          }
-        </div>
-      </section>
-    </div>
-  `,
+  templateUrl: './invitation-page.page.html',
 })
 export class InvitationPage {
   readonly invitationId = input.required<string>();
   private readonly auth = injectAuthClient();
   private readonly logout = injectLogout();
   private readonly sessionId = injectAuthSessionId();
+  private readonly scopeIdentity = computed(() => ({
+    invitationId: this.invitationId(),
+    sessionId: this.sessionId(),
+  }));
   private readonly router = inject(Router);
   private readonly projects = inject(ProjectsData);
   readonly user = injectAuthUser();
-  readonly busy = signal(false);
-  readonly verificationSent = signal(false);
+  readonly busy = linkedSignal(() => {
+    this.scopeIdentity();
+    return false;
+  });
+  private readonly operation = signal(0);
+  readonly accepted = linkedSignal(() => {
+    this.scopeIdentity();
+    return false;
+  });
+  readonly verificationSent = linkedSignal(() => {
+    this.scopeIdentity();
+    return false;
+  });
   readonly invitation = injectQuery(() => ({
     queryKey: ['invitation', this.sessionId(), this.invitationId()],
     enabled: !!this.sessionId() && !!this.user()?.emailVerified,
@@ -124,25 +71,50 @@ export class InvitationPage {
     queryFn: () => this.projects.invitation(this.invitationId()),
   }));
 
+  isPermanentInvitationError(): boolean {
+    return isPermanentInvitationError(this.invitation.error());
+  }
+
   async useAnotherAccount() {
     if (this.busy()) return;
+    const operation = this.operation() + 1;
+    this.operation.set(operation);
+    const scopeIdentity = this.scopeIdentity();
+    const invitationId = this.invitationId();
+    const sessionId = this.sessionId();
+    const isCurrent = () =>
+      operation === this.operation() &&
+      scopeIdentity === this.scopeIdentity() &&
+      invitationId === this.invitationId() &&
+      sessionId === this.sessionId();
     this.busy.set(true);
     try {
       await this.logout(
         `/invitations/${encodeURIComponent(this.invitationId())}`,
       );
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : 'Could not switch accounts.',
-      );
+      if (isCurrent())
+        toast.error(
+          error instanceof Error ? error.message : 'Could not switch accounts.',
+        );
     } finally {
-      this.busy.set(false);
+      if (isCurrent()) this.busy.set(false);
     }
   }
 
   async sendVerification() {
     const email = this.user()?.email;
     if (!email || this.busy()) return;
+    const operation = this.operation() + 1;
+    this.operation.set(operation);
+    const scopeIdentity = this.scopeIdentity();
+    const invitationId = this.invitationId();
+    const sessionId = this.sessionId();
+    const isCurrent = () =>
+      operation === this.operation() &&
+      scopeIdentity === this.scopeIdentity() &&
+      invitationId === this.invitationId() &&
+      sessionId === this.sessionId();
     this.busy.set(true);
     try {
       unwrapAuthResult(
@@ -154,41 +126,64 @@ export class InvitationPage {
           ).href,
         }),
       );
-      this.verificationSent.set(true);
-      toast.success('Verification email sent.');
+      if (isCurrent()) {
+        this.verificationSent.set(true);
+        toast.success('Verification email sent.');
+      }
     } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : 'Could not send verification email.',
-      );
+      if (isCurrent())
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : 'Could not send verification email.',
+        );
     } finally {
-      this.busy.set(false);
+      if (isCurrent()) this.busy.set(false);
     }
   }
 
   async accept() {
     if (this.busy()) return;
+    const operation = this.operation() + 1;
+    this.operation.set(operation);
+    const scopeIdentity = this.scopeIdentity();
     this.busy.set(true);
+    const invitationId = this.invitationId();
     const sessionId = this.sessionId();
+    const isCurrent = () =>
+      operation === this.operation() &&
+      scopeIdentity === this.scopeIdentity() &&
+      this.invitationId() === invitationId &&
+      this.sessionId() === sessionId;
+    let committed = false;
     try {
       const result = unwrapAuthResult(
         await this.auth.organization.acceptInvitation({
-          invitationId: this.invitationId(),
+          invitationId,
         }),
       );
+      committed = true;
+      if (isCurrent()) this.accepted.set(true);
       await this.projects.invalidate(sessionId, result.member.organizationId);
+      if (!isCurrent()) return;
+      const project = await this.projects
+        .detail(sessionId, result.member.organizationId)
+        .queryFn({ signal: new AbortController().signal });
+      if (!isCurrent()) return;
+      await this.router.navigate(['/projects', project.previewSlug]);
+      if (!isCurrent()) return;
       toast.success('You joined the project.');
-      await this.router.navigate(['/projects', result.member.organizationId]);
     } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : 'Could not accept the invitation.',
-      );
-      await this.invitation.refetch();
+      if (!committed && isCurrent()) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : 'Could not accept the invitation.',
+        );
+        await this.invitation.refetch();
+      }
     } finally {
-      this.busy.set(false);
+      if (isCurrent()) this.busy.set(false);
     }
   }
 }

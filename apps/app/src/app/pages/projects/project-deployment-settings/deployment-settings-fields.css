@@ -1,0 +1,33 @@
+:host {
+  display: block;
+}
+
+fieldset {
+  position: relative;
+  min-width: 0;
+}
+
+legend {
+  padding: 0;
+  margin-bottom: 0.75rem;
+  font-size: 1rem;
+  letter-spacing: -0.015em;
+}
+
+@media (min-width: 1024px) {
+  fieldset {
+    padding-left: 14rem;
+    min-height: 4rem;
+  }
+
+  legend {
+    position: absolute;
+    left: 0;
+    top: 1.25rem;
+    max-width: 12rem;
+  }
+
+  fieldset.source-fieldset legend {
+    top: 0;
+  }
+}

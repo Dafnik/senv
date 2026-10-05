@@ -3,9 +3,14 @@ import {
   provideHttpClientTesting,
 } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
+import { Component } from '@angular/core';
 import { afterEach, beforeEach, expect, test, vi } from 'vite-plus/test';
 import { AUTH_CLIENT } from '../../../auth/auth-client';
 import { ProfilePage } from './profile-page.page';
+import { AccessManagement } from '../access-management/access-management';
+
+@Component({ selector: 'app-access-management', template: '' })
+class AccessManagementStub {}
 
 let http: HttpTestingController;
 beforeEach(() => {
@@ -29,6 +34,10 @@ beforeEach(() => {
         },
       },
     ],
+  });
+  TestBed.overrideComponent(ProfilePage, {
+    remove: { imports: [AccessManagement] },
+    add: { imports: [AccessManagementStub] },
   });
   http = TestBed.inject(HttpTestingController);
 });

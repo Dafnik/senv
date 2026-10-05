@@ -1,0 +1,59 @@
+<div class="grid gap-4">
+  <fieldset class="grid gap-3">
+    <legend class="text-sm font-medium">Website files</legend>
+    <p class="text-muted-foreground text-sm">
+      The Archive root or selected directory must contain index.html.
+    </p>
+    <div class="grid gap-2 sm:grid-cols-2">
+      <label class="grid gap-2 rounded-md border p-3 text-sm">
+        <span>Archive</span>
+        <input
+          type="file"
+          [accept]="archiveAccept()"
+          [disabled]="busy()"
+          aria-label="Choose a ZIP or TAR archive"
+          (change)="archiveSelected.emit($event)"
+        />
+      </label>
+      <label class="grid gap-2 rounded-md border p-3 text-sm">
+        <span>Built site directory</span>
+        <input
+          type="file"
+          webkitdirectory
+          directory
+          multiple
+          [disabled]="busy()"
+          aria-label="Choose a built site directory"
+          (change)="directorySelected.emit($event)"
+        />
+      </label>
+    </div>
+    @if (selectedFileLabel()()) {
+      <p class="text-muted-foreground text-sm" role="status">
+        Selected {{ selectedFileLabel()() }}
+      </p>
+    }
+  </fieldset>
+  @if (availableArtifacts()().length) {
+    <div hlmField>
+      <label hlmFieldLabel for="reuse-artifact">Reuse retained artifact</label>
+      <hlm-native-select
+        id="reuse-artifact"
+        [formField]="publishForm().reuseDeploymentId"
+        (change)="reuseSelection.emit($event)"
+      >
+        <option value="">Upload new files</option>
+        @for (deployment of availableArtifacts()(); track deployment.id) {
+          <option [value]="deployment.id">
+            {{ deployment.id }}
+            ·
+            {{ deployment.source.branch || 'no branch' }}
+          </option>
+        }
+      </hlm-native-select>
+      <p hlmFieldDescription>
+        Reuse creates a new deployment with an independent retention clock.
+      </p>
+    </div>
+  }
+</div>

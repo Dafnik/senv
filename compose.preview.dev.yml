@@ -1,0 +1,25 @@
+services:
+  preview-proxy:
+    image: traefik:v3.5
+    restart: unless-stopped
+    command:
+      - --api.insecure=true
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --providers.providersThrottleDuration=0s
+      - --entrypoints.web.address=:80
+      - --log.level=INFO
+    ports:
+      - ${PREVIEW_HTTP_PORT:-80}:80
+      - '127.0.0.1:${PREVIEW_TRAEFIK_API_PORT:-8080}:8080'
+    volumes:
+      - ${PREVIEW_CONFIG_DIR:-${DEPLOYMENT_STORAGE_DIR:-./data/deployments}/routes}:/etc/traefik/dynamic:ro
+    networks:
+      - preview
+
+networks:
+  preview:
+    name: senv-preview-${SENV_INSTANCE_ID:-local}
+    labels:
+      senv.managed: 'true'
+      senv.instance: ${SENV_INSTANCE_ID:-local}

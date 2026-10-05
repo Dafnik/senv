@@ -2,6 +2,8 @@
 
 Angular 22 with SSR, Better Auth, spartan/ui, and tRPC. The Nitro API uses SQLite through Drizzle ORM, and Drizzle Kit manages the schema and migrations. Vite Plus runs workspace tasks, linting, formatting, and API tests.
 
+senv means simple environment. The [first deployment feature specification](docs/deployment-feature.md) records deployment behavior, the [glossary](CONTEXT.md) defines the project language, and [architecture decisions](docs/adr/) explain the design. The API runs static and container deployments through a local Docker Engine and routes previews through Traefik.
+
 ## Quick start
 
 The root `package.json` specifies the Node.js version in `engines.node`. CI reads this field through Vite Plus setup.
@@ -15,7 +17,7 @@ cp .env.dev .env
 
 Set `BETTER_AUTH_SECRET` in `.env`, for example with `openssl rand -base64 32`. The default `DATABASE_URL=file:./data/senv.sqlite` creates a local database under `data/`. Database paths are relative to the working directory, and workspace scripts run database commands and the API from the repository root.
 
-Apply the checked-in migrations and start both apps:
+Initialize the database and start the apps:
 
 ```bash
 vp run db:migrate
@@ -29,8 +31,7 @@ instance admin with a name, email, and password. Setup signs you in immediately
 and marks the first admin as email verified. Setup closes as soon as any instance admin
 exists, including a banned admin, and concurrent setup requests create only one
 admin. The last instance admin cannot be deleted or demoted. Instance roles are
-singular, either `user` or `admin`; migrations normalize legacy role lists while
-preserving administrators. Existing ordinary accounts are preserved and cannot be claimed by setup.
+singular, either `user` or `admin`. Ordinary accounts cannot be claimed by setup.
 
 Public registration is disabled in both the UI and the API. Instance admins can
 create accounts under **Users → Add user** using a name and email only. The signup
@@ -55,21 +56,35 @@ their signup email instead of password recovery.
 Every account and sign-in requires a valid email address. Internal user IDs remain
 generated IDs; email addresses are the login identifiers.
 
-Project pages open on **Deployments**, which currently shows an empty state. The
-**Members** section at `/projects/:projectId/members` contains the searchable, sortable member table and, for project
-admins, the invite form and invitation table. **Settings** contains project
-settings at `/projects/:projectId/settings`; project admins and instance admins
-can edit them. The default URL is `/projects/:projectId/deployments`. Unsaved name
-drafts survive background refreshes, with a warning if the saved name changes.
+Project pages open on **Deployments** at `/projects/:projectSlug/deployments`, where
+project members can inspect deployments and developers or admins can publish and
+manage them. Project slugs are editable route identifiers; immutable project IDs
+remain the internal identifiers used by API records. **Members** at
+`/projects/:projectSlug/members` contains the searchable, sortable member table and,
+for project admins, the invite form and invitation table. **Settings** at
+`/projects/:projectSlug/settings` contains project deployment settings;
+developers and project admins can edit deployment defaults, while project admins
+control the preview slug and retention/resource defaults. Instance admins can
+manage instance upload, proxy, and log limits. Unsaved project-name drafts survive
+background refreshes, with a warning if the saved name changes.
+
+## CLI and access management
+
+The Commander CLI and its full-screen `senv tui` interface reuse the typed tRPC API, profiles, and credentials. See [the CLI guide](apps/cli/README.md) for installation, browser-approved login, TUI shortcuts, CI tokens, commands, and shell access. Build it with `vp run @senv/cli#build`; package it with `pnpm --filter @senv/cli pack --pack-destination /tmp`.
+
+Profile manages independent browser/CLI sessions and project-scoped automation tokens. `/cli/authorize` requires an explicit review and approval of the terminal code. Automation tokens default to 30 days, accept seconds/days/months/years in the access form, and never expire when the lifetime is empty. They cannot open shells or administer users. Password reset invalidates sessions, tokens, and outstanding device authorizations.
+
+Interactive shells use only the running app/static origin and the container's configured user. The API owns Docker access and verifies deployment labels and current permissions; the CLI needs no local Docker socket. The API ingress must forward WebSocket upgrades at `/api/cli/shell`. Project configuration and instance defaults have no CLI management commands.
 
 ## Workspace commands
 
 ```bash
-vp run build                 # Angular SSR and Nitro production builds
+vp run build                 # CLI, Angular SSR and Nitro production builds
 vp run check                 # Vite Plus checks and Angular Prettier checks
 vp run fmt                   # Format the repository
-vp run test                  # Database, API, and Angular tests
+vp run test                  # Database, API, CLI, and Angular tests
 vp run @senv/api#typecheck     # Check API types
+vp run @senv/cli#typecheck     # Check CLI types
 vp run @senv/app#test          # Angular CLI unit tests
 ```
 
@@ -94,7 +109,7 @@ UI components live inside the app's Angular workspace so generators can update t
 
 ## Database changes
 
-The tables are defined in `drizzle/schema.ts`. After editing them, generate and apply a migration:
+`drizzle/schema.ts` exports the table definitions from the adjacent auth, project, and deployment schema modules. After editing a table, generate and apply a migration:
 
 ```bash
 vp run db:generate
@@ -103,14 +118,14 @@ vp run db:migrate
 
 `vp run db:studio` opens Drizzle Studio. `vp run db:push` applies schema changes directly for local experimentation; use checked-in migrations for deployment.
 
-After changing Better Auth plugins, regenerate its schema and review the changes before generating a migration:
+After changing Better Auth plugins, generate its schema into `drizzle/auth-schema.generated.ts`. Review that output and merge the required auth changes into `schema-core.ts`, `schema-access.ts`, and `schema-cli.ts` before generating a migration. The generated file is outside the schema export path, so generation preserves the deployment tables:
 
 ```bash
 vp run auth:generate
 vp run db:generate
 ```
 
-The SQLite migrations initialize a new database. They do not transfer existing PostgreSQL data. Export and convert any existing users, accounts, sessions, and verification records separately, including timestamps and booleans.
+Apply checked-in migrations with `vp run db:migrate` when upgrading. The CLI migration `0002_cli_access.sql` adds device authorization, CLI session metadata, and hashed automation-token tables without deleting existing users, sessions, projects, or deployments. Back up the SQLite database before a production upgrade. `0003_automation_token_optional_expiry.sql` makes token expiry optional while preserving existing credentials. No database reset is required.
 
 ## SSR preview
 
@@ -131,68 +146,39 @@ vp run build
 docker compose -f compose.prod.yml up -d --build
 ```
 
-The `db-migrate` service applies Drizzle migrations before the API starts. Both services mount the same `db-data` volume and use `file:/data/senv.sqlite`. Keep this volume when recreating containers; it contains the database and SQLite journal files.
+The `db-migrate` service applies Drizzle migrations before the API starts. The API mounts `db-data` at `/data` and the separate `deployment-data` volume at `/data/deployments`. Keep both volumes when recreating containers. `preview-proxy` is Traefik's public entry point; it reads an atomically replaced route file from the separate `preview-route-data` volume and shares a private Docker network with the API and deployment containers.
 
-Set the authentication URLs and domains in `.env` for your deployment. Nitro includes the SQLite driver's prebuilt binaries for Linux and Alpine in the API output. The Docker publish workflow builds the app, API, and migration images together.
+Set the authentication URLs and preview address in `.env`. A production instance needs a unique senv namespace and a DNS name that points to the host:
+
+```dotenv
+SENV_INSTANCE_ID=main
+API_PORT=3000
+APP_PORT=4200
+PREVIEW_BASE_DOMAIN=preview.example.com
+PREVIEW_ENTRYPOINTS=websecure
+PREVIEW_TLS=true
+PREVIEW_TLS_RESOLVER=letsencrypt
+PREVIEW_HTTP_PORT=80
+PREVIEW_HTTPS_PORT=443
+PREVIEW_TRAEFIK_API_PORT=8080
+```
+
+The ID must be a lowercase DNS-safe label no longer than 31 characters and unique for every senv instance sharing the Docker host. Compose uses its project name if `SENV_INSTANCE_ID` is unset; set the variable explicitly when installations share a host or when changing the Compose project name. `API_PORT` and `APP_PORT` publish the API and frontend on host ports 3000 and 4200 by default; their container ports stay 3000 and 4200. When running multiple instances on one host, assign each a distinct Compose project name, senv instance ID, and host port for the API, frontend, HTTP/HTTPS preview entry points, and loopback Traefik API. The preview domain must resolve to Traefik. Configure the `letsencrypt` resolver on `preview-proxy` for your DNS provider, and supply DNS credentials through the host's secret environment. A wildcard certificate for `*.preview.example.com` does not cover `ac3467.project.preview.example.com`; configure per-project wildcard coverage or certificates that include the project label. Traefik wildcard issuance uses a DNS challenge.
+
+The API mounts `/var/run/docker.sock`, which grants it control over containers on the Docker host. Keep this socket restricted to the trusted senv operator. The API creates an instance-labelled private network and only removes containers carrying its own instance labels. Static deployment origins mount the shared artifact volume read-only. Uploaded bytes and expanded website bytes both use the instance upload limit; Static uploads accept ZIP and TAR, including TAR compressed with gzip, zlib/deflate, raw deflate, Brotli, or Zstandard. ZIP supports stored and deflate entries and rejects ZIP64. Archive extraction rejects traversal paths, links, duplicate names, unsupported entries or compression, and expansion over the limit. Image tags are resolved to repository digests before they are stored in a deployment snapshot. Logs from both origin and proxy are retained within the deployment's captured rotation allowance, including across API restarts.
+
+For local HTTP previews, `.env.dev` selects `preview.localhost`, the `web` entry point, HTTP, and the local Traefik acknowledgement API. Start the local Traefik entry point before publishing:
+
+```bash
+mkdir -p "${DEPLOYMENT_STORAGE_DIR:-./data/deployments}/routes"
+docker compose -f compose.preview.dev.yml up -d
+vp run dev
+```
+
+The local proxy mounts only `data/deployments/routes` (or `PREVIEW_CONFIG_DIR`), so uploaded YAML and inaccessible artifact directories are excluded from Traefik’s file provider. If `PREVIEW_DYNAMIC_CONFIG` is overridden, place that file in the mounted directory. After changing the mount, recreate the proxy with `docker compose -f compose.preview.dev.yml up -d --force-recreate preview-proxy`. If route acknowledgement reports empty routers, check that `docker compose -f compose.preview.dev.yml exec preview-proxy ls -la /etc/traefik/dynamic` can read `senv-routes.yml`.
+
+The Docker publish workflow builds the app, API, and migration images together. The API waits for Traefik to acknowledge each changed route snapshot before a route mutation completes; the Traefik API port is bound to loopback on the host and is not exposed publicly. Container health checks run inside the private network. The deployment detail page also requests the public preview root URL and reports its HTTP status, connection errors, and check time separately. It refreshes every 30 seconds and can be checked manually.
 
 ## Projects and invitations
 
-Open **Projects** in the sidebar to create a project. Names can contain 1 to 100
-characters. The project list loads more projects as you scroll and only renders
-the visible rows. Project IDs are immutable, 21-character Nano IDs using the alphabet
-`acdefghjkmnpqrtuvwxy34679` to avoid look-alike characters.
-
-Projects use Better Auth's organization plugin. Its organization ID and internal
-slug are the project ID. The creator is an `admin`; `developer` and `viewer` are
-separate project roles. All three can view their project and its members. Project admins can rename projects, invite users, change member roles, remove members, or cancel
-invitations. Instance admins can view and manage all projects without membership.
-They can invite a new admin or change an existing member's role, including when a
-project has no members or admins. Removing a member revokes access to that project.
-Developers and viewers currently have the same read permissions; future project
-resource operations can distinguish them. Better Auth prevents the last project
-admin from leaving or demoting themselves.
-
-Run `pnpm db:migrate` before starting an existing installation to add the project,
-membership, and invitation tables. Existing accounts and sessions are preserved.
-
-Invitation emails link to `/invitations/:invitationId`. The recipient signs in
-using the invited email address and accepts the invitation. **Use another account**
-preserves the invitation while signing out and returning to login. Users who completed
-account signup are already verified. Older unverified accounts can still request
-a verification email from the invitation page. That link expires after one hour
-and returns to the same invitation. Knowing an
-invitation ID is insufficient without a verified recipient account. Links are
-single-use and expire after seven days. Inviting the same address again replaces
-its pending invitation. Invalid replacement roles leave the existing link valid.
-Expired or cancelled invitations cannot be accepted.
-
-Project admins manage open invitations in a table with email search, sortable
-columns, and server pagination. Accepted, canceled, rejected, and expired
-invitations are excluded. The member table records who invited each user.
-Migration `0003_member_inviter.sql` restores inviter details from accepted invitations
-where that history is available and preserves inviter names if their account is deleted.
-
-### Email delivery
-
-The API renders HTML and plain-text invitations with React Email and sends them
-through Nodemailer. Outside development, configure:
-
-- `SMTP_URL`, for example `smtps://username:password@smtp.example.com:465`.
-- `EMAIL_FROM`, for example `senv <noreply@example.com>`.
-- `APP_URL`, the public app origin used in invitation links.
-
-Missing delivery configuration causes sending to fail instead of discarding the
-email. After fixing delivery, invite the address again to issue a fresh link.
-
-During local development (`NODE_ENV=development`), no email is sent. The temporary
-`GET /api/notifications` endpoint returns `{ notifications: [...] }`, newest first,
-with recipient, subject, rendered HTML, plain text, and timestamps, including
-signup, password reset, and verification emails. Each entry includes a `previewUrl` linking to
-`GET /notification/:id`, which displays the rendered email. The last 100 messages
-are saved as HTML and JSON in `email-notifications/` beside the SQLite database
-and survive API restarts. Older messages and their HTML previews are removed. This unauthenticated local
-inbox contains invitation links; do not expose the development API publicly.
-Both endpoints return 404 outside development.
-
-References: [Better Auth organizations](https://better-auth.com/docs/plugins/organization)
-and [React Email's Nodemailer integration](https://react.email/docs/integrations/nodemailer).
+See [the project and invitation guide](docs/projects-and-invitations.md) for permissions, account verification, invitations, and local email previews.

@@ -1,0 +1,155 @@
+<div class="mx-auto grid w-full max-w-5xl gap-8 p-4 md:p-8">
+  <header>
+    <h1 class="text-3xl font-semibold tracking-tight">Deployment defaults</h1>
+    <p class="text-muted-foreground mt-2">
+      Instance limits for uploads, proxy resources, and logs.
+    </p>
+  </header>
+  <section hlmCard>
+    <div hlmCardHeader>
+      <h2 hlmCardTitle>Instance deployment defaults</h2>
+      <p hlmCardDescription>
+        These limits apply to future uploads, proxy containers, and deployment
+        logs.
+      </p>
+    </div>
+    @if (adminDefaults.isPending()) {
+      <div hlmCardContent>
+        <hlm-spinner aria-label="Loading instance defaults" />
+      </div>
+    } @else if (adminDefaults.isError()) {
+      <div hlmCardContent>
+        <p role="alert">{{ adminDefaults.error().message }}</p>
+      </div>
+    } @else {
+      <form
+        hlmCardContent
+        class="grid gap-4"
+        [formRoot]="defaultsForm"
+        (submit)="saveDefaults($event)"
+      >
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div hlmField>
+            <label hlmFieldLabel for="upload-limit"
+              >Maximum upload size (MiB)</label
+            ><input
+              hlmInput
+              id="upload-limit"
+              type="number"
+              [formField]="defaultsForm.uploadLimitMiB"
+            />
+            @if (
+              defaultsForm.uploadLimitMiB().touched() &&
+              defaultsForm.uploadLimitMiB().errors().length
+            ) {
+              <p
+                id="upload-limit-error"
+                role="alert"
+                class="text-destructive text-sm"
+              >
+                {{ defaultsForm.uploadLimitMiB().errors()[0]?.message }}
+              </p>
+            }
+          </div>
+          <div hlmField>
+            <label hlmFieldLabel for="proxy-cpus"
+              >Proxy CPU cores per deployment</label
+            ><input
+              hlmInput
+              id="proxy-cpus"
+              inputmode="decimal"
+              [formField]="defaultsForm.proxyCpus"
+            />
+            @if (
+              defaultsForm.proxyCpus().touched() &&
+              defaultsForm.proxyCpus().errors().length
+            ) {
+              <p
+                id="proxy-cpus-error"
+                role="alert"
+                class="text-destructive text-sm"
+              >
+                {{ defaultsForm.proxyCpus().errors()[0]?.message }}
+              </p>
+            }
+          </div>
+          <div hlmField>
+            <label hlmFieldLabel for="proxy-memory">Proxy memory (MiB)</label
+            ><input
+              hlmInput
+              id="proxy-memory"
+              type="number"
+              [formField]="defaultsForm.proxyMemoryMiB"
+            />
+            @if (
+              defaultsForm.proxyMemoryMiB().touched() &&
+              defaultsForm.proxyMemoryMiB().errors().length
+            ) {
+              <p
+                id="proxy-memory-error"
+                role="alert"
+                class="text-destructive text-sm"
+              >
+                {{ defaultsForm.proxyMemoryMiB().errors()[0]?.message }}
+              </p>
+            }
+          </div>
+          <div hlmField>
+            <label hlmFieldLabel for="log-files"
+              >Rotated log files per container</label
+            ><input
+              hlmInput
+              id="log-files"
+              type="number"
+              [formField]="defaultsForm.logFiles"
+            />
+            @if (
+              defaultsForm.logFiles().touched() &&
+              defaultsForm.logFiles().errors().length
+            ) {
+              <p
+                id="log-files-error"
+                role="alert"
+                class="text-destructive text-sm"
+              >
+                {{ defaultsForm.logFiles().errors()[0]?.message }}
+              </p>
+            }
+          </div>
+          <div hlmField>
+            <label hlmFieldLabel for="log-file-size"
+              >Size of each log file (MiB)</label
+            ><input
+              hlmInput
+              id="log-file-size"
+              type="number"
+              [formField]="defaultsForm.logFileSizeMiB"
+            />
+            @if (
+              defaultsForm.logFileSizeMiB().touched() &&
+              defaultsForm.logFileSizeMiB().errors().length
+            ) {
+              <p
+                id="log-file-size-error"
+                role="alert"
+                class="text-destructive text-sm"
+              >
+                {{ defaultsForm.logFileSizeMiB().errors()[0]?.message }}
+              </p>
+            }
+          </div>
+        </div>
+        <button
+          hlmBtn
+          type="submit"
+          [disabled]="savingDefaults() || defaultsForm().invalid()"
+        >
+          @if (savingDefaults()) {
+            <hlm-spinner />
+          }
+          Save instance defaults
+        </button>
+      </form>
+    }
+  </section>
+</div>

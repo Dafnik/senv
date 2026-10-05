@@ -4,13 +4,12 @@
  * Original source: packages/client/src/links/internals/httpUtils.ts
  */
 
+import type { HttpHeaders, HttpResponseBase } from '@angular/common/http';
 import type {
   AnyClientTypes,
   CombinedDataTransformer,
   DataTransformerOptions,
   Maybe,
-  ProcedureType,
-  TRPCResponse,
   TypeError,
 } from '@trpc/server/unstable-core-do-not-import';
 
@@ -68,35 +67,24 @@ export function getTransformer(
   if (!transformer) {
     return {
       input: {
-        serialize: (v: any) => v,
-        deserialize: (v: any) => v,
+        serialize: (value: unknown) => value,
+        deserialize: (value: unknown) => value,
       },
       output: {
-        serialize: (v: any) => v,
-        deserialize: (v: any) => v,
+        serialize: (value: unknown) => value,
+        deserialize: (value: unknown) => value,
       },
     };
   }
 
   // If it's a CombinedDataTransformer (has input and output properties)
   if ('input' in transformer && 'output' in transformer) {
-    return transformer as CombinedDataTransformer;
+    return transformer;
   }
 
-  // If it's a DataTransformer (has serialize and deserialize properties)
-  const singleTransformer = transformer as {
-    serialize: (v: any) => any;
-    deserialize: (v: any) => any;
-  };
   return {
-    input: {
-      serialize: singleTransformer.serialize,
-      deserialize: singleTransformer.deserialize,
-    },
-    output: {
-      serialize: singleTransformer.serialize,
-      deserialize: singleTransformer.deserialize,
-    },
+    input: transformer,
+    output: transformer,
   };
 }
 
@@ -123,9 +111,16 @@ function arrayToDict(array: unknown[]) {
 }
 
 export interface HTTPResult {
-  json: TRPCResponse;
+  json: unknown;
   meta: {
-    response: any; // Simplified response type
+    response: {
+      status: number;
+      statusText: string;
+      headers: HttpHeaders;
+      url?: string;
+      json: () => Promise<unknown>;
+      text: () => Promise<string | undefined>;
+    };
     responseJSON?: unknown;
   };
 }
@@ -144,7 +139,7 @@ export function getInput(opts: GetInputOptions) {
 
 export type HTTPBaseRequestOptions = GetInputOptions &
   ResolvedHTTPLinkOptions & {
-    type: ProcedureType;
+    type: 'query' | 'mutation';
     path: string;
     signal: Maybe<AbortSignal>;
   };
@@ -164,7 +159,7 @@ export const getUrl: GetUrl = (opts) => {
   if ('inputs' in opts) {
     queryParts.push('batch=1');
   }
-  if (opts.type === 'query' || opts.type === 'subscription') {
+  if (opts.type === 'query') {
     const input = getInput(opts);
     if (input !== undefined && opts.methodOverride !== 'POST') {
       queryParts.push(`input=${encodeURIComponent(JSON.stringify(input))}`);
@@ -175,3 +170,21 @@ export const getUrl: GetUrl = (opts) => {
   }
   return url;
 };
+
+export function createResponseMeta(
+  response: HttpResponseBase,
+  body: unknown,
+  statusText = response.statusText,
+): HTTPResult['meta'] {
+  return {
+    response: {
+      status: response.status,
+      statusText,
+      headers: response.headers,
+      url: response.url ?? undefined,
+      json: async () => body,
+      text: async () => JSON.stringify(body),
+    },
+    responseJSON: body,
+  };
+}

@@ -1,0 +1,89 @@
+<fieldset
+  class="grid gap-4 border-t pt-5"
+  [disabled]="!canManage() || saving()"
+>
+  <legend class="font-medium">Reverse proxy routes</legend>
+  <p class="text-muted-foreground text-sm">
+    Routes match request paths and forward to reachable HTTP(S) services. More
+    specific paths take priority and matching routes bypass the cache.
+  </p>
+  @for (
+    route of settingsForm().proxy.routes;
+    track $index;
+    let routeIndex = $index
+  ) {
+    <div class="grid gap-3 rounded-md border p-3 sm:grid-cols-2">
+      <div hlmField>
+        <label hlmFieldLabel [attr.for]="'route-path-' + routeIndex">Path</label
+        ><input
+          hlmInput
+          [id]="'route-path-' + routeIndex"
+          placeholder="/api"
+          [formField]="route.path"
+        />
+      </div>
+      <div hlmField>
+        <label hlmFieldLabel [attr.for]="'route-target-' + routeIndex"
+          >HTTP(S) destination</label
+        ><input
+          hlmInput
+          [id]="'route-target-' + routeIndex"
+          placeholder="https://api.internal"
+          [formField]="route.target"
+        />
+      </div>
+      <div hlmField>
+        <label hlmFieldLabel [attr.for]="'route-rewrite-' + routeIndex"
+          >Optional path rewrite</label
+        ><input
+          hlmInput
+          [id]="'route-rewrite-' + routeIndex"
+          placeholder="/v1"
+          [formField]="route.rewrite"
+        />
+      </div>
+      <div class="flex items-end justify-end">
+        <button
+          hlmBtn
+          variant="outline"
+          type="button"
+          (click)="removeRoute.emit(routeIndex)"
+        >
+          Remove route
+        </button>
+      </div>
+      <div
+        class="bg-muted/50 text-muted-foreground rounded-md border border-dashed px-3 py-2 text-xs sm:col-span-2"
+        aria-live="polite"
+      >
+        <span class="font-medium">Request preview</span>
+        <code class="mt-1 block break-all">{{
+          routePreview()(routeIndex)
+        }}</code>
+      </div>
+      <div hlmField>
+        <label hlmFieldLabel [attr.for]="'route-connect-' + routeIndex"
+          >Connect timeout (seconds)</label
+        ><app-duration-input
+          label="Connect timeout"
+          [inputId]="'route-connect-' + routeIndex"
+          [secondsOnly]="true"
+          [formField]="route.connectTimeoutSeconds"
+        />
+      </div>
+      <div hlmField>
+        <label hlmFieldLabel [attr.for]="'route-read-' + routeIndex"
+          >Response timeout (seconds)</label
+        ><app-duration-input
+          label="Response timeout"
+          [inputId]="'route-read-' + routeIndex"
+          [secondsOnly]="true"
+          [formField]="route.readTimeoutSeconds"
+        />
+      </div>
+    </div>
+  }
+  <button hlmBtn variant="outline" type="button" (click)="addRoute.emit()">
+    Add proxy route
+  </button>
+</fieldset>

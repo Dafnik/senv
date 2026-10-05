@@ -1,0 +1,159 @@
+<section hlmCard id="deployment-audit" class="scroll-mt-6">
+  <div hlmCardHeader>
+    <h2 hlmCardTitle>{{ title() }}</h2>
+    <p hlmCardDescription>
+      Review retained deployment events and the actor snapshots recorded at the
+      time.
+    </p>
+  </div>
+  <div hlmCardContent class="grid gap-4">
+    <div class="flex flex-wrap items-end gap-3">
+      <label class="grid gap-1 text-sm">
+        <span class="text-muted-foreground">Search history</span>
+        <input
+          hlmInput
+          type="search"
+          maxlength="254"
+          class="w-64"
+          aria-label="Search deployment history"
+          placeholder="Event, actor, deployment, details"
+          [value]="search()"
+          (input)="updateSearch($event)"
+        />
+      </label>
+      <div class="grid gap-1 text-sm">
+        <label class="text-muted-foreground" [for]="eventSelectId()"
+          >Event</label
+        >
+        <hlm-select
+          [value]="eventFilter() || 'all'"
+          [itemToString]="eventItemToString"
+          (valueChange)="setEventFilter($event)"
+        >
+          <hlm-select-trigger [buttonId]="eventSelectId()" class="w-48">
+            <hlm-select-value placeholder="All events" />
+          </hlm-select-trigger>
+          <hlm-select-content *hlmSelectPortal>
+            <hlm-select-group>
+              <hlm-select-item value="all">All events</hlm-select-item>
+              @for (event of audit.data()?.events ?? []; track event) {
+                <hlm-select-item [value]="event">
+                  {{ event.split('_').join(' ') }}
+                </hlm-select-item>
+              }
+            </hlm-select-group>
+          </hlm-select-content>
+        </hlm-select>
+      </div>
+      <div class="grid gap-1 text-sm">
+        <label class="text-muted-foreground" [for]="actorSelectId()"
+          >Actor</label
+        >
+        <hlm-select
+          [value]="actorFilter() || 'all'"
+          [itemToString]="actorItemToString"
+          (valueChange)="setActorFilter($event)"
+        >
+          <hlm-select-trigger [buttonId]="actorSelectId()" class="w-48">
+            <hlm-select-value placeholder="All actors" />
+          </hlm-select-trigger>
+          <hlm-select-content *hlmSelectPortal>
+            <hlm-select-group>
+              <hlm-select-item value="all">All actors</hlm-select-item>
+              @for (actor of audit.data()?.actors ?? []; track actor.id) {
+                <hlm-select-item [value]="actor.id">
+                  {{ actor.name }}
+                </hlm-select-item>
+              }
+            </hlm-select-group>
+          </hlm-select-content>
+        </hlm-select>
+      </div>
+      @if (hasFilters()) {
+        <button hlmBtn variant="ghost" size="sm" (click)="clearFilters()">
+          Clear filters
+        </button>
+      }
+    </div>
+    <div class="overflow-hidden rounded-md border">
+      <div hlmTableContainer>
+        <table
+          hlmTable
+          [attr.aria-busy]="audit.isFetching()"
+          [attr.aria-label]="title()"
+        >
+          <thead hlmTHead>
+            @for (group of table.getHeaderGroups(); track group.id) {
+              <tr hlmTr>
+                @for (header of group.headers; track header.id) {
+                  <th
+                    hlmTh
+                    scope="col"
+                    [attr.colSpan]="header.colSpan"
+                    [attr.aria-sort]="
+                      header.column.getCanSort()
+                        ? header.column.getIsSorted() === 'asc'
+                          ? 'ascending'
+                          : header.column.getIsSorted() === 'desc'
+                            ? 'descending'
+                            : 'none'
+                        : null
+                    "
+                  >
+                    @if (!header.isPlaceholder) {
+                      <ng-container
+                        *flexRender="
+                          header.column.columnDef.header;
+                          props: header.getContext();
+                          let content
+                        "
+                        >{{ content }}</ng-container
+                      >
+                    }
+                  </th>
+                }
+              </tr>
+            }
+          </thead>
+          <tbody hlmTBody>
+            @for (row of table.getRowModel().rows; track row.id) {
+              <tr hlmTr>
+                @for (cell of row.getAllCells(); track cell.id) {
+                  <td hlmTd class="max-w-96 whitespace-normal">
+                    @if (cell.column.id === 'details') {
+                      <code class="text-xs break-all">{{
+                        detailsLabel(row.original)
+                      }}</code>
+                    } @else {
+                      <ng-container
+                        *flexRender="
+                          cell.column.columnDef.cell;
+                          props: cell.getContext();
+                          let content
+                        "
+                        >{{ content }}</ng-container
+                      >
+                    }
+                  </td>
+                }
+              </tr>
+            } @empty {
+              <tr hlmTr>
+                <td hlmTd [attr.colspan]="table.getAllLeafColumns().length">
+                  <app-deployment-history-empty-state
+                    [isError]="audit.isError()"
+                    [isPending]="audit.isPending()"
+                    [hasFilters]="hasFilters()"
+                    [errorMessage]="audit.error()?.message ?? ''"
+                    (retry)="audit.refetch()"
+                  />
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div [tanStackTable]="table"><app-table-pagination /></div>
+  </div>
+</section>

@@ -1,0 +1,145 @@
+<div class="mx-auto grid w-full max-w-6xl gap-8 p-4 md:p-8">
+  <header>
+    <h1 class="text-3xl font-semibold tracking-tight">Projects</h1>
+    <p class="text-muted-foreground mt-2">Your team's shared workspaces.</p>
+  </header>
+  <div class="grid items-start gap-8 lg:grid-cols-[1fr_320px]">
+    <section aria-label="Your projects" class="grid gap-3">
+      @if (projects.isPending()) {
+        <hlm-spinner aria-label="Loading projects" />
+      } @else if (projects.isError() && !projectItems().length) {
+        <p role="alert">{{ projects.error().message }}</p>
+        <button hlmBtn variant="outline" (click)="projects.refetch()">
+          Try again
+        </button>
+      } @else if (projectItems().length) {
+        <cdk-virtual-scroll-viewport
+          [itemSize]="96"
+          [minBufferPx]="288"
+          [maxBufferPx]="576"
+          class="h-[65vh] max-h-[640px] w-full"
+          role="list"
+          aria-label="Your projects"
+          tabindex="0"
+        >
+          <div
+            *cdkVirtualFor="
+              let project of projectItems();
+              let index = index;
+              trackBy: trackProject
+            "
+            class="h-24 pb-3"
+            role="listitem"
+            [attr.aria-posinset]="index + 1"
+            [attr.aria-setsize]="-1"
+          >
+            <a
+              [routerLink]="['/projects', project.previewSlug]"
+              class="hover:bg-muted focus-visible:ring-ring flex h-full items-center gap-4 rounded-lg border px-5 transition-colors focus-visible:ring-2"
+            >
+              <hlm-avatar size="lg" aria-hidden="true">
+                <span hlmAvatarFallback>{{ project.name | initials }}</span>
+              </hlm-avatar>
+              <div class="grid min-w-0 gap-2">
+                <span
+                  class="truncate text-lg font-medium"
+                  [title]="project.name"
+                  >{{ project.name }}</span
+                >
+                <span class="text-muted-foreground font-mono text-xs">{{
+                  project.id
+                }}</span>
+              </div>
+            </a>
+          </div>
+        </cdk-virtual-scroll-viewport>
+        @if (projects.isFetchingNextPage()) {
+          <p
+            role="status"
+            class="text-muted-foreground flex items-center gap-2 text-sm"
+          >
+            <hlm-spinner /> Loading more projects
+          </p>
+        } @else if (projects.isFetchNextPageError()) {
+          <p role="alert">{{ projects.error()?.message }}</p>
+          <button hlmBtn variant="outline" (click)="projects.fetchNextPage()">
+            Try loading more again
+          </button>
+        } @else if (!projects.hasNextPage()) {
+          <p class="text-muted-foreground text-sm">
+            All {{ projectItems().length }} projects loaded.
+          </p>
+        }
+      } @else {
+        <div hlmEmpty class="border">
+          <div hlmEmptyHeader>
+            <h2 hlmEmptyTitle>No projects yet</h2>
+            <p hlmEmptyDescription>
+              Create a project to start working with your team, or accept an
+              invitation from your email.
+            </p>
+          </div>
+        </div>
+      }
+    </section>
+    <section hlmCard>
+      <div hlmCardHeader>
+        <h2 hlmCardTitle>Create a project</h2>
+        <p hlmCardDescription>Choose a name. You'll be its first admin.</p>
+      </div>
+      <form
+        hlmCardContent
+        class="grid gap-4"
+        [formRoot]="projectForm"
+        (submit)="create($event)"
+      >
+        <div hlmField>
+          <label hlmFieldLabel for="project-name">Project name</label>
+          <input
+            hlmInput
+            id="project-name"
+            autocomplete="off"
+            placeholder="My project"
+            [formField]="projectForm.name"
+          />
+          @if (projectForm.name().touched()) {
+            @for (error of projectForm.name().errors(); track error) {
+              <hlm-field-error>{{ error.message }}</hlm-field-error>
+            }
+          }
+        </div>
+        <div hlmField>
+          <label hlmFieldLabel for="project-preview-slug">Preview slug</label>
+          <input
+            hlmInput
+            id="project-preview-slug"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="my-project"
+            [formField]="projectForm.previewSlug"
+            (input)="markSlugEdited()"
+          />
+          <p hlmFieldDescription>
+            Used in preview addresses. Suggested from the project name and
+            editable before creation.
+          </p>
+          @if (projectForm.previewSlug().touched()) {
+            @for (error of projectForm.previewSlug().errors(); track error) {
+              <hlm-field-error>{{ error.message }}</hlm-field-error>
+            }
+          }
+        </div>
+        <button
+          hlmBtn
+          type="submit"
+          [disabled]="busy() || projectForm().invalid()"
+        >
+          @if (busy()) {
+            <hlm-spinner />
+          }
+          Create project
+        </button>
+      </form>
+    </section>
+  </div>
+</div>

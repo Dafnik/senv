@@ -1,0 +1,84 @@
+<div class="mx-auto w-full max-w-xl p-4 md:py-16">
+  <section hlmCard>
+    <div hlmCardHeader>
+      <h1 hlmCardTitle>Project invitation</h1>
+      <p hlmCardDescription>Signed in as {{ user()?.email }}</p>
+    </div>
+    <div hlmCardContent class="grid gap-4">
+      <button
+        hlmBtn
+        variant="outline"
+        [disabled]="busy()"
+        (click)="useAnotherAccount()"
+      >
+        Use another account
+      </button>
+      @if (user() && !user()?.emailVerified) {
+        <p>Verify {{ user()?.email }} before accepting project invitations.</p>
+        <p class="text-muted-foreground text-sm">
+          We'll send a verification link to your inbox. Use the email address
+          this invitation was sent to.
+        </p>
+        <button hlmBtn [disabled]="busy()" (click)="sendVerification()">
+          @if (busy()) {
+            <hlm-spinner />
+          }
+          {{
+            verificationSent()
+              ? 'Send another verification email'
+              : 'Send verification email'
+          }}
+        </button>
+        @if (verificationSent()) {
+          <p role="status" class="text-muted-foreground text-sm">
+            Check your inbox, then follow the link to return to this invitation.
+          </p>
+        }
+      } @else if (accepted()) {
+        <p role="status">You accepted this invitation.</p>
+        <p class="text-muted-foreground text-sm">
+          The project is now available in your projects list.
+        </p>
+        <a hlmBtn variant="outline" routerLink="/projects">Go to projects</a>
+      } @else if (invitation.isPending()) {
+        <hlm-spinner aria-label="Loading invitation" />
+      } @else if (invitation.isError()) {
+        <p role="alert">{{ invitation.error().message }}</p>
+        @if (isPermanentInvitationError()) {
+          <p class="text-muted-foreground text-sm">
+            The link may have expired or been used. Make sure you're signed in
+            with the invited email address, or ask a project admin for a new
+            invitation.
+          </p>
+          <a hlmBtn variant="outline" routerLink="/projects">Go to projects</a>
+        } @else {
+          <p class="text-muted-foreground text-sm">
+            The invitation could not be checked. Check your connection and try
+            again.
+          </p>
+          <button
+            hlmBtn
+            variant="outline"
+            [disabled]="invitation.isFetching()"
+            (click)="invitation.refetch()"
+          >
+            Try again
+          </button>
+        }
+      } @else if (invitation.data(); as invite) {
+        <p class="text-xl font-semibold">Join {{ invite.organizationName }}</p>
+        <p>Your project role will be {{ invite.role | titlecase }}.</p>
+        <p class="text-muted-foreground text-sm">
+          Expires {{ invite.expiresAt | date: 'medium' }}
+        </p>
+        <button hlmBtn [disabled]="busy()" (click)="accept()">
+          @if (busy()) {
+            <hlm-spinner />
+          }
+          Accept invitation
+        </button>
+        <a hlmBtn variant="ghost" routerLink="/projects">Decide later</a>
+      }
+    </div>
+  </section>
+</div>

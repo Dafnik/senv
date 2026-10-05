@@ -1,0 +1,120 @@
+@let item = deployment();
+<section hlmCard>
+  <div hlmCardHeader><h2 hlmCardTitle>Source</h2></div>
+  <dl hlmCardContent class="grid gap-4 text-sm">
+    <div>
+      <dt class="text-muted-foreground">Repository</dt>
+      <dd class="mt-1 break-all">
+        @if (sourceLinks().repository; as repositoryUrl) {
+          <a
+            [href]="repositoryUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="underline underline-offset-4"
+            >{{ item.source.repository }}</a
+          >
+        } @else {
+          {{ item.source.repository || 'Not configured' }}
+        }
+      </dd>
+    </div>
+    <div>
+      <dt class="text-muted-foreground">Branch</dt>
+      <dd class="mt-1 break-words">
+        @if (sourceLinks().branch; as branchUrl) {
+          <a
+            [href]="branchUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="underline underline-offset-4"
+            >{{ item.source.branch }}</a
+          >
+        } @else {
+          {{ item.source.branch || 'Not provided' }}
+        }
+      </dd>
+    </div>
+    <div>
+      <dt class="text-muted-foreground">Commit</dt>
+      <dd class="mt-1 font-mono text-xs break-all">
+        @if (sourceLinks().commit; as commitUrl) {
+          <a
+            [href]="commitUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="underline underline-offset-4"
+            >{{ item.source.commit }}</a
+          >
+        } @else {
+          {{ item.source.commit || 'Not provided' }}
+        }
+      </dd>
+    </div>
+    <div>
+      <dt class="text-muted-foreground">Ready</dt>
+      <dd class="mt-1">{{ dateLabel(item.readyAt) }}</dd>
+    </div>
+  </dl>
+</section>
+<section hlmCard>
+  <div hlmCardHeader><h2 hlmCardTitle>Retention & expiry</h2></div>
+  <div hlmCardContent class="grid gap-5">
+    <app-deployment-retention
+      [deployment]="item"
+      [explain]="true"
+      [context]="true"
+    />
+    <dl class="grid gap-4 border-t pt-4 text-sm">
+      @if (item.retentionStartedAt) {
+        <div>
+          <dt class="text-muted-foreground">Retention started</dt>
+          <dd class="mt-1">{{ dateLabel(item.retentionStartedAt) }}</dd>
+        </div>
+      }
+      <div>
+        <dt class="text-muted-foreground">Captured retention policy</dt>
+        <dd class="mt-1">
+          {{ item.config.retentionDays }} days when unprotected
+        </dd>
+      </div>
+      <div>
+        <dt class="text-muted-foreground">Log storage</dt>
+        <dd class="mt-1">
+          {{ item.config.logs.files }} ×
+          {{ formatBytes(item.config.logs.fileSizeBytes) }}
+        </dd>
+      </div>
+    </dl>
+  </div>
+</section>
+<section hlmCard>
+  <div hlmCardHeader>
+    <h2 hlmCardTitle>Aliases & tags</h2>
+    <p hlmCardDescription>Stable addresses for this deployment.</p>
+  </div>
+  <div hlmCardContent>
+    @if (!item.tags.length && !item.branchAlias) {
+      <p class="text-muted-foreground mb-4 text-sm">
+        No aliases or tags assigned.
+      </p>
+    }
+    <app-deployment-tags
+      [deployment]="item"
+      [actions]="actions()"
+      [canManage]="canManage()"
+      [showForm]="true"
+    />
+  </div>
+</section>
+
+<app-deployment-preview-status [deployment]="item" />
+@if (
+  item.failureReason || item.status === 'failed' || item.status === 'unhealthy'
+) {
+  <p
+    role="alert"
+    class="text-destructive border-destructive/20 bg-destructive/5 rounded-md border p-4 text-sm"
+  >
+    {{ item.failureReason || 'The deployment did not pass its health check.' }}
+  </p>
+}

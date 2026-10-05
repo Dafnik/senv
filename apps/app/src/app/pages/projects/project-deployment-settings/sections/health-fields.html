@@ -1,0 +1,54 @@
+<fieldset
+  class="grid gap-4 border-t pt-5"
+  [disabled]="!canManage() || saving()"
+>
+  <legend class="font-medium">Health checks</legend>
+  <div class="grid gap-4 sm:grid-cols-2">
+    <div hlmField>
+      <label hlmFieldLabel for="health-path">HTTP path</label
+      ><input
+        hlmInput
+        id="health-path"
+        [formField]="settingsForm().health.path"
+      />
+    </div>
+    <div hlmField>
+      <label hlmFieldLabel for="health-startup"
+        >Startup deadline (seconds)</label
+      ><app-duration-input
+        inputId="health-startup"
+        [secondsOnly]="true"
+        label="Startup deadline"
+        [formField]="settingsForm().health.startupDeadlineSeconds"
+      />
+    </div>
+    <div hlmField>
+      <label hlmFieldLabel for="health-interval">Probe interval (seconds)</label
+      ><app-duration-input
+        inputId="health-interval"
+        [secondsOnly]="true"
+        label="Probe interval"
+        [formField]="settingsForm().health.intervalSeconds"
+      />
+    </div>
+    <div hlmField>
+      <label hlmFieldLabel for="health-timeout">Probe timeout (seconds)</label
+      ><app-duration-input
+        inputId="health-timeout"
+        [secondsOnly]="true"
+        label="Probe timeout"
+        [formField]="settingsForm().health.timeoutSeconds"
+      />
+    </div>
+    <div hlmField>
+      <label hlmFieldLabel for="health-threshold"
+        >Failed probes before unhealthy</label
+      ><input
+        hlmInput
+        id="health-threshold"
+        type="number"
+        [formField]="settingsForm().health.unhealthyThreshold"
+      />
+    </div>
+  </div>
+</fieldset>

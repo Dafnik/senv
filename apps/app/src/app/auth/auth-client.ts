@@ -67,13 +67,14 @@ export const injectLogout = () => {
   const router = inject(Router);
   const queries = inject(QueryClient);
   const state = inject(AuthState);
+  const sessionQuery = auth.useSession();
   return async (redirect?: string) => {
     state.blocked.set(true);
     queries.clear();
     try {
       unwrapAuthResult(await auth.signOut());
-      await auth.useSession()().refetch();
-      const session = auth.useSession()();
+      await sessionQuery().refetch();
+      const session = sessionQuery();
       if (session.error || session.data)
         throw new Error('Could not confirm logout. Please retry.');
       state.blocked.set(false);

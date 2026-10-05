@@ -2,13 +2,16 @@ import { TitleCasePipe } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   inject,
   input,
+  linkedSignal,
   output,
   signal,
 } from '@angular/core';
 import {
   apply,
+  disabled,
   form,
   FormField,
   FormRoot,
@@ -27,6 +30,7 @@ import { HlmInputImports } from '@spartan-ng/helm/input';
 import { HlmSpinnerImports } from '@spartan-ng/helm/spinner';
 import { HlmToggleGroupImports } from '@spartan-ng/helm/toggle-group';
 import { ProjectsData } from '../../../queries/projects';
+import { injectAuthSessionId } from '../../../auth/auth-client';
 import { emailAddressSchema } from '../../../tools/form-validation';
 
 @Component({
@@ -43,96 +47,33 @@ import { emailAddressSchema } from '../../../tools/form-validation';
     HlmSpinnerImports,
     HlmToggleGroupImports,
   ],
-  template: `
-    @if (!open()) {
-      <button hlmBtn (click)="open.set(true)">Invite user</button>
-    } @else {
-      <section hlmCard>
-        <div hlmCardHeader>
-          <h2 hlmCardTitle>Invite a project member</h2>
-          <p hlmCardDescription>
-            Choose a role and send an invitation to their email address. They
-            need an account and a verified email to accept the invitation.
-          </p>
-        </div>
-        <form
-          hlmCardContent
-          [formRoot]="inviteForm"
-          class="grid gap-4 md:grid-cols-2"
-          (submit)="invite($event)"
-        >
-          <div hlmField>
-            <label hlmFieldLabel for="invite-email">Email address</label>
-            <input
-              hlmInput
-              id="invite-email"
-              type="email"
-              autocomplete="off"
-              [formField]="inviteForm.email"
-            />
-            @if (inviteForm.email().touched()) {
-              @for (error of inviteForm.email().errors(); track error) {
-                <hlm-field-error>{{ error.message }}</hlm-field-error>
-              }
-            }
-          </div>
-          <fieldset hlmFieldSet>
-            <legend hlmFieldLegend id="role-label">Project role</legend>
-            <hlm-toggle-group
-              type="single"
-              variant="outline"
-              [nullable]="false"
-              [value]="model().role"
-              (valueChange)="selectRole($event)"
-              aria-labelledby="role-label"
-            >
-              @for (role of roles; track role) {
-                <button hlmToggleGroupItem type="button" [value]="role">
-                  {{ role | titlecase }}
-                </button>
-              }
-            </hlm-toggle-group>
-          </fieldset>
-          <div class="flex gap-2 md:col-span-2">
-            <button
-              hlmBtn
-              type="submit"
-              [disabled]="busy() || inviteForm().invalid()"
-            >
-              @if (busy()) {
-                <hlm-spinner />
-              }
-              Send invitation
-            </button>
-            <button
-              hlmBtn
-              type="button"
-              variant="outline"
-              [disabled]="busy()"
-              (click)="close()"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-      </section>
-    }
-  `,
+  templateUrl: './invite-form.html',
 })
 export class InviteForm {
   readonly projectId = input.required<string>();
-  readonly sent = output<void>();
+  readonly sent = output<{ projectId: string; sessionId: string | null }>();
   private readonly projects = inject(ProjectsData);
+  private readonly sessionId = injectAuthSessionId();
+  private readonly scopeIdentity = computed(() => ({
+    projectId: this.projectId(),
+    sessionId: this.sessionId(),
+  }));
   readonly roles = projectRoleNames;
   readonly open = signal(false);
-  readonly busy = signal(false);
+  readonly busy = linkedSignal(() => {
+    this.projectId();
+    this.sessionId();
+    return false;
+  });
+  private readonly operation = signal(0);
   protected readonly model = signal<{ email: string; role: ProjectRole }>({
     email: '',
     role: 'viewer',
   });
-  readonly inviteForm = form(this.model, (p) =>
-    apply(p.email, emailAddressSchema),
-  );
+  readonly inviteForm = form(this.model, (p) => {
+    apply(p.email, emailAddressSchema);
+    disabled(p, () => this.busy());
+  });
 
   close() {
     this.model.set({ email: '', role: 'viewer' });
@@ -149,21 +90,34 @@ export class InviteForm {
     event.preventDefault();
     if (this.busy()) return;
     void submit(this.inviteForm, async () => {
+      const projectId = this.projectId();
+      const sessionId = this.sessionId();
+      const scopeIdentity = this.scopeIdentity();
+      const operation = this.operation() + 1;
+      this.operation.set(operation);
+      const ownsView = () =>
+        operation === this.operation() &&
+        scopeIdentity === this.scopeIdentity() &&
+        projectId === this.projectId() &&
+        sessionId === this.sessionId();
       this.busy.set(true);
       try {
         const { email, role } = this.model();
-        await this.projects.invite(this.projectId(), email.trim(), role);
-        this.sent.emit();
+        await this.projects.invite(projectId, email.trim(), role);
+        await this.projects.invalidateInvitations(sessionId, projectId);
+        if (!ownsView()) return;
+        this.sent.emit({ projectId, sessionId });
         this.close();
         toast.success('Invitation sent.');
       } catch (error) {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : 'Could not send the invitation.',
-        );
+        if (ownsView())
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : 'Could not send the invitation.',
+          );
       } finally {
-        this.busy.set(false);
+        if (ownsView()) this.busy.set(false);
       }
     });
   }

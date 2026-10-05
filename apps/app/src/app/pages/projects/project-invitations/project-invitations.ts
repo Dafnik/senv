@@ -4,6 +4,7 @@ import { lucideX } from '@ng-icons/lucide';
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   debounced,
   inject,
   input,
@@ -54,143 +55,16 @@ import {
   ],
   providers: [provideIcons({ lucideX })],
   host: { class: 'grid gap-4' },
-  template: `
-    <header class="grid gap-1">
-      <h2 id="invitations-heading" class="text-lg font-semibold">
-        Open invitations
-      </h2>
-      <p class="text-muted-foreground text-sm">
-        Invite teammates with a link that expires in seven days. Only admins can
-        manage members and project settings.
-      </p>
-    </header>
-    <app-invite-form [projectId]="projectId()" (sent)="refresh()" />
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <app-search-input
-        [query]="search()"
-        (queryChange)="search.set($event)"
-        (resetQuery)="search.set('')"
-      />
-    </div>
-    <div class="overflow-hidden rounded-md border">
-      <div hlmTableContainer>
-        <table
-          hlmTable
-          aria-labelledby="invitations-heading"
-          [attr.aria-busy]="invitations.isFetching()"
-        >
-          <thead hlmTHead>
-            @for (group of table.getHeaderGroups(); track group.id) {
-              <tr hlmTr>
-                @for (header of group.headers; track header.id) {
-                  <th
-                    hlmTh
-                    [attr.colSpan]="header.colSpan"
-                    [attr.aria-sort]="
-                      header.column.getCanSort()
-                        ? header.column.getIsSorted() === 'asc'
-                          ? 'ascending'
-                          : header.column.getIsSorted() === 'desc'
-                            ? 'descending'
-                            : 'none'
-                        : null
-                    "
-                  >
-                    @if (!header.isPlaceholder) {
-                      <ng-container
-                        *flexRender="
-                          header.column.columnDef.header;
-                          props: header.getContext();
-                          let content
-                        "
-                        >{{ content }}</ng-container
-                      >
-                    }
-                  </th>
-                }
-              </tr>
-            }
-          </thead>
-          <tbody hlmTBody>
-            @for (row of table.getRowModel().rows; track row.id) {
-              <tr hlmTr>
-                @for (cell of row.getAllCells(); track cell.id) {
-                  <td hlmTd>
-                    @if (cell.column.id === 'actions') {
-                      @if (row.original.status === 'pending') {
-                        <button
-                          hlmBtn
-                          variant="ghost"
-                          size="sm"
-                          [disabled]="busy()"
-                          [attr.aria-label]="
-                            'Cancel invitation for ' + row.original.email
-                          "
-                          (click)="cancel(row.original.id)"
-                        >
-                          <ng-icon name="lucideX" />Cancel
-                        </button>
-                      }
-                    } @else if (cell.column.id === 'role') {
-                      {{ row.original.role | titlecase }}
-                    } @else {
-                      <ng-container
-                        *flexRender="
-                          cell.column.columnDef.cell;
-                          props: cell.getContext();
-                          let content
-                        "
-                        >{{ content }}</ng-container
-                      >
-                    }
-                  </td>
-                }
-              </tr>
-            } @empty {
-              <tr hlmTr>
-                <td hlmTd [attr.colspan]="columns.length">
-                  <hlm-empty>
-                    <hlm-empty-header>
-                      @if (invitations.isError()) {
-                        <div hlmEmptyTitle>Could not load invitations</div>
-                        <p hlmEmptyDescription role="alert">
-                          {{ invitations.error().message }}
-                        </p>
-                      } @else if (invitations.isPending()) {
-                        <hlm-spinner aria-label="Loading invitations" />
-                      } @else {
-                        <div hlmEmptyTitle>No open invitations found</div>
-                        <p hlmEmptyDescription>
-                          Send an invitation or try a different email address.
-                        </p>
-                      }
-                    </hlm-empty-header>
-                    @if (invitations.isError()) {
-                      <hlm-empty-content
-                        ><button
-                          hlmBtn
-                          variant="outline"
-                          (click)="invitations.refetch()"
-                        >
-                          Try again
-                        </button></hlm-empty-content
-                      >
-                    }
-                  </hlm-empty>
-                </td>
-              </tr>
-            }
-          </tbody>
-        </table>
-      </div>
-    </div>
-    <div [tanStackTable]="table"><app-table-pagination /></div>
-  `,
+  templateUrl: './project-invitations.html',
 })
 export class ProjectInvitations {
   readonly projectId = input.required<string>();
   private readonly projects = inject(ProjectsData);
   private readonly sessionId = injectAuthSessionId();
+  private readonly scopeIdentity = computed(() => ({
+    projectId: this.projectId(),
+    sessionId: this.sessionId(),
+  }));
   readonly columns = invitationColumns;
   readonly search = linkedSignal(() => {
     this.projectId();
@@ -201,7 +75,12 @@ export class ProjectInvitations {
     this.projectId();
     return [{ id: 'createdAt', desc: true }];
   });
-  readonly busy = signal(false);
+  readonly busy = linkedSignal(() => {
+    this.projectId();
+    this.sessionId();
+    return false;
+  });
+  private readonly operation = signal(0);
   readonly pagination = linkedSignal({
     source: () => [
       this.projectId(),
@@ -252,9 +131,19 @@ export class ProjectInvitations {
       this.sorting.set(isFunction(updater) ? updater(this.sorting()) : updater),
   }));
 
-  async refresh(sessionId = this.sessionId(), projectId = this.projectId()) {
-    await this.projects.invalidateInvitations(sessionId, projectId);
-    if (this.sessionId() !== sessionId || this.projectId() !== projectId)
+  async refresh(
+    sessionId = this.sessionId(),
+    projectId = this.projectId(),
+    invalidate = true,
+    scopeIdentity = this.scopeIdentity(),
+  ) {
+    if (invalidate)
+      await this.projects.invalidateInvitations(sessionId, projectId);
+    if (
+      scopeIdentity !== this.scopeIdentity() ||
+      this.sessionId() !== sessionId ||
+      this.projectId() !== projectId
+    )
       return;
     const lastPage = lastPageIndex(
       this.invitations.data()?.total ?? 0,
@@ -266,21 +155,31 @@ export class ProjectInvitations {
 
   async cancel(invitationId: string) {
     if (this.busy()) return;
-    this.busy.set(true);
     const projectId = this.projectId();
     const sessionId = this.sessionId();
+    const scopeIdentity = this.scopeIdentity();
+    const operation = this.operation() + 1;
+    this.operation.set(operation);
+    const ownsView = () =>
+      operation === this.operation() &&
+      scopeIdentity === this.scopeIdentity() &&
+      this.projectId() === projectId &&
+      this.sessionId() === sessionId;
+    this.busy.set(true);
     try {
       await this.projects.cancelInvitation(projectId, invitationId);
-      await this.refresh(sessionId, projectId);
+      await this.refresh(sessionId, projectId, true, scopeIdentity);
+      if (!ownsView()) return;
       toast.success('Invitation cancelled.');
     } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : 'Could not cancel the invitation.',
-      );
+      if (ownsView())
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : 'Could not cancel the invitation.',
+        );
     } finally {
-      this.busy.set(false);
+      if (ownsView()) this.busy.set(false);
     }
   }
 }

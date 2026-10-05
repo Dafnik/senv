@@ -1,6 +1,6 @@
 import { defineHandler } from 'nitro';
 import { getRouterParam } from 'nitro/h3';
-import { getEmailNotificationHtml } from '../../utils/email-notifications';
+import { getEmailNotificationHtml } from '../../features/notifications/services/email-notifications';
 
 export function notificationResponse(id: string | undefined) {
   if (process.env['NODE_ENV'] !== 'development' || !id) return new Response(null, { status: 404 });

@@ -3,6 +3,8 @@
   "compilerOptions": {
     "jsx": "react-jsx",
     "strict": true,
+    "lib": ["ES2022", "DOM"],
+    "importHelpers": false,
     "noImplicitOverride": true,
     "noPropertyAccessFromIndexSignature": true,
     "noImplicitReturns": true,
@@ -42,7 +44,14 @@
       "@spartan-ng/helm/toggle-group": ["./libs/ui/toggle-group/src/index.ts"],
       "@spartan-ng/helm/toggle": ["./libs/ui/toggle/src/index.ts"],
       "@spartan-ng/helm/tabs": ["./libs/ui/tabs/src/index.ts"],
-      "@spartan-ng/helm/avatar": ["./libs/ui/avatar/src/index.ts"]
+      "@spartan-ng/helm/avatar": ["./libs/ui/avatar/src/index.ts"],
+      "@spartan-ng/helm/native-select": [
+        "./libs/ui/native-select/src/index.ts"
+      ],
+      "@spartan-ng/helm/breadcrumb": ["./libs/ui/breadcrumb/src/index.ts"],
+      "@spartan-ng/helm/button-group": ["./libs/ui/button-group/src/index.ts"],
+      "@spartan-ng/helm/chart": ["./libs/ui/chart/src/index.ts"],
+      "@spartan-ng/helm/combobox": ["./libs/ui/combobox/src/index.ts"]
     }
   },
   "angularCompilerOptions": {

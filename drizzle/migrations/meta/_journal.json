@@ -5,29 +5,29 @@
     {
       "idx": 0,
       "version": "6",
-      "when": 1790938054010,
-      "tag": "0000_init_sqlite",
+      "when": 1791045805341,
+      "tag": "0000_init",
       "breakpoints": true
     },
     {
       "idx": 1,
       "version": "6",
-      "when": 1790944201865,
-      "tag": "0001_projects",
+      "when": 1791145212614,
+      "tag": "0001_deployment_resource_samples",
       "breakpoints": true
     },
     {
       "idx": 2,
       "version": "6",
-      "when": 1790944201866,
-      "tag": "0002_single_instance_role",
+      "when": 1791149003494,
+      "tag": "0002_cli_access",
       "breakpoints": true
     },
     {
       "idx": 3,
       "version": "6",
-      "when": 1790973863869,
-      "tag": "0003_member_inviter",
+      "when": 1791189401053,
+      "tag": "0003_automation_token_optional_expiry",
       "breakpoints": true
     }
   ]

@@ -1,14 +1,25 @@
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, expect, test, vi } from 'vite-plus/test';
 import { ProjectsData } from '../../../queries/projects';
+import { AUTH_CLIENT } from '../../../auth/auth-client';
 import { InviteForm } from './invite-form';
 
 const inviteMember = vi.fn();
+const invalidateInvitations = vi.fn();
+const session = signal({ data: { session: { id: 'session-id' } } });
 
 beforeEach(() => {
   vi.resetAllMocks();
+  invalidateInvitations.mockReset().mockResolvedValue(undefined);
   TestBed.configureTestingModule({
-    providers: [{ provide: ProjectsData, useValue: { invite: inviteMember } }],
+    providers: [
+      {
+        provide: ProjectsData,
+        useValue: { invite: inviteMember, invalidateInvitations },
+      },
+      { provide: AUTH_CLIENT, useValue: { useSession: () => session } },
+    ],
   });
 });
 
@@ -84,6 +95,10 @@ test('failed invitations retain the form for retry and success emits refresh, re
   expect(sent).not.toHaveBeenCalled();
   fixture.nativeElement.querySelector('button[type="submit"]').click();
   await vi.waitFor(() => expect(sent).toHaveBeenCalledTimes(1));
+  expect(invalidateInvitations).toHaveBeenCalledWith(
+    'session-id',
+    'project-id',
+  );
   await fixture.whenStable();
   expect(inviteMember).toHaveBeenLastCalledWith(
     'project-id',
@@ -94,4 +109,32 @@ test('failed invitations retain the form for retry and success emits refresh, re
   expect(fixture.nativeElement.querySelector('form')).toBeNull();
   expect(fixture.componentInstance.inviteForm.email().value()).toBe('');
   expect(fixture.componentInstance.inviteForm.role().value()).toBe('viewer');
+});
+
+test('locks all invitation controls while the request is pending', async () => {
+  let finish!: () => void;
+  inviteMember.mockReturnValue(
+    new Promise<void>((resolve) => (finish = resolve)),
+  );
+  const fixture = await createForm();
+  fixture.nativeElement.querySelector('button').click();
+  await fixture.whenStable();
+  await enterEmail(fixture, 'recipient@example.com');
+  fixture.nativeElement.querySelector('button[type="submit"]').click();
+  await vi.waitFor(() => expect(inviteMember).toHaveBeenCalledOnce());
+  fixture.detectChanges();
+  expect(fixture.nativeElement.querySelector('#invite-email').disabled).toBe(
+    true,
+  );
+  expect(
+    Array.from(
+      fixture.nativeElement.querySelectorAll(
+        'button',
+      ) as NodeListOf<HTMLButtonElement>,
+    ).some(
+      (button) => button.textContent?.trim() === 'Admin' && button.disabled,
+    ),
+  ).toBe(true);
+  finish();
+  await vi.waitFor(() => expect(fixture.componentInstance.busy()).toBe(false));
 });
